@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XTag — cross-platform sentiment & narrative intelligence</title>
+  <meta name="description" content="Search any topic, actor, or narrative across social platforms and news in real time. Sentiment analysis and cross-platform intelligence." />
+  <meta name="theme-color" content="#fdfdfc" />
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='70' font-size='72' text-anchor='middle' font-family='Georgia,serif'>%23</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css" />
+  <style>
+    :root {
+      --paper: #fdfdfc; --ink: #18181b; --subtle: #f4f4f2; --hairline: #e7e5e0;
+      --card: #ffffff; --muted-fg: #71717a; --accent: #c2410c;
+      --positive: #047857; --positive-soft: #ecfdf5;
+      --negative: #b91c1c; --negative-soft: #fef2f2;
+      --neutral: #71717a; --warning: #b45309;
+      --serif: "Instrument Serif", ui-serif, Georgia, serif;
+      --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+    }
+    :root[data-theme="dark"] {
+      --paper: #131316; --ink: #f4f4f2; --subtle: #1e1e22; --hairline: #2c2c30;
+      --card: #1a1a1e; --muted-fg: #a1a1aa; --accent: #ea6a3a;
+      --positive: #34d399; --positive-soft: #10231c;
+      --negative: #f87171; --negative-soft: #2a1414;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --paper: #131316; --ink: #f4f4f2; --subtle: #1e1e22; --hairline: #2c2c30;
+        --card: #1a1a1e; --muted-fg: #a1a1aa; --accent: #ea6a3a;
+        --positive: #34d399; --positive-soft: #10231c;
+        --negative: #f87171; --negative-soft: #2a1414;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.6; transition: background .2s, color .2s; }
+    .serif { font-family: var(--serif); font-weight: 400; }
+    a { color: inherit; text-decoration: none; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    .theme-btn { background: transparent; border: 0.5px solid var(--hairline); border-radius: 9px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--muted-fg); font-size: 17px; transition: border-color .15s, color .15s; }
+    .theme-btn:hover { border-color: var(--ink); color: var(--ink); }
+
+    /* nav */
+    nav { border-bottom: 0.5px solid var(--hairline); position: sticky; top: 0; background: color-mix(in srgb, var(--paper) 88%, transparent); backdrop-filter: blur(8px); z-index: 40; }
+    .nav-in { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .logo { font-family: var(--serif); font-size: 22px; }
+    .logo .i { color: var(--accent); }
+    .nav-links { display: flex; gap: 22px; font-size: 13px; color: var(--muted-fg); }
+    .nav-links a:hover { color: var(--ink); }
+
+    /* hero */
+    .hero { padding: 76px 0 52px; text-align: center; }
+    .live { display: inline-flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted-fg); margin-bottom: 28px; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--negative); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+    .hero h1 { font-family: var(--serif); font-size: 58px; line-height: 1.04; letter-spacing: -0.01em; margin: 0 auto 22px; max-width: 20ch; }
+    .hero p { font-size: 17px; color: var(--muted-fg); max-width: 50ch; margin: 0 auto 34px; line-height: 1.55; }
+
+    /* search */
+    .search { max-width: 640px; margin: 0 auto; position: relative; }
+    .search-box { display: flex; align-items: center; background: var(--subtle); border: 0.5px solid var(--hairline); border-radius: 12px; padding: 5px 5px 5px 16px; transition: box-shadow .15s; }
+    .search-box:focus-within { box-shadow: 0 0 0 2px var(--ink); }
+    .search-box .ti-search { font-size: 18px; color: var(--muted-fg); }
+    .search-box input { flex: 1; border: none; background: transparent; outline: none; font: inherit; font-size: 16px; color: var(--ink); padding: 12px; }
+    .search-box button { background: var(--ink); color: var(--paper); border: none; border-radius: 9px; font: inherit; font-size: 14px; font-weight: 500; padding: 11px 22px; cursor: pointer; transition: opacity .15s; }
+    .search-box button:hover { opacity: .9; }
+    .search-box button:disabled { opacity: .5; cursor: default; }
+    .trending { margin-top: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; align-items: center; }
+    .trending .lab { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted-fg); }
+    .chip-t { font-size: 12px; padding: 4px 10px; background: var(--subtle); border-radius: 6px; color: var(--muted-fg); cursor: pointer; border: none; font-family: inherit; }
+    .chip-t:hover { background: var(--hairline); color: var(--ink); }
+
+    .band { border-top: 0.5px solid var(--hairline); background: color-mix(in srgb, var(--subtle) 45%, transparent); padding: 44px 0 64px; }
+    .band-head { margin-bottom: 28px; }
+    .kicker { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted-fg); margin-bottom: 8px; }
+    .band-head h2 { font-family: var(--serif); font-size: 32px; margin: 0; }
+
+    /* sentiment summary */
+    .senti { display: none; margin: 0 0 24px; background: var(--card); border: 0.5px solid var(--hairline); border-radius: 14px; padding: 18px 20px; }
+    .senti-bar { display: flex; height: 8px; border-radius: 5px; overflow: hidden; margin: 12px 0 10px; background: var(--subtle); }
+    .senti-legend { display: flex; justify-content: space-between; font-size: 12px; }
+    .senti-engine { font-size: 11px; color: var(--muted-fg); margin-top: 8px; }
+
+    /* filters */
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .fbtn { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; padding: 7px 14px; border-radius: 999px; border: 0.5px solid var(--hairline); background: var(--card); color: var(--muted-fg); cursor: pointer; font-family: inherit; }
+    .fbtn:hover { border-color: var(--ink); color: var(--ink); }
+    .fbtn.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+    .fbtn .n { font-size: 11px; opacity: .7; }
+
+    /* platform filter chips */
+    #platformFilters { gap: 7px; margin-bottom: 14px; }
+    .pchip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; padding: 6px 12px; border-radius: 999px; border: 0.5px solid var(--hairline); background: var(--card); color: var(--muted-fg); cursor: pointer; font-family: inherit; }
+    .pchip:hover { border-color: var(--ink); color: var(--ink); }
+    .pchip.on { border-color: var(--ink); color: var(--ink); background: var(--subtle); font-weight: 500; }
+    .pchip .pico { width: 16px; height: 16px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: #fff; flex-shrink: 0; }
+    .pchip .n { font-size: 11px; opacity: .7; }
+    .pchip.off { opacity: .4; }
+
+    /* controls row: sentiment filters + sort */
+    .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .sort-wrap { display: flex; align-items: center; gap: 8px; }
+    .sort-wrap label { font-size: 12px; color: var(--muted-fg); }
+    .sort-wrap select { font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 9px; border: 0.5px solid var(--hairline); background: var(--card); color: var(--ink); cursor: pointer; }
+    .media-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-fg); cursor: pointer; white-space: nowrap; }
+    .media-toggle input { accent-color: var(--accent); cursor: pointer; }
+
+    .errbox { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    .err { font-size: 12px; background: var(--negative-soft); color: var(--negative); padding: 7px 12px; border-radius: 7px; }
+    .status { text-align: center; color: var(--muted-fg); font-size: 14px; padding: 36px 0; }
+    .spin { display: inline-block; width: 15px; height: 15px; border: 2px solid var(--hairline); border-top-color: var(--accent); border-radius: 50%; animation: sp .8s linear infinite; vertical-align: -3px; margin-right: 8px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+
+    /* mention cards */
+    .feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+    .m { background: var(--card); border: 0.5px solid var(--hairline); border-radius: 14px; padding: 15px; display: flex; flex-direction: column; transition: border-color .15s, transform .15s; }
+    .m:hover { border-color: color-mix(in srgb, var(--ink) 35%, transparent); transform: translateY(-1px); }
+    .m-top { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+    .m-ico { width: 22px; height: 22px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0; }
+    .m-plat { font-size: 12px; font-weight: 600; }
+    .m-auth { font-size: 12px; color: var(--muted-fg); }
+    .m-senti { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px; }
+    .s-positive { background: var(--positive-soft); color: var(--positive); }
+    .s-negative { background: var(--negative-soft); color: var(--negative); }
+    .s-neutral { background: var(--subtle); color: var(--neutral); }
+    .m-title { font-weight: 500; font-size: 14px; line-height: 1.4; margin: 0 0 5px; }
+    .m-body { font-size: 13px; color: var(--muted-fg); line-height: 1.5; margin: 0 0 12px; flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+    .m-foot { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted-fg); border-top: 0.5px solid var(--hairline); padding-top: 10px; }
+    .m-foot .ti { font-size: 13px; }
+
+    .expand { margin-top: 44px; padding-top: 28px; border-top: 0.5px solid var(--hairline); }
+    .expand h3 { font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted-fg); margin: 0 0 14px; }
+    .ecards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .ec { background: var(--card); border: 0.5px solid var(--hairline); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; }
+    .ec-h { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+    .ec-i { width: 30px; height: 30px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0; }
+    .ec-t { font-size: 14px; font-weight: 500; }
+    .ec-s { font-size: 12px; color: var(--muted-fg); }
+    .ec-b { font-size: 13px; color: var(--muted-fg); line-height: 1.5; margin: 0 0 12px; flex: 1; }
+    .ec-b code { font-size: 12px; background: var(--subtle); padding: 1px 5px; border-radius: 4px; }
+    .ec-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px; padding: 0 14px; background: var(--subtle); border: 0.5px solid var(--hairline); border-radius: 9px; color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; }
+    .ec-btn:hover { border-color: var(--ink); }
+
+    footer { border-top: 0.5px solid var(--hairline); padding: 28px 0; text-align: center; font-size: 12px; color: var(--muted-fg); }
+
+    @media (max-width: 640px) {
+      .hero { padding: 48px 0 40px; }
+      .hero h1 { font-size: 40px; }
+      .hero p { font-size: 15px; }
+      .band-head h2 { font-size: 26px; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="wrap nav-in">
+      <a href="/" class="logo"><span class="i">#</span>XTag</a>
+      <button id="themeBtn" class="theme-btn" aria-label="Toggle dark mode" title="Toggle theme">
+        <i class="ti ti-moon" aria-hidden="true"></i>
+      </button>
+    </div>
+  </nav>
+
+  <section class="hero">
+    <div class="wrap">
+      <div class="live"><span class="dot"></span><span id="liveLabel">Cross-platform intelligence</span></div>
+      <h1 class="serif">See what the world is saying — everywhere, at once.</h1>
+      <p>Search any hashtag, keyword, or name across 15+ platforms and get real posts, ranked and sentiment-scored, in a single feed.</p>
+      <form class="search" id="searchForm" onsubmit="event.preventDefault(); doSearch();">
+        <div class="search-box">
+          <i class="ti ti-search" aria-hidden="true"></i>
+          <input id="q" type="text" placeholder="Search a hashtag, keyword, or name…" autocomplete="off" spellcheck="false" autofocus />
+          <button id="searchBtn" type="submit">Search</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="band" id="feed">
+    <div class="wrap">
+      <div class="band-head" id="bandHead" style="display:none;">
+        <div class="kicker">Live console</div>
+        <h2 class="serif" id="bandTitle">Results</h2>
+      </div>
+
+      <div class="senti" id="sentiment">
+        <div class="kicker">Sentiment breakdown</div>
+        <div class="senti-bar" id="sentiBar"></div>
+        <div class="senti-legend">
+          <span style="color:var(--positive)" id="sPos">— positive</span>
+          <span style="color:var(--muted-fg)" id="sNeu">— neutral</span>
+          <span style="color:var(--negative)" id="sNeg">— negative</span>
+        </div>
+        <div class="senti-engine" id="sEngine"></div>
+      </div>
+
+      <div class="filters" id="platformFilters" style="display:none;"></div>
+      <div class="controls-row" id="controlsRow" style="display:none;">
+        <div class="filters" id="filters" style="margin:0;"></div>
+        <div class="sort-wrap">
+          <select id="timeSel" title="Date range">
+            <option value="all">Any time</option>
+            <option value="day">Past 24h</option>
+            <option value="week">Past week</option>
+            <option value="month">Past month</option>
+          </select>
+          <label class="media-toggle"><input type="checkbox" id="mediaChk" /> Has media</label>
+          <label for="sortSel">Sort</label>
+          <select id="sortSel">
+            <option value="relevance">Relevance</option>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="engagement">Most engagement</option>
+            <option value="platform">By platform</option>
+            <option value="author">By author (A–Z)</option>
+          </select>
+        </div>
+      </div>
+      <div class="errbox" id="errors"></div>
+      <div class="status" id="status">
+        <i class="ti ti-search" style="font-size:22px; display:block; margin-bottom:10px; color:var(--muted-fg);" aria-hidden="true"></i>
+        Search a hashtag, keyword, or name above to see live results across every platform.
+      </div>
+      <div class="feed" id="feedGrid"></div>
+
+      <div class="expand" id="expand">
+        <h3>Expand your search</h3>
+        <div class="ecards">
+          <div class="ec">
+            <div class="ec-h"><span class="ec-i" style="background:#229ED9">TG</span><div><div class="ec-t">Telegram — curated channels</div><div class="ec-s" id="tgInfo">Searching your channels</div></div></div>
+            <p class="ec-b">Searches recent posts from public channels you control via <code>TELEGRAM_CHANNELS</code>. Telegram has no global index, so results cover only your curated list.</p>
+          </div>
+          <div class="ec">
+            <div class="ec-h"><span class="ec-i" style="background:#7B61FF">Tp</span><div><div class="ec-t">TelepathyDB — full archive</div><div class="ec-s">Requires an account</div></div></div>
+            <p class="ec-b">Want the full Telegram archive? Open your TelepathyDB dashboard — your query is copied ready to paste.</p>
+            <button class="ec-btn" id="tpBtn"><i class="ti ti-external-link"></i> Open TelepathyDB &amp; copy query</button>
+          </div>
+          <div class="ec">
+            <div class="ec-h"><span class="ec-i" style="background:#FFFC00;color:#000">S</span><div><div class="ec-t">Snapchat</div><div class="ec-s">No public API</div></div></div>
+            <p class="ec-b">Snapchat has no accessible search API. Open their explore page directly.</p>
+            <a class="ec-btn" id="snapBtn" href="#" target="_blank" rel="noopener noreferrer"><i class="ti ti-external-link"></i> Open Snapchat</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer><span class="serif" style="font-size:15px;"><span style="color:var(--accent)">#</span>XTag</span></footer>
+
+  <script>
+  (function(){
+    var meta = {
+      youtube:{n:'YouTube',c:'#FF0000',i:'YT'}, reddit:{n:'Reddit',c:'#FF4500',i:'R'},
+      bluesky:{n:'Bluesky',c:'#1185FE',i:'BS'}, mastodon:{n:'Mastodon',c:'#6364FF',i:'M'},
+      hackernews:{n:'Hacker News',c:'#FF6600',i:'HN'}, gnews:{n:'Google News',c:'#1a73e8',i:'GN'},
+      x:{n:'X',c:'#000000',i:'X'}, instagram:{n:'Instagram',c:'#E1306C',i:'IG'},
+      tiktok:{n:'TikTok',c:'#010101',i:'TT'}, facebook:{n:'Facebook',c:'#1877F2',i:'f'},
+      linkedin:{n:'LinkedIn',c:'#0A66C2',i:'in'}, pinterest:{n:'Pinterest',c:'#E60023',i:'P'},
+      threads:{n:'Threads',c:'#000000',i:'@'}, tumblr:{n:'Tumblr',c:'#001935',i:'t'},
+      telegram:{n:'Telegram',c:'#229ED9',i:'TG'},
+      google:{n:'Google',c:'#4285F4',i:'G'}
+    };
+    var $=function(id){return document.getElementById(id)};
+    var input=$('q'), btn=$('searchBtn'), filters=$('filters'), errors=$('errors'),
+        status=$('status'), grid=$('feedGrid'), senti=$('sentiment'),
+        bandHead=$('bandHead'), bandTitle=$('bandTitle'),
+        platformFilters=$('platformFilters'), controlsRow=$('controlsRow'), sortSel=$('sortSel'),
+        timeSel=$('timeSel'), mediaChk=$('mediaChk'), themeBtn=$('themeBtn');
+    var data=null, active='all', activePlatform='all', sortMode='relevance', timeMode='all', mediaOnly=false;
+
+    // Theme toggle: light | dark, persisted, defaults to system
+    function applyTheme(t){
+      var root=document.documentElement;
+      if(t==='light'||t==='dark'){ root.setAttribute('data-theme',t); }
+      else { root.removeAttribute('data-theme'); }
+      var dark = t==='dark' || (t==='system' && window.matchMedia('(prefers-color-scheme:dark)').matches) || (!t && window.matchMedia('(prefers-color-scheme:dark)').matches);
+      if(themeBtn) themeBtn.innerHTML = dark ? '<i class="ti ti-sun"></i>' : '<i class="ti ti-moon"></i>';
+    }
+    var savedTheme = null;
+    try { savedTheme = localStorage.getItem('xtag-theme'); } catch(e){}
+    applyTheme(savedTheme || 'system');
+    if(themeBtn) themeBtn.onclick=function(){
+      var cur=null; try{ cur=localStorage.getItem('xtag-theme'); }catch(e){}
+      var isDark = cur==='dark' || ((!cur||cur==='system') && window.matchMedia('(prefers-color-scheme:dark)').matches);
+      var next = isDark ? 'light' : 'dark';
+      try{ localStorage.setItem('xtag-theme', next); }catch(e){}
+      applyTheme(next);
+    };
+
+    window.doSearch=doSearch;
+
+    function refreshExpand(){
+      var q=input.value.trim().replace(/^#+/,'');
+      var s=$('snapBtn'); if(s) s.href=q?('https://www.snapchat.com/explore/'+encodeURIComponent(q.replace(/\s+/g,''))):'#';
+    }
+    input.addEventListener('input', refreshExpand); refreshExpand();
+
+    var tp=$('tpBtn');
+    if(tp) tp.addEventListener('click', async function(){
+      var q=input.value.trim().replace(/^#+/,'');
+      if(q){ try{ await navigator.clipboard.writeText(q); }catch(e){} }
+      window.open('https://telepathydb.com/#account','_blank','noopener,noreferrer');
+      var o=tp.innerHTML; tp.innerHTML='<i class="ti ti-check"></i> Copied — paste in TelepathyDB';
+      setTimeout(function(){ tp.innerHTML=o; },3000);
+    });
+
+    (async function(){
+      try{ var r=await fetch('/api/telegram/channels'); if(r.ok){ var d=await r.json(); var e=$('tgInfo'); if(e&&d.count!=null){ e.textContent='Searching '+d.count+' configured channel'+(d.count===1?'':'s'); e.title=(d.channels||[]).join(', '); } } }catch(e){}
+    })();
+
+    function esc(s){ if(s==null) return ''; return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]}); }
+    function fmt(iso){ if(!iso) return ''; var d=new Date(iso); if(isNaN(d)) return String(iso).slice(0,10); var s=(Date.now()-d)/1000; if(s<60)return 'just now'; if(s<3600)return Math.floor(s/60)+'m ago'; if(s<86400)return Math.floor(s/3600)+'h ago'; if(s<604800)return Math.floor(s/86400)+'d ago'; return d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}); }
+
+    function allItems(){ var a=[]; Object.keys(data.platforms).forEach(function(k){ (data.platforms[k].results||[]).forEach(function(r){ a.push(Object.assign({_p:k},r)); }); }); return a; }
+
+    function renderPlatformFilters(){
+      platformFilters.style.display='flex';
+      var items=allItems();
+      var counts={}; items.forEach(function(m){ counts[m._p]=(counts[m._p]||0)+1; });
+      // order platforms by count desc, only those with results, plus an "All" chip
+      var order=Object.keys(counts).sort(function(a,b){ return counts[b]-counts[a]; });
+      var chips=['<button class="pchip '+(activePlatform==='all'?'on':'')+'" data-p="all">All platforms <span class="n">'+items.length+'</span></button>'];
+      order.forEach(function(pid){
+        var p=meta[pid]||{n:pid,c:'#888',i:'?'};
+        chips.push('<button class="pchip '+(activePlatform===pid?'on':'')+'" data-p="'+pid+'">'+
+          '<span class="pico" style="background:'+p.c+'">'+p.i+'</span>'+p.n+' <span class="n">'+counts[pid]+'</span></button>');
+      });
+      platformFilters.innerHTML=chips.join('');
+      platformFilters.querySelectorAll('.pchip').forEach(function(b){
+        b.onclick=function(){ activePlatform=b.dataset.p; renderPlatformFilters(); renderFilters(); renderFeed(); };
+      });
+    }
+
+    if(sortSel) sortSel.onchange=function(){ sortMode=sortSel.value; renderFeed(); };
+    if(timeSel) timeSel.onchange=function(){ timeMode=timeSel.value; renderFilters(); renderFeed(); };
+    if(mediaChk) mediaChk.onchange=function(){ mediaOnly=mediaChk.checked; renderFilters(); renderFeed(); };
+
+    function withinTime(m){
+      if(timeMode==='all') return true;
+      if(!m.timestamp) return false;
+      var d=new Date(m.timestamp); if(isNaN(d)) return false;
+      var age=(Date.now()-d)/1000;
+      if(timeMode==='day') return age<=86400;
+      if(timeMode==='week') return age<=604800;
+      if(timeMode==='month') return age<=2592000;
+      return true;
+    }
+    function hasMedia(m){ return !!m.thumbnail; }
+    function engagementScore(m){
+      var s=(m.meta||'')+' '; var nums=s.match(/[\d,\.]+\s*[km]?/gi)||[]; var max=0;
+      nums.forEach(function(t){ var v=parseFloat(t.replace(/,/g,'')); if(/k/i.test(t))v*=1000; if(/m/i.test(t))v*=1e6; if(!isNaN(v)&&v>max)max=v; });
+      return max;
+    }
+
+    function renderSenti(){
+      var s=data.sentiment;
+      if(!s||!s.engine||!s.scored){ senti.style.display='none'; return; }
+      senti.style.display='block';
+      var tot=s.positive+s.neutral+s.negative||1;
+      var pp=Math.round(s.positive/tot*100), pn=Math.round(s.neutral/tot*100), pg=100-pp-pn;
+      $('sentiBar').innerHTML='<div style="width:'+pp+'%;background:var(--positive)"></div><div style="width:'+pn+'%;background:var(--neutral)"></div><div style="width:'+pg+'%;background:var(--negative)"></div>';
+      $('sPos').textContent=pp+'% positive'; $('sNeu').textContent=pn+'% neutral'; $('sNeg').textContent=pg+'% negative';
+      $('sEngine').textContent=s.scored+' mentions scored · '+(s.engine==='claude'?'Claude':s.engine==='babelstreet'?'Babel Street':s.engine);
+    }
+
+    function scopedItems(){
+      var items=allItems();
+      if(activePlatform!=='all') items=items.filter(function(m){ return m._p===activePlatform; });
+      if(timeMode!=='all') items=items.filter(withinTime);
+      if(mediaOnly) items=items.filter(hasMedia);
+      return items;
+    }
+
+    function renderFilters(){
+      controlsRow.style.display='flex';
+      var items=scopedItems();
+      var counts={all:items.length,positive:0,neutral:0,negative:0};
+      items.forEach(function(m){ if(m.sentiment) counts[m.sentiment]=(counts[m.sentiment]||0)+1; });
+      var hasSenti=data.sentiment&&data.sentiment.engine;
+      var defs=[{v:'all',l:'All'}];
+      if(hasSenti) defs=defs.concat([{v:'positive',l:'Positive'},{v:'neutral',l:'Neutral'},{v:'negative',l:'Negative'}]);
+      filters.innerHTML=defs.map(function(d){ return '<button class="fbtn '+(d.v===active?'on':'')+'" data-f="'+d.v+'">'+d.l+' <span class="n">'+(counts[d.v]||0)+'</span></button>'; }).join('');
+      filters.querySelectorAll('.fbtn').forEach(function(b){ b.onclick=function(){ active=b.dataset.f; renderFilters(); renderFeed(); }; });
+    }
+
+    function renderFeed(){
+      var items=scopedItems();
+      if(active!=='all') items=items.filter(function(m){ return m.sentiment===active; });
+      // sort
+      if(sortMode==='newest'){
+        items=items.slice().sort(function(a,b){ return new Date(b.timestamp||0)-new Date(a.timestamp||0); });
+      } else if(sortMode==='oldest'){
+        items=items.slice().sort(function(a,b){ return new Date(a.timestamp||0)-new Date(b.timestamp||0); });
+      } else if(sortMode==='engagement'){
+        items=items.slice().sort(function(a,b){ return engagementScore(b)-engagementScore(a); });
+      } else if(sortMode==='platform'){
+        items=items.slice().sort(function(a,b){ return (a._p||'').localeCompare(b._p||''); });
+      } else if(sortMode==='author'){
+        items=items.slice().sort(function(a,b){ return (a.author||'~').localeCompare(b.author||'~'); });
+      }
+      if(!items.length){
+        grid.innerHTML='';
+        status.style.display='block';
+        var where=activePlatform==='all'?'':(' on '+((meta[activePlatform]||{}).n||activePlatform));
+        var what=active==='all'?'':(active+' ');
+        status.innerHTML='<i class="ti ti-mood-empty" style="font-size:22px;display:block;margin-bottom:8px;color:var(--muted-fg);"></i>No '+what+'results'+where+' for “'+esc(data.query)+'”.';
+        return;
+      }
+      status.style.display='none';
+      grid.innerHTML=items.map(function(m){
+        var p=meta[m._p]||{n:m._p,c:'#888',i:'?'};
+        var sl=m.sentiment?('<span class="m-senti s-'+m.sentiment+'">'+(m.sentiment==='positive'?'▲':m.sentiment==='negative'?'▼':'■')+' '+m.sentiment.slice(0,3)+'</span>'):'';
+        var title=m.title?'<div class="m-title">'+esc(m.title)+'</div>':'';
+        var body=m.excerpt?'<div class="m-body">'+esc(m.excerpt)+'</div>':'';
+        var t=m.timestamp?('· '+esc(fmt(m.timestamp))):'';
+        return '<a class="m" href="'+esc(m.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
+          '<div class="m-top"><span class="m-ico" style="background:'+p.c+'">'+p.i+'</span><span class="m-plat">'+p.n+'</span>'+sl+'</div>'+
+          title+body+
+          '<div class="m-foot">'+(m.author?'<span>'+esc(m.author)+'</span>':'')+'<span>'+t+'</span>'+(m.meta?'<span style="margin-left:auto">'+esc(m.meta)+'</span>':'')+'</div>'+
+        '</a>';
+      }).join('');
+    }
+
+    function renderErrors(){
+      var e=[]; Object.keys(data.platforms).forEach(function(k){ var g=data.platforms[k]; if(g.error) e.push((meta[k]?meta[k].n:k)+': '+g.error); });
+      errors.innerHTML=e.map(function(x){ return '<div class="err"><i class="ti ti-alert-triangle"></i> '+esc(x)+'</div>'; }).join('');
+    }
+
+    async function doSearch(){
+      var q=input.value.trim(); if(!q) return;
+      btn.disabled=true; btn.textContent='Analyzing…';
+      filters.style.display='none'; controlsRow.style.display='none'; platformFilters.style.display='none'; senti.style.display='none'; errors.innerHTML=''; grid.innerHTML='';
+      active='all'; activePlatform='all'; timeMode='all'; mediaOnly=false; sortMode='relevance';
+      if(timeSel) timeSel.value='all'; if(mediaChk) mediaChk.checked=false; if(sortSel) sortSel.value='relevance';
+      bandHead.style.display='block'; bandTitle.textContent='“'+q+'”';
+      status.style.display='block'; status.innerHTML='<span class="spin"></span>Gathering posts from every platform — this can take a few seconds.';
+      document.getElementById('feed').scrollIntoView({behavior:'smooth',block:'start'});
+      try{
+        var r=await fetch('/api/search?q='+encodeURIComponent(q));
+        if(!r.ok){
+          var msg='Search failed';
+          try{ var j=await r.json(); if(j&&j.error) msg='Search failed: '+j.error; }catch(_){ msg='Search failed (HTTP '+r.status+')'; }
+          throw new Error(msg);
+        }
+        data=await r.json(); active='all'; activePlatform='all';
+        var total=0; Object.keys(data.platforms).forEach(function(k){ total+=(data.platforms[k].results||[]).length; });
+        bandTitle.textContent='“'+q+'” · '+total+' mention'+(total===1?'':'s');
+        renderErrors(); renderSenti(); renderPlatformFilters(); renderFilters(); renderFeed();
+      }catch(e){
+        status.style.display='block';
+        status.innerHTML='<i class="ti ti-alert-triangle" style="font-size:20px;display:block;margin-bottom:8px;color:var(--negative);"></i>'+esc(e.message);
+      }
+      finally{ btn.disabled=false; btn.textContent='Analyze'; }
+    }
+  })();
+  </script>
+</body>
+</html>
