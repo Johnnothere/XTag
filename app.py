@@ -1268,6 +1268,47 @@ def api_search():
     return jsonify(payload)
 
 
+
+@app.route("/api/brief")
+def api_brief():
+    """Generate a concise intelligence brief about the searched keyword/hashtag via Claude.
+    Cached for CACHE_TTL. Falls back gracefully if no API key or Claude errors."""
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"error": "missing q"}), 400
+    cache_key = "__brief__" + q.lower()
+    now = time.time()
+    if cache_key in _cache:
+        ts, cached = _cache[cache_key]
+        if now - ts < CACHE_TTL:
+            return jsonify({**cached, "cached": True})
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"brief": None, "error": "no API key"}), 200
+    prompt = (
+        f"You are an intelligence analyst. Write a concise 2-3 sentence brief about "
+        f"the search topic: \"{q}\". Cover: what it is, why it matters, and current context "
+        f"(known events, actors, or significance as of mid-2025). Use **bold** for key terms. "
+        f"Be factual, dense, and neutral. No preamble, no headers."
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 300,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return jsonify({"brief": None, "error": f"API error {r.status_code}"}), 200
+        data = r.json()
+        brief = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        payload = {"brief": brief}
+        _cache[cache_key] = (now, payload)
+        return jsonify(payload)
+    except Exception as e:
+        return jsonify({"brief": None, "error": str(e)[:120]}), 200
+
 @app.route("/healthz")
 def health():
     return {
