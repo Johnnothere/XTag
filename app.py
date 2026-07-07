@@ -32,6 +32,9 @@ SB_BASE = "https://scrapebadger.com/v1"
 # Sentiment: Claude is the working engine; Babel Street is optional enrichment.
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 BABELSTREET_API_KEY = os.environ.get("BABELSTREET_API_KEY", "").strip()
+BLUESKY_IDENTIFIER = os.environ.get("BLUESKY_IDENTIFIER", "").strip()
+BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD", "").strip()
+_bsky_session = {"jwt": None, "ts": 0.0}
 SENTIMENT_ENABLED = bool(ANTHROPIC_API_KEY or BABELSTREET_API_KEY)
 USER_AGENT = "web:xtag:1.0 (by /u/xtag_search)"
 # Browser-like UA required for Telegram's t.me/s/ web preview
@@ -164,7 +167,7 @@ def search_youtube(q: str) -> dict:
                 "part": "snippet",
                 "q": (_query_parts(q)[1] if _query_parts(q)[0] else _query_parts(q)[2]),
                 "type": "video",
-                "maxResults": 25,
+                "maxResults": 50,
                 "key": YOUTUBE_API_KEY,
             },
             timeout=TIMEOUT,
@@ -211,7 +214,7 @@ def search_reddit(q: str) -> dict:
     try:
         r = requests.get(
             f"{SB_BASE}/reddit/search/posts",
-            params={"q": keyword, "sort": "relevance", "t": "year", "limit": 25},
+            params={"q": keyword, "sort": "relevance", "t": "year", "limit": 100},
             headers={"x-api-key": SCRAPEBADGER_KEY},
             timeout=SERPAPI_TIMEOUT,
         )
@@ -274,7 +277,7 @@ def search_sb_twitter(q: str) -> dict:
     try:
         r = requests.get(
             f"{SB_BASE}/twitter/tweets/advanced_search",
-            params={"query": keyword, "query_type": "Top", "count": 25},
+            params={"query": keyword, "query_type": "Top", "count": 100},
             headers={"x-api-key": SCRAPEBADGER_KEY},
             timeout=SERPAPI_TIMEOUT,
         )
@@ -334,7 +337,7 @@ def search_sb_tiktok(q: str) -> dict:
     try:
         r = requests.get(
             f"{SB_BASE}/tiktok/search/videos",
-            params={"query": keyword, "region": "US", "count": 20},
+            params={"query": keyword, "region": "US", "count": 50},
             headers={"x-api-key": SCRAPEBADGER_KEY},
             timeout=SERPAPI_TIMEOUT,
         )
@@ -412,12 +415,50 @@ def search_sb_tiktok(q: str) -> dict:
     return {"platform": "tiktok", "results": results, "error": None}
 
 
+def _bsky_token():
+    """Return a cached Bluesky access JWT if app-password creds are set, else None.
+    Bluesky's public searchPosts now 403s without auth; an app password fixes it."""
+    if not BLUESKY_IDENTIFIER or not BLUESKY_APP_PASSWORD:
+        return None
+    now = time.time()
+    if _bsky_session["jwt"] and now - _bsky_session["ts"] < 3600:
+        return _bsky_session["jwt"]
+    try:
+        r = requests.post(
+            "https://bsky.social/xrpc/com.atproto.server.createSession",
+            json={"identifier": BLUESKY_IDENTIFIER, "password": BLUESKY_APP_PASSWORD},
+            headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"},
+            timeout=TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return None
+        jwt = r.json().get("accessJwt")
+        _bsky_session["jwt"] = jwt
+        _bsky_session["ts"] = now
+        return jwt
+    except Exception:
+        return None
+
+
+def _bsky_headers():
+    h = {"User-Agent": USER_AGENT}
+    tok = _bsky_token()
+    if tok:
+        h["Authorization"] = f"Bearer {tok}"
+    return h
+
+
+def _bsky_base():
+    # Authenticated requests go through the PDS entryway; public falls back to the AppView.
+    return "https://bsky.social" if (BLUESKY_IDENTIFIER and BLUESKY_APP_PASSWORD) else "https://public.api.bsky.app"
+
+
 def search_bluesky(q: str) -> dict:
     try:
         r = requests.get(
-            "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts",
-            params={"q": (_query_parts(q)[1] if _query_parts(q)[0] else _query_parts(q)[2]), "limit": 25},
-            headers={"User-Agent": USER_AGENT},
+            f"{_bsky_base()}/xrpc/app.bsky.feed.searchPosts",
+            params={"q": (_query_parts(q)[1] if _query_parts(q)[0] else _query_parts(q)[2]), "limit": 100},
+            headers=_bsky_headers(),
             timeout=TIMEOUT,
         )
         r.raise_for_status()
@@ -444,7 +485,10 @@ def search_bluesky(q: str) -> dict:
             })
         return {"platform": "bluesky", "results": results, "error": None}
     except Exception as e:
-        return _empty("bluesky", str(e)[:120])
+        msg = str(e)[:120]
+        if "403" in msg and not (BLUESKY_IDENTIFIER and BLUESKY_APP_PASSWORD):
+            msg = "Bluesky now requires auth for search — set BLUESKY_IDENTIFIER + BLUESKY_APP_PASSWORD"
+        return _empty("bluesky", msg)
 
 
 def search_mastodon(q: str) -> dict:
@@ -456,7 +500,7 @@ def search_mastodon(q: str) -> dict:
         # Public unauthenticated hashtag timeline
         r = requests.get(
             f"https://mastodon.social/api/v1/timelines/tag/{quote_plus(tag)}",
-            params={"limit": 12},
+            params={"limit": 40},
             headers={"User-Agent": USER_AGENT},
             timeout=TIMEOUT,
         )
@@ -520,7 +564,7 @@ def search_gnews(q: str) -> dict:
         r.raise_for_status()
         feed = feedparser.parse(r.content)
         results = []
-        for entry in feed.entries[:25]:
+        for entry in feed.entries[:60]:
             source = ""
             if hasattr(entry, "source") and entry.source:
                 source = entry.source.get("title", "") if isinstance(entry.source, dict) else str(entry.source)
@@ -1322,14 +1366,15 @@ def api_search():
 @app.route("/api/brief", methods=["POST"])
 def api_brief():
     """Grounded intelligence brief: Claude synthesises what the searched term is about,
-    using the actual fetched posts as context plus its own knowledge. Cached per query."""
+    using the actual fetched posts plus its own knowledge. Always answers in English.
+    Returns {brief, reason} so the UI can explain any failure (e.g. no API credits)."""
     body = request.get_json(silent=True) or {}
     q = (body.get("q") or "").strip()
     snippets = body.get("snippets") or []
     if not q:
         return jsonify({"error": "missing q"}), 400
     if not ANTHROPIC_API_KEY:
-        return jsonify({"brief": None}), 200
+        return jsonify({"brief": None, "reason": "Intelligence brief needs an Anthropic API key (ANTHROPIC_API_KEY)."}), 200
 
     cache_key = "__brief__" + q.lower()
     now = time.time()
@@ -1368,36 +1413,30 @@ def api_brief():
             timeout=SERPAPI_TIMEOUT,
         )
         if r.status_code >= 400:
-            return jsonify({"brief": None}), 200
+            reason = "Intelligence brief unavailable."
+            try:
+                err = (r.json().get("error") or {})
+                etype = err.get("type", "")
+                emsg = err.get("message", "")
+                if "credit" in emsg.lower() or "billing" in emsg.lower():
+                    reason = "Intelligence brief unavailable — Anthropic API credit balance is empty. Add credits to enable briefs and sentiment."
+                elif "rate" in etype.lower():
+                    reason = "Intelligence brief rate-limited — try again in a moment."
+                elif emsg:
+                    reason = "Intelligence brief unavailable: " + emsg[:140]
+            except Exception:
+                pass
+            return jsonify({"brief": None, "reason": reason}), 200
         data = r.json()
         brief = "".join(b.get("text", "") for b in data.get("content", [])
                         if b.get("type") == "text").strip()
         if not brief:
-            return jsonify({"brief": None}), 200
+            return jsonify({"brief": None, "reason": "Intelligence brief unavailable."}), 200
         payload = {"brief": brief}
         _cache[cache_key] = (now, payload)
         return jsonify(payload)
     except Exception:
-        return jsonify({"brief": None}), 200
-
-
-@app.route("/healthz")
-def health():
-    return {
-        "ok": True,
-        "youtube_configured": bool(YOUTUBE_API_KEY),
-        "serpapi_configured": bool(SERPAPI_KEY),
-        "scrapebadger_configured": bool(SCRAPEBADGER_KEY),
-        "sentiment_engine": ("babelstreet" if BABELSTREET_API_KEY else "claude" if ANTHROPIC_API_KEY else None),
-        "telegram_channels": len(TELEGRAM_CHANNELS),
-        "cache_size": len(_cache),
-    }, 200
-
-
-@app.route("/api/telegram/channels")
-def telegram_channels():
-    """Return the current curated Telegram channel list (for the UI)."""
-    return {"channels": TELEGRAM_CHANNELS, "count": len(TELEGRAM_CHANNELS)}, 200
+        return jsonify({"brief": None, "reason": "Intelligence brief unavailable — request failed."}), 200
 
 
 @app.route("/debug/tiktok")

@@ -24,7 +24,7 @@
   --sans:"Inter",ui-sans-serif,system-ui,sans-serif;
   --r:14px;--r-sm:10px;
 }
-:root[data-theme="dark"]{
+:root[data-theme="dark"]{--cal-filter:invert(1);
   --bg:#0d0d10;--surface:#161619;--surface2:#1c1c20;--ink:#f0f0ee;--ink2:#b0b0ba;
   --muted:#70707c;--line:#28282e;--line2:#222228;
   --accent:#f2743f;--accent-tint:#2a1509;--accent-hover:#f5875a;
@@ -188,6 +188,8 @@ a{color:inherit;text-decoration:none;}
 .chip.on.neg{background:var(--neg);border-color:var(--neg);color:#fff;}
 .chip.on.neu{background:var(--neu);border-color:var(--neu);color:#fff;}
 .sel{font:inherit;font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:5px 9px;cursor:pointer;}
+.dt-in{font:inherit;font-size:11.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:4px 8px;cursor:pointer;}
+.dt-in::-webkit-calendar-picker-indicator{opacity:.5;cursor:pointer;filter:var(--cal-filter,none);}
 .ftext{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:5px 10px;flex:1;min-width:140px;}
 .ftext .ti{font-size:13px;color:var(--muted);}
 .ftext input{flex:1;border:none;background:transparent;outline:none;font:inherit;font-size:12px;color:var(--ink);}
@@ -371,7 +373,7 @@ function renderHist(){
 window.loadHistItem=function(q){
   var e=loadHist().find(function(x){return x.q===q;});if(!e)return;
   $('q').value=q;data=e.payload;
-  fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';fWindow='all';fMinEng='0';fExclude='';
+  fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';fWindow='all';fMinEng='0';fExclude='';fFrom='';fTo='';
   $('welcome').style.display='none';$('statusbox').innerHTML='';
   renderDashboard();renderHist();fetchBrief(q);
 };
@@ -402,7 +404,7 @@ function loadHide(){
 
 /* state */
 var data=null;
-var fPlatform='all',fSentiment='all',fMedia=false,fText='',sortMode='relevance',fWindow='all',fMinEng='0',fExclude='';
+var fPlatform='all',fSentiment='all',fMedia=false,fText='',sortMode='relevance',fWindow='all',fMinEng='0',fExclude='',fFrom='',fTo='';
 function allItems(){var a=[];if(!data)return a;Object.keys(data.platforms).forEach(function(k){(data.platforms[k].results||[]).forEach(function(r){a.push(Object.assign({_p:k},r));});});return a;}
 function engBreakdown(meta){
   var out={reactions:0,comments:0,shares:0};if(!meta)return out;var s=String(meta);
@@ -425,7 +427,7 @@ async function doSearch(){
     var r=await fetch('/api/search?q='+encodeURIComponent(q));
     if(!r.ok){var j=null;try{j=await r.json();}catch(_){}throw new Error(j&&j.error?j.error:'Search failed (HTTP '+r.status+')');}
     data=await r.json();
-    fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';fWindow='all';fMinEng='0';fExclude='';
+    fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';fWindow='all';fMinEng='0';fExclude='';fFrom='';fTo='';
     loadHide();
     saveHist(q,data);renderDashboard();fetchBrief(q);
   }catch(e){
@@ -445,6 +447,7 @@ async function fetchBrief(q){
     var r=await fetch('/api/brief',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q:q,snippets:snippets})});
     var j=await r.json();
     if(j&&j.brief){el.innerHTML=esc(j.brief).replace(/\*\*(.*?)\*\*/g,'<b>$1</b>');}
+    else if(j&&j.reason){el.innerHTML='<span style="color:var(--muted);font-size:13.5px;display:flex;align-items:center;gap:8px;"><i class="ti ti-alert-circle" style="color:var(--accent);font-size:15px;"></i>'+esc(j.reason)+'</span>';}
     else{card.style.display='none';}
   }catch(e){card.style.display='none';}
 }
@@ -534,6 +537,11 @@ function buildFC(){
   if(sc)html+='<div class="fc-r">'+sc+'</div>';
   var line3=tw+(tw&&me?'<span style="width:10px"></span>':'')+me;
   html+='<div class="fc-r">'+line3+'</div>';
+  html+='<div class="fc-r"><span class="fc-l">Custom range</span>'+
+    '<input type="datetime-local" class="dt-in" id="fFrom" value="'+esc(fFrom)+'"/>'+
+    '<span style="color:var(--muted);font-size:11px;">to</span>'+
+    '<input type="datetime-local" class="dt-in" id="fTo" value="'+esc(fTo)+'"/>'+
+    (fFrom||fTo?'<span class="chip" id="dtClear">Clear</span>':'')+'</div>';
   html+='<div class="fc-r">'+ss+'<label class="ftog"><input type="checkbox" id="mchk"'+(fMedia?' checked':'')+'/> Media</label>'+
     '<div class="ftext"><i class="ti ti-search"></i><input id="ftext" placeholder="Include text…" value="'+esc(fText)+'"/></div>'+
     '<div class="ftext"><i class="ti ti-ban" style="color:var(--neg)"></i><input id="fexcl" placeholder="Exclude…" value="'+esc(fExclude)+'"/></div>'+
@@ -548,6 +556,9 @@ function buildFC(){
   $('mchk').onchange=function(){fMedia=this.checked;renderFeed();};
   $('ftext').oninput=function(){fText=this.value;renderFeed();};
   $('fexcl').oninput=function(){fExclude=this.value;renderFeed();};
+  if($('fFrom'))$('fFrom').onchange=function(){fFrom=this.value;buildFC();renderFeed();};
+  if($('fTo'))$('fTo').onchange=function(){fTo=this.value;buildFC();renderFeed();};
+  if($('dtClear'))$('dtClear').onclick=function(){fFrom='';fTo='';buildFC();renderFeed();};
 }
 
 function filterSort(items){
@@ -555,12 +566,15 @@ function filterSort(items){
   var winMs=fWindow==='all'?null:parseInt(fWindow,10)*864e5;
   var minE=parseInt(fMinEng,10)||0;
   var exc=fExclude.trim().toLowerCase();
+  var fromMs=fFrom?new Date(fFrom).getTime():null;
+  var toMs=fTo?new Date(fTo).getTime():null;
   var out=items.filter(function(it){
     if(fPlatform!=='all'&&it._p!==fPlatform)return false;
     if(fSentiment!=='all'&&it.sentiment!==fSentiment)return false;
     if(fMedia&&!it.thumbnail)return false;
     if(minE&&(it.engagement||0)<minE)return false;
-    if(winMs){var ts=parseTs(it.timestamp);if(ts==null||(nowMs-ts)>winMs)return false;}
+    if(winMs){var tsw=parseTs(it.timestamp);if(tsw==null||(nowMs-tsw)>winMs)return false;}
+    if(fromMs||toMs){var tsc=parseTs(it.timestamp);if(tsc==null)return false;if(fromMs&&tsc<fromMs)return false;if(toMs&&tsc>toMs)return false;}
     var hay=((it.title||'')+' '+(it.excerpt||'')+' '+(it.author||'')).toLowerCase();
     if(fText&&hay.indexOf(fText.toLowerCase())===-1)return false;
     if(exc&&hay.indexOf(exc)!==-1)return false;
