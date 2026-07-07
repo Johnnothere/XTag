@@ -853,30 +853,63 @@ def index():
     return resp
 
 
-def _sentiment_babelstreet(texts: list) -> list | None:
-    """Optional: score sentiment via Babel Street. Returns list of pos/neu/neg or None.
-    Best-effort — if the key is missing or the API errors, returns None so Claude takes over.
-    """
-    if not BABELSTREET_API_KEY:
-        return None
-    labels = []
+# ---------- sentiment: Claude + Babel Street, reconciled ----------
+
+BABEL_CAP = 24          # Babel Street = one HTTP call per post; cap the second-opinion subset
+BABEL_WORKERS = 12
+BABEL_BUDGET = 12       # seconds — overall wall-clock budget for the Babel Street pass
+BABEL_TIMEOUT = 10      # seconds per Babel Street call
+_SCORE = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
+
+
+def _norm_label(raw) -> str:
+    lab = str(raw or "").lower()
+    if "pos" in lab:
+        return "positive"
+    if "neg" in lab:
+        return "negative"
+    return "neutral"
+
+
+def _babel_one(text: str):
+    """Score one document via Babel Street /sentiment. Returns a label or None.
+    Language is omitted so Babel auto-detects — keeps it multilingual-safe (e.g. Arabic channels)."""
     try:
-        for t in texts:
-            r = requests.post(
-                "https://api.babelstreet.com/analytics/v1/sentiment",
-                headers={"X-BabelStreetAPI-Key": BABELSTREET_API_KEY,
-                         "Content-Type": "application/json"},
-                json={"content": t[:1000]},
-                timeout=SERPAPI_TIMEOUT,
-            )
-            if r.status_code >= 400:
-                return None  # bail entirely; let Claude handle it
-            doc = r.json().get("document", {}) if isinstance(r.json(), dict) else {}
-            lab = (doc.get("label") or "neutral").lower()
-            labels.append("positive" if "pos" in lab else "negative" if "neg" in lab else "neutral")
-        return labels
+        r = requests.post(
+            "https://analytics.babelstreet.com/rest/v1/sentiment",
+            headers={"X-BabelStreetAPI-Key": BABELSTREET_API_KEY,
+                     "Content-Type": "application/json",
+                     "Accept": "application/json"},
+            json={"content": text[:3500]},
+            timeout=BABEL_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return None
+        body = r.json()
+        if not isinstance(body, dict):
+            return None
+        doc = body.get("document") or (body.get("sentiment") or {}).get("document") or {}
+        return _norm_label(doc.get("label")) if doc.get("label") is not None else None
     except Exception:
         return None
+
+
+def _sentiment_babelstreet(texts: list, indices: list) -> dict:
+    """Score the given subset (indices into texts) concurrently, within BABEL_BUDGET.
+    Returns {index: label} for whatever finished in time. Empty if no key / all failed."""
+    if not BABELSTREET_API_KEY or not indices:
+        return {}
+    out = {}
+    with ThreadPoolExecutor(max_workers=BABEL_WORKERS) as ex:
+        futs = {ex.submit(_babel_one, texts[i]): i for i in indices}
+        try:
+            for fut in as_completed(list(futs.keys()), timeout=BABEL_BUDGET):
+                lab = fut.result()
+                if lab:
+                    out[futs[fut]] = lab
+        except Exception:
+            pass  # budget hit — take whatever finished
+    return out
 
 
 def _sentiment_claude(texts: list) -> list | None:
@@ -914,11 +947,7 @@ def _sentiment_claude(texts: list) -> list | None:
         text = re.sub(r"```json|```", "", text).strip()
         import json as _json
         arr = _json.loads(text)
-        out = []
-        for v in arr:
-            v = str(v).lower()
-            out.append("positive" if "pos" in v else "negative" if "neg" in v else "neutral")
-        # pad/truncate to match
+        out = [_norm_label(v) for v in arr]
         while len(out) < len(texts):
             out.append("neutral")
         return out[:len(texts)]
@@ -927,36 +956,225 @@ def _sentiment_claude(texts: list) -> list | None:
 
 
 def attach_sentiment(platforms: dict) -> dict:
-    """Flatten all results, score sentiment (Babel Street → Claude fallback), attach labels,
-    and compute a breakdown. Mutates platform result dicts in place; returns a summary."""
+    """Score every result with Claude, add a Babel Street second opinion on the top-engagement
+    posts, reconcile the two, attach labels, and compute a net sentiment score. Mutates results."""
     flat = []
     for group in platforms.values():
         for r in group.get("results", []):
-            txt = (r.get("title") or "") + " " + (r.get("excerpt") or "")
-            txt = txt.strip()
+            txt = ((r.get("title") or "") + " " + (r.get("excerpt") or "")).strip()
             if txt:
                 flat.append((r, txt))
     if not flat:
-        return {"scored": 0, "positive": 0, "neutral": 0, "negative": 0, "engine": None}
+        return {"scored": 0, "positive": 0, "neutral": 0, "negative": 0,
+                "net": None, "engines": [], "agreement": None, "babel_scored": 0}
 
     texts = [t for _, t in flat]
-    engine = None
-    labels = _sentiment_babelstreet(texts)
-    if labels:
-        engine = "babelstreet"
-    else:
-        labels = _sentiment_claude(texts)
-        if labels:
-            engine = "claude"
+    engines = []
+
+    # Claude scores the whole set in one batched call.
+    claude = _sentiment_claude(texts)
+    if claude:
+        engines.append("claude")
+
+    # Babel Street second opinion on the highest-engagement subset.
+    order = sorted(range(len(flat)),
+                   key=lambda i: int(flat[i][0].get("engagement") or 0), reverse=True)
+    babel = _sentiment_babelstreet(texts, order[:BABEL_CAP])
+    if babel:
+        engines.append("babelstreet")
 
     counts = {"positive": 0, "neutral": 0, "negative": 0}
-    scored = 0
-    if labels:
-        for (r, _), lab in zip(flat, labels):
-            r["sentiment"] = lab
-            counts[lab] = counts.get(lab, 0) + 1
-            scored += 1
-    return {"scored": scored, **counts, "engine": engine}
+    net_sum = 0.0
+    scored = agree_n = agree_d = 0
+    for i, (r, _) in enumerate(flat):
+        c = claude[i] if claude and i < len(claude) else None
+        b = babel.get(i)
+        if c and b:
+            agree_d += 1
+            agree_n += 1 if c == b else 0
+            score = (_SCORE[c] + _SCORE[b]) / 2.0
+            final = "positive" if score > 0.25 else "negative" if score < -0.25 else "neutral"
+            r["s_claude"], r["s_babel"] = c, b
+        elif c:
+            score, final = _SCORE[c], c
+            r["s_claude"] = c
+        elif b:
+            score, final = _SCORE[b], b
+            r["s_babel"] = b
+        else:
+            continue
+        r["sentiment"] = final
+        counts[final] += 1
+        net_sum += score
+        scored += 1
+
+    return {
+        "scored": scored, **counts,
+        "net": round(net_sum / scored, 2) if scored else None,
+        "engines": engines,
+        "agreement": round(agree_n / agree_d, 2) if agree_d else None,
+        "babel_scored": len(babel),
+    }
+
+
+# ---------- narratives: theme clustering from the fetched results ----------
+
+def extract_narratives(platforms: dict, max_posts: int = 80, max_narratives: int = 6) -> list:
+    """Cluster the fetched posts into recurring narratives via Claude. Returns [{label, count}]
+    ranked by count. No acceleration % — that needs stored history, which XTag doesn't keep."""
+    if not ANTHROPIC_API_KEY:
+        return []
+    items = []
+    for group in platforms.values():
+        for r in group.get("results", []):
+            txt = ((r.get("title") or "") + " " + (r.get("excerpt") or "")).strip()
+            if txt:
+                items.append((int(r.get("engagement") or 0), txt))
+    if len(items) < 8:
+        return []
+    items.sort(key=lambda t: t[0], reverse=True)
+    posts = [t[1][:240] for t in items[:max_posts]]
+    numbered = "\n".join(f"{i+1}. {p}" for i, p in enumerate(posts))
+    prompt = (
+        f"Below are {len(posts)} social-media posts about a single search topic. "
+        f"Identify up to {max_narratives} distinct recurring narratives or angles running through them. "
+        "For each, give a short human-readable label (max 6 words) and the count of posts that fit it. "
+        "Only include narratives supported by at least 2 posts. Respond with ONLY a JSON array of "
+        'objects like [{"label": "...", "count": N}], ordered by count descending. No prose.\n\n'
+        f"{numbered}"
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 700,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return []
+        data = r.json()
+        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        text = re.sub(r"```json|```", "", text).strip()
+        import json as _json
+        arr = _json.loads(text)
+        out = []
+        for o in arr:
+            if isinstance(o, dict) and o.get("label"):
+                try:
+                    cnt = int(o.get("count") or 0)
+                except (TypeError, ValueError):
+                    cnt = 0
+                out.append({"label": str(o["label"])[:80], "count": cnt})
+        out.sort(key=lambda x: x["count"], reverse=True)
+        return out[:max_narratives]
+    except Exception:
+        return []
+
+
+# ---------- engagement, time & dashboard aggregates ----------
+
+_INT_RE = re.compile(r"\d[\d,]*")
+
+
+def _engagement_from_meta(meta) -> int:
+    """Sum the integer counts embedded in a result's meta string (likes/comments/plays/etc.).
+    Real figures, parsed back out of the human-readable string — an engagement proxy for sorting."""
+    if not meta:
+        return 0
+    total = 0
+    for m in _INT_RE.findall(str(meta)):
+        try:
+            total += int(m.replace(",", ""))
+        except ValueError:
+            pass
+    return total
+
+
+def _parse_dt(val):
+    """Best-effort parse of the many timestamp shapes the fetchers produce -> UTC datetime or None."""
+    if val is None:
+        return None
+    if isinstance(val, (int, float)):
+        ts = float(val)
+        if ts > 1e12:
+            ts /= 1000.0
+        try:
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        except (OSError, ValueError, OverflowError):
+            return None
+    s = str(val).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return _parse_dt(int(s))
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(s)
+        if dt is not None:
+            return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        pass
+    for fmt in ("%a %b %d %H:%M:%S %z %Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _build_aggregates(platforms: dict) -> dict:
+    """Compute the dashboard's live tiles from the merged results: totals, source mix, volume."""
+    source_mix = []
+    total_mentions = total_engagement = with_results = 0
+    searched = len(platforms)
+    dts = []
+    for pid, group in platforms.items():
+        results = group.get("results", []) or []
+        n = len(results)
+        if n:
+            with_results += 1
+        total_mentions += n
+        for r in results:
+            total_engagement += int(r.get("engagement") or 0)
+            dt = _parse_dt(r.get("timestamp"))
+            if dt is not None:
+                dts.append(dt)
+        source_mix.append({"platform": pid, "count": n})
+    source_mix = sorted([s for s in source_mix if s["count"] > 0],
+                        key=lambda s: s["count"], reverse=True)
+
+    volume = {"buckets": [], "counted": 0, "window_hours": 24, "peak": 0}
+    if dts:
+        now = datetime.now(timezone.utc)
+        hours = 24
+        counts = [0] * hours
+        counted = 0
+        for dt in dts:
+            delta = (now - dt).total_seconds() / 3600.0
+            if 0 <= delta < hours:
+                counts[hours - 1 - int(delta)] += 1
+                counted += 1
+        volume = {"buckets": counts, "counted": counted, "window_hours": hours,
+                  "peak": max(counts) if counts else 0}
+
+    return {
+        "totals": {
+            "mentions": total_mentions,
+            "engagement": total_engagement,
+            "platforms_with_results": with_results,
+            "platforms_searched": searched,
+        },
+        "source_mix": source_mix,
+        "volume": volume,
+    }
 
 
 @app.route("/api/search")
@@ -1015,17 +1233,32 @@ def api_search():
         else:
             out[pid] = direct or cse
 
-    # Sentiment scoring (Babel Street → Claude fallback). Never allowed to crash a search.
-    sentiment = {"scored": 0, "positive": 0, "neutral": 0, "negative": 0, "engine": None}
+    # Numeric engagement on every result (parsed from the human-readable meta string).
+    for group in out.values():
+        for r in group.get("results", []):
+            r["engagement"] = _engagement_from_meta(r.get("meta"))
+
+    # Sentiment — Claude + Babel Street, reconciled. Never allowed to crash a search.
+    sentiment = {"scored": 0, "positive": 0, "neutral": 0, "negative": 0,
+                 "net": None, "engines": [], "agreement": None, "babel_scored": 0}
     if SENTIMENT_ENABLED:
         try:
             sentiment = attach_sentiment(out)
         except Exception as e:
             app.logger.warning("sentiment failed: %s", e)
-            sentiment = {"scored": 0, "positive": 0, "neutral": 0, "negative": 0,
-                         "engine": None, "error": str(e)[:120]}
+            sentiment["error"] = str(e)[:120]
 
-    payload = {"query": q, "platforms": out, "sentiment": sentiment, "cached": False}
+    # Trending narratives — themes clustered from the fetched results (Claude). Best-effort.
+    narratives = []
+    try:
+        narratives = extract_narratives(out)
+    except Exception as e:
+        app.logger.warning("narratives failed: %s", e)
+
+    agg = _build_aggregates(out)
+    payload = {"query": q, "platforms": out, "sentiment": sentiment,
+               "narratives": narratives, "totals": agg["totals"],
+               "source_mix": agg["source_mix"], "volume": agg["volume"], "cached": False}
     _cache[cache_key] = (now, payload)
     # Cap cache size (simple LRU-ish)
     if len(_cache) > 200:
