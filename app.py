@@ -352,25 +352,61 @@ def search_sb_tiktok(q: str) -> dict:
     except Exception as e:
         return _empty("tiktok", f"bad JSON: {str(e)[:80]}")
 
-    videos = data.get("videos") if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    # ScrapeBadger's TikTok response shape varies; try several container keys.
+    videos = []
+    if isinstance(data, list):
+        videos = data
+    elif isinstance(data, dict):
+        for key in ("videos", "data", "results", "aweme_list", "item_list", "videoList", "items"):
+            v = data.get(key)
+            if isinstance(v, list) and v:
+                videos = v
+                break
+        if not videos and isinstance(data.get("data"), dict):
+            inner = data["data"]
+            for key in ("videos", "aweme_list", "item_list", "videoList", "items"):
+                v = inner.get(key)
+                if isinstance(v, list) and v:
+                    videos = v
+                    break
+
+    def _tt_int(v, stats, *keys):
+        for k in keys:
+            val = (stats.get(k) if isinstance(stats, dict) else None)
+            if val is None and isinstance(v, dict):
+                val = v.get(k)
+            if val is not None:
+                try:
+                    return int(val)
+                except (TypeError, ValueError):
+                    pass
+        return 0
+
     results = []
     for v in (videos or []):
         if not isinstance(v, dict):
             continue
-        author = v.get("author") or {}
-        handle = author.get("unique_id") or ""
-        stats = v.get("stats") or {}
+        author = v.get("author") or v.get("author_info") or {}
+        if not isinstance(author, dict):
+            author = {}
+        handle = author.get("unique_id") or author.get("uniqueId") or author.get("sec_uid") or ""
+        stats = v.get("stats") or v.get("statistics") or v.get("stats_v2") or {}
         vmeta = v.get("video") or {}
+        plays = _tt_int(v, stats, "play_count", "playCount", "play")
+        likes = _tt_int(v, stats, "digg_count", "diggCount", "like_count", "likeCount")
+        comments = _tt_int(v, stats, "comment_count", "commentCount", "comment")
+        desc = v.get("description") or v.get("desc") or v.get("title") or ""
+        thumb = vmeta.get("cover") or vmeta.get("origin_cover") or v.get("cover") or v.get("thumbnail")
         results.append({
             "platform": "tiktok",
             "title": None,
-            "excerpt": _truncate(_strip_html(v.get("description") or "")),
-            "url": v.get("url") or v.get("share_url") or "https://www.tiktok.com",
+            "excerpt": _truncate(_strip_html(desc)),
+            "url": v.get("url") or v.get("share_url") or v.get("shareUrl") or "https://www.tiktok.com",
             "author": f"@{handle}" if handle else (author.get("nickname") or None),
             "author_url": f"https://www.tiktok.com/@{handle}" if handle else None,
-            "thumbnail": vmeta.get("cover") or vmeta.get("origin_cover"),
-            "timestamp": v.get("create_time_at"),
-            "meta": f"▶ {stats.get('play_count', 0)} · ♥ {stats.get('digg_count', 0)} · 💬 {stats.get('comment_count', 0)}",
+            "thumbnail": thumb,
+            "timestamp": v.get("create_time_at") or v.get("create_time") or v.get("createTime"),
+            "meta": f"▶ {plays} · ♥ {likes} · 💬 {comments}",
         })
     return {"platform": "tiktok", "results": results, "error": None}
 
@@ -1078,6 +1114,31 @@ def extract_narratives(platforms: dict, max_posts: int = 80, max_narratives: int
 _INT_RE = re.compile(r"\d[\d,]*")
 
 
+def _engagement_breakdown(meta) -> dict:
+    """Split a result's meta string into reactions / comments / shares using its markers.
+    Views/plays (impressions) are deliberately excluded from engagement."""
+    out = {"reactions": 0, "comments": 0, "shares": 0}
+    if not meta:
+        return out
+    s = str(meta)
+
+    def grab(pattern):
+        m = re.search(pattern, s)
+        if not m:
+            return 0
+        try:
+            return int(m.group(1).replace(",", ""))
+        except (TypeError, ValueError):
+            return 0
+
+    out["reactions"] += grab(r"\u2665\s*([\d,]+)")      # ♥ likes / favourites
+    out["shares"]    += grab(r"\u21ba\s*([\d,]+)")      # ↺ reposts / retweets
+    out["comments"]  += grab(r"\U0001f4ac\s*([\d,]+)")  # comments emoji
+    out["reactions"] += grab(r"([\d,]+)\s*pts")          # reddit / HN points
+    out["comments"]  += grab(r"([\d,]+)\s*comments")     # reddit / HN comments
+    return out
+
+
 def _engagement_from_meta(meta) -> int:
     """Sum the integer counts embedded in a result's meta string (likes/comments/plays/etc.).
     Real figures, parsed back out of the human-readable string — an engagement proxy for sorting."""
@@ -1131,11 +1192,11 @@ def _parse_dt(val):
 
 
 def _build_aggregates(platforms: dict) -> dict:
-    """Compute the dashboard's live tiles from the merged results: totals, source mix, volume."""
+    """Compute the dashboard's live tiles: totals (with engagement breakdown) + source mix."""
     source_mix = []
-    total_mentions = total_engagement = with_results = 0
+    total_mentions = with_results = 0
+    reactions = comments = shares = 0
     searched = len(platforms)
-    dts = []
     for pid, group in platforms.items():
         results = group.get("results", []) or []
         n = len(results)
@@ -1143,37 +1204,24 @@ def _build_aggregates(platforms: dict) -> dict:
             with_results += 1
         total_mentions += n
         for r in results:
-            total_engagement += int(r.get("engagement") or 0)
-            dt = _parse_dt(r.get("timestamp"))
-            if dt is not None:
-                dts.append(dt)
+            eb = _engagement_breakdown(r.get("meta"))
+            reactions += eb["reactions"]
+            comments += eb["comments"]
+            shares += eb["shares"]
         source_mix.append({"platform": pid, "count": n})
     source_mix = sorted([s for s in source_mix if s["count"] > 0],
                         key=lambda s: s["count"], reverse=True)
-
-    volume = {"buckets": [], "counted": 0, "window_hours": 24, "peak": 0}
-    if dts:
-        now = datetime.now(timezone.utc)
-        hours = 24
-        counts = [0] * hours
-        counted = 0
-        for dt in dts:
-            delta = (now - dt).total_seconds() / 3600.0
-            if 0 <= delta < hours:
-                counts[hours - 1 - int(delta)] += 1
-                counted += 1
-        volume = {"buckets": counts, "counted": counted, "window_hours": hours,
-                  "peak": max(counts) if counts else 0}
-
     return {
         "totals": {
             "mentions": total_mentions,
-            "engagement": total_engagement,
+            "engagement": reactions + comments + shares,
+            "reactions": reactions,
+            "comments": comments,
+            "shares": shares,
             "platforms_with_results": with_results,
             "platforms_searched": searched,
         },
         "source_mix": source_mix,
-        "volume": volume,
     }
 
 
@@ -1236,7 +1284,8 @@ def api_search():
     # Numeric engagement on every result (parsed from the human-readable meta string).
     for group in out.values():
         for r in group.get("results", []):
-            r["engagement"] = _engagement_from_meta(r.get("meta"))
+            eb = _engagement_breakdown(r.get("meta"))
+            r["engagement"] = eb["reactions"] + eb["comments"] + eb["shares"]
 
     # Sentiment — Claude + Babel Street, reconciled. Never allowed to crash a search.
     sentiment = {"scored": 0, "positive": 0, "neutral": 0, "negative": 0,
@@ -1258,7 +1307,7 @@ def api_search():
     agg = _build_aggregates(out)
     payload = {"query": q, "platforms": out, "sentiment": sentiment,
                "narratives": narratives, "totals": agg["totals"],
-               "source_mix": agg["source_mix"], "volume": agg["volume"], "cached": False}
+               "source_mix": agg["source_mix"], "cached": False}
     _cache[cache_key] = (now, payload)
     # Cap cache size (simple LRU-ish)
     if len(_cache) > 200:
@@ -1269,45 +1318,63 @@ def api_search():
 
 
 
-@app.route("/api/brief")
+@app.route("/api/brief", methods=["POST"])
 def api_brief():
-    """Generate a concise intelligence brief about the searched keyword/hashtag via Claude.
-    Cached for CACHE_TTL. Falls back gracefully if no API key or Claude errors."""
-    q = (request.args.get("q") or "").strip()
+    """Grounded intelligence brief: Claude synthesises what the searched term is about,
+    using the actual fetched posts as context plus its own knowledge. Cached per query."""
+    body = request.get_json(silent=True) or {}
+    q = (body.get("q") or "").strip()
+    snippets = body.get("snippets") or []
     if not q:
         return jsonify({"error": "missing q"}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"brief": None}), 200
+
     cache_key = "__brief__" + q.lower()
     now = time.time()
     if cache_key in _cache:
         ts, cached = _cache[cache_key]
         if now - ts < CACHE_TTL:
             return jsonify({**cached, "cached": True})
-    if not ANTHROPIC_API_KEY:
-        return jsonify({"brief": None, "error": "no API key"}), 200
-    prompt = (
-        f"You are an intelligence analyst. Write a concise 2-3 sentence brief about "
-        f"the search topic: \"{q}\". Cover: what it is, why it matters, and current context "
-        f"(known events, actors, or significance as of mid-2025). Use **bold** for key terms. "
-        f"Be factual, dense, and neutral. No preamble, no headers."
-    )
+
+    context = "\n".join("- " + str(s).replace("\n", " ")[:220] for s in snippets[:15] if s)
+    if context:
+        prompt = (
+            f'You are an OSINT analyst. A colleague searched the term "{q}" across social platforms. '
+            f'Here are real posts currently circulating about it:\n\n{context}\n\n'
+            f'Write a tight 2-3 sentence intelligence brief explaining what "{q}" refers to, who or what '
+            f'is involved, and why it is being discussed. Ground it in the posts above and your own knowledge. '
+            f'Use **bold** for key people, groups, or events. Be factual and neutral. Output only the brief.'
+        )
+    else:
+        prompt = (
+            f'You are an OSINT analyst. Write a tight 2-3 sentence intelligence brief on the search term '
+            f'"{q}": what it refers to, who or what is involved, and why it matters. '
+            f'Use **bold** for key entities. Be factual and neutral. Output only the brief.'
+        )
+
     try:
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
                      "content-type": "application/json"},
-            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 300,
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 350,
                   "messages": [{"role": "user", "content": prompt}]},
             timeout=SERPAPI_TIMEOUT,
         )
         if r.status_code >= 400:
-            return jsonify({"brief": None, "error": f"API error {r.status_code}"}), 200
+            return jsonify({"brief": None}), 200
         data = r.json()
-        brief = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        brief = "".join(b.get("text", "") for b in data.get("content", [])
+                        if b.get("type") == "text").strip()
+        if not brief:
+            return jsonify({"brief": None}), 200
         payload = {"brief": brief}
         _cache[cache_key] = (now, payload)
         return jsonify(payload)
-    except Exception as e:
-        return jsonify({"brief": None, "error": str(e)[:120]}), 200
+    except Exception:
+        return jsonify({"brief": None}), 200
+
 
 @app.route("/healthz")
 def health():
