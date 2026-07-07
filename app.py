@@ -10,6 +10,7 @@ Returns a unified feed with per-platform badges.
 from __future__ import annotations
 
 import html
+import json
 import os
 import re
 import time
@@ -1344,12 +1345,16 @@ def api_brief():
             f'Here are real posts currently circulating about it:\n\n{context}\n\n'
             f'Write a tight 2-3 sentence intelligence brief explaining what "{q}" refers to, who or what '
             f'is involved, and why it is being discussed. Ground it in the posts above and your own knowledge. '
+            f'ALWAYS write the brief in English, even if the search term and the posts are in another language '
+            f'(translate and explain the meaning for an English-speaking analyst). '
             f'Use **bold** for key people, groups, or events. Be factual and neutral. Output only the brief.'
         )
     else:
         prompt = (
             f'You are an OSINT analyst. Write a tight 2-3 sentence intelligence brief on the search term '
             f'"{q}": what it refers to, who or what is involved, and why it matters. '
+            f'ALWAYS write the brief in English, even if the search term is in another language '
+            f'(translate and explain it for an English-speaking analyst). '
             f'Use **bold** for key entities. Be factual and neutral. Output only the brief.'
         )
 
@@ -1393,6 +1398,99 @@ def health():
 def telegram_channels():
     """Return the current curated Telegram channel list (for the UI)."""
     return {"channels": TELEGRAM_CHANNELS, "count": len(TELEGRAM_CHANNELS)}, 200
+
+
+@app.route("/debug/tiktok")
+def debug_tiktok():
+    """Diagnostic: dump the raw ScrapeBadger TikTok response so we can map its real shape."""
+    debug_token = os.environ.get("DEBUG_TOKEN", "").strip()
+    if debug_token and request.headers.get("X-Debug-Token") != debug_token:
+        return {"error": "auth required"}, 401
+    if not SCRAPEBADGER_KEY:
+        return {"error": "SCRAPEBADGER_KEY not set"}, 200
+    q = (request.args.get("q") or "news").strip()
+    is_tag, tag, plain = _query_parts(q)
+    keyword = tag if is_tag else plain
+    try:
+        r = requests.get(
+            f"{SB_BASE}/tiktok/search/videos",
+            params={"query": keyword, "region": "US", "count": 10},
+            headers={"x-api-key": SCRAPEBADGER_KEY},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        try:
+            body = r.json()
+        except Exception:
+            body = {"raw_text": (r.text or "")[:1500]}
+        # summarise structure
+        top_keys = list(body.keys()) if isinstance(body, dict) else "(list)" if isinstance(body, list) else str(type(body))
+        container = None
+        sample = None
+        if isinstance(body, list):
+            container = "(root list)"
+            sample = body[0] if body else None
+        elif isinstance(body, dict):
+            for k in ("videos", "data", "results", "aweme_list", "item_list", "videoList", "items"):
+                v = body.get(k)
+                if isinstance(v, list) and v:
+                    container = k
+                    sample = v[0]
+                    break
+            if container is None and isinstance(body.get("data"), dict):
+                for k in ("videos", "aweme_list", "item_list", "videoList", "items"):
+                    v = body["data"].get(k)
+                    if isinstance(v, list) and v:
+                        container = "data." + k
+                        sample = v[0]
+                        break
+        return {
+            "status_code": r.status_code,
+            "keyword_used": keyword,
+            "top_level_keys": top_keys,
+            "detected_container": container,
+            "sample_item_keys": list(sample.keys()) if isinstance(sample, dict) else None,
+            "sample_item": json.dumps(sample)[:1800] if sample is not None else None,
+            "parsed_by_current_code": len(search_sb_tiktok(q).get("results", [])),
+        }, 200
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
+
+
+@app.route("/debug/brief")
+def debug_brief():
+    """Diagnostic: run the brief pipeline directly (GET, no cache) and surface the raw result/error."""
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return {"error": "pass ?q="}, 400
+    if not ANTHROPIC_API_KEY:
+        return {"error": "ANTHROPIC_API_KEY not set", "key_set": False}, 200
+    prompt = (
+        f'You are an OSINT analyst. Write a tight 2-3 sentence intelligence brief on the search term '
+        f'"{q}": what it refers to, who or what is involved, and why it matters. '
+        f'ALWAYS write in English even if the term is in another language. '
+        f'Use **bold** for key entities. Output only the brief.'
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 350,
+                  "messages": [{"role": "user", "content": prompt}]},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        out = {"status_code": r.status_code, "key_last4": ANTHROPIC_API_KEY[-4:]}
+        try:
+            data = r.json()
+            out["brief"] = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+            if r.status_code >= 400:
+                out["api_error"] = data.get("error")
+        except Exception as e:
+            out["parse_error"] = str(e)[:200]
+            out["raw"] = (r.text or "")[:500]
+        return out, 200
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
 
 
 @app.route("/debug/serpapi")

@@ -56,22 +56,25 @@ a{color:inherit;text-decoration:none;}
 ::-webkit-scrollbar-track{background:transparent;}
 .serif{font-family:var(--serif);font-weight:400;}
 
-/* ═══ HORSE RACE LOADER ═══ */
-#load{position:fixed;inset:0;z-index:300;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;gap:26px;transition:opacity .5s;}
+/* ═══ LOADER ═══ */
+#load{position:fixed;inset:0;z-index:300;background:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;gap:0;transition:opacity .45s;}
 #load.show{display:flex;}#load.done{opacity:0;pointer-events:none;}
-.l-brand{font-family:var(--serif);font-size:28px;}
-.l-brand span{color:var(--accent);}
-.race{width:min(640px,92vw);background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:26px 30px;box-shadow:var(--sh-lg);}
-.race-title{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;text-align:center;}
-.track{margin-bottom:11px;}.track:last-child{margin-bottom:0;}
-.track-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
-.horse-nm{font-size:12px;font-weight:600;}
-.horse-pos{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
-.rail{height:24px;background:var(--surface2);border-radius:7px;overflow:hidden;position:relative;}
-.fill{height:100%;border-radius:7px;transition:width .22s linear;position:relative;min-width:30px;}
-.horse{font-size:15px;position:absolute;right:0px;top:50%;transform:translateY(-50%);}
-.race-status{font-size:13px;color:var(--ink2);text-align:center;margin-top:18px;min-height:18px;}
-.race-win{font-family:var(--serif);font-size:24px;text-align:center;color:var(--accent);display:none;}
+.ld-wrap{width:min(440px,88vw);display:flex;flex-direction:column;align-items:center;}
+.ld-brand{font-family:var(--serif);font-size:40px;letter-spacing:-.01em;margin-bottom:34px;}
+.ld-brand span{color:var(--accent);}
+.ld-orbit{position:relative;width:88px;height:88px;margin-bottom:30px;}
+.ld-orbit .core{position:absolute;inset:0;margin:auto;width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:ldpulse 1.8s ease-out infinite;}
+@keyframes ldpulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent);}70%{box-shadow:0 0 0 34px color-mix(in srgb,var(--accent) 0%,transparent);}100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 0%,transparent);}}
+.ld-orbit .ring{position:absolute;inset:0;border:1.5px solid var(--line);border-radius:50%;border-top-color:var(--accent);animation:ldspin 1.1s linear infinite;}
+.ld-orbit .ring.r2{inset:14px;border-top-color:transparent;border-right-color:var(--accent);animation-duration:1.6s;animation-direction:reverse;opacity:.7;}
+@keyframes ldspin{to{transform:rotate(360deg);}}
+.ld-bar{width:100%;height:3px;border-radius:3px;background:var(--line2);overflow:hidden;position:relative;margin-bottom:22px;}
+.ld-bar::after{content:"";position:absolute;top:0;left:0;height:100%;width:38%;border-radius:3px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:ldslide 1.25s ease-in-out infinite;}
+@keyframes ldslide{0%{left:-40%;}100%{left:100%;}}
+.ld-pills{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin-bottom:24px;}
+.ld-pill{font-size:10.5px;letter-spacing:.03em;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:5px 12px;background:var(--surface);transition:color .3s,border-color .3s,background .3s;}
+.ld-pill.on{color:var(--accent);border-color:var(--accent);background:var(--accent-tint);}
+.ld-status{font-size:12.5px;color:var(--ink2);letter-spacing:.02em;min-height:18px;}
 
 /* ═══ SHELL ═══ */
 .app{display:flex;min-height:100vh;}
@@ -226,12 +229,12 @@ a{color:inherit;text-decoration:none;}
 
 <!-- LOADER -->
 <div id="load">
-  <div class="l-brand">X<span>#</span>Tag</div>
-  <div class="race">
-    <div class="race-title">Fetching live results</div>
-    <div id="tracks"></div>
-    <div class="race-status" id="rstatus">Saddling up…</div>
-    <div class="race-win" id="rwin"></div>
+  <div class="ld-wrap">
+    <div class="ld-brand">X<span>#</span>Tag</div>
+    <div class="ld-orbit"><div class="ring"></div><div class="ring r2"></div><div class="core"></div></div>
+    <div class="ld-bar"></div>
+    <div class="ld-pills" id="ldPills"></div>
+    <div class="ld-status" id="ldStatus">Connecting to platforms…</div>
   </div>
 </div>
 
@@ -368,45 +371,49 @@ function renderHist(){
 window.loadHistItem=function(q){
   var e=loadHist().find(function(x){return x.q===q;});if(!e)return;
   $('q').value=q;data=e.payload;
-  fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';
+  fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';fWindow='all';fMinEng='0';fExclude='';
   $('welcome').style.display='none';$('statusbox').innerHTML='';
   renderDashboard();renderHist();fetchBrief(q);
 };
 
-/* horse race */
-var HORSES=[{n:'Reddit',e:'🐎'},{n:'X / Twitter',e:'🐎'},{n:'YouTube',e:'🐎'},{n:'TikTok',e:'🐎'},{n:'Telegram',e:'🐎'},{n:'News Wires',e:'🐎'},{n:'Bluesky',e:'🐎'}];
-var HC=['#FF4500','#14171a','#FF0000','#000','#229ED9','#1a73e8','#1185FE'];
-var RSTATUS=['They\'re at the gate…','And they\'re off!','Fetching live posts…','Rounding the bend…','Neck and neck…','Down the final straight…'];
-var rTimer=null,rPos=[];
+/* loader */
+var LD_PLATFORMS=['Reddit','X / Twitter','YouTube','TikTok','Telegram','Instagram','Facebook','Bluesky','Mastodon','News & Wires','Hacker News','LinkedIn','Google'];
+var LD_STATUS=['Connecting to platforms…','Fetching live posts…','Aggregating results…','Scoring & analysing…','Building dashboard…'];
+var ldTimer=null;
 function loadShow(){
-  var l=$('load');l.classList.remove('done');l.classList.add('show');$('rwin').style.display='none';
-  rPos=HORSES.map(function(){return 4+Math.random()*8;});
-  drawTracks(-1);$('rstatus').textContent=RSTATUS[0];
-  var st=Date.now(),si=0;clearInterval(rTimer);
-  rTimer=setInterval(function(){
-    var el=(Date.now()-st)/1000;var ns=Math.min(Math.floor(el/1.0),RSTATUS.length-1);
-    if(ns!==si){si=ns;$('rstatus').textContent=RSTATUS[si];}
-    rPos=rPos.map(function(p,i){return Math.min(p+Math.random()*4.5,90);});
-    drawTracks(-1);
-  },170);
+  var l=$('load');l.classList.remove('done');l.classList.add('show');
+  $('ldPills').innerHTML=LD_PLATFORMS.map(function(p){return '<span class="ld-pill">'+p+'</span>';}).join('');
+  var pills=[].slice.call(document.querySelectorAll('#ldPills .ld-pill'));
+  var st=Date.now(),si=0,pi=0;
+  $('ldStatus').textContent=LD_STATUS[0];
+  clearInterval(ldTimer);
+  ldTimer=setInterval(function(){
+    var el=(Date.now()-st)/1000;
+    while(pi<pills.length && el>pi*0.22){pills[pi].classList.add('on');pi++;}
+    var ns=Math.min(Math.floor(el/1.3),LD_STATUS.length-1);
+    if(ns!==si){si=ns;$('ldStatus').textContent=LD_STATUS[si];}
+  },70);
 }
-function loadHide(win){
-  clearInterval(rTimer);rPos=rPos.map(function(){return 100;});drawTracks(win);
-  $('rstatus').textContent='';var w=$('rwin');w.textContent='🏆 '+HORSES[win].n+' takes it!';w.style.display='block';
-  setTimeout(function(){var l=$('load');l.classList.add('done');setTimeout(function(){l.classList.remove('show','done');},550);},750);
-}
-function drawTracks(win){
-  $('tracks').innerHTML=HORSES.map(function(h,i){
-    var p=Math.round(rPos[i]||0),isw=win===i;
-    return '<div class="track"><div class="track-top"><span class="horse-nm">'+h.n+'</span><span class="horse-pos">'+(p<100?p+'%':'🏁')+'</span></div>'+
-      '<div class="rail"><div class="fill" style="width:'+p+'%;background:'+(isw?'var(--accent)':HC[i]+'cc')+'"><span class="horse">🐎</span></div></div></div>';
-  }).join('');
+function loadHide(){
+  clearInterval(ldTimer);
+  [].forEach.call(document.querySelectorAll('#ldPills .ld-pill'),function(p){p.classList.add('on');});
+  var l=$('load');setTimeout(function(){l.classList.add('done');setTimeout(function(){l.classList.remove('show','done');},480);},260);
 }
 
 /* state */
 var data=null;
-var fPlatform='all',fSentiment='all',fMedia=false,fText='',sortMode='relevance';
+var fPlatform='all',fSentiment='all',fMedia=false,fText='',sortMode='relevance',fWindow='all',fMinEng='0',fExclude='';
 function allItems(){var a=[];if(!data)return a;Object.keys(data.platforms).forEach(function(k){(data.platforms[k].results||[]).forEach(function(r){a.push(Object.assign({_p:k},r));});});return a;}
+function engBreakdown(meta){
+  var out={reactions:0,comments:0,shares:0};if(!meta)return out;var s=String(meta);
+  function g(re){var m=s.match(re);return m?parseInt(m[1].replace(/,/g,''),10)||0:0;}
+  out.reactions+=g(/\u2665\s*([\d,]+)/);
+  out.shares   +=g(/\u21ba\s*([\d,]+)/);
+  out.comments +=g(/\ud83d\udcac\s*([\d,]+)/);
+  out.reactions+=g(/([\d,]+)\s*pts/);
+  out.comments +=g(/([\d,]+)\s*comments/);
+  return out;
+}
 
 /* search */
 var input=$('q');
@@ -418,11 +425,11 @@ async function doSearch(){
     var r=await fetch('/api/search?q='+encodeURIComponent(q));
     if(!r.ok){var j=null;try{j=await r.json();}catch(_){}throw new Error(j&&j.error?j.error:'Search failed (HTTP '+r.status+')');}
     data=await r.json();
-    fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';
-    loadHide(Math.floor(Math.random()*HORSES.length));
+    fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';fWindow='all';fMinEng='0';fExclude='';
+    loadHide();
     saveHist(q,data);renderDashboard();fetchBrief(q);
   }catch(e){
-    loadHide(0);$('dash').style.display='none';
+    loadHide();$('dash').style.display='none';
     $('statusbox').innerHTML='<div class="statusbox"><i class="ti ti-alert-triangle" style="color:var(--neg);font-size:22px;display:block;margin-bottom:8px;"></i>'+esc(e.message)+'</div>';
   }
 }
@@ -497,41 +504,79 @@ function buildFC(){
   items.forEach(function(it){if(!seen[it._p]){seen[it._p]=1;platforms.push(it._p);}});
   platforms.sort(function(a,b){return pm(a).n.localeCompare(pm(b).n);});
   var anySent=items.some(function(it){return it.sentiment;});
+  var anyTime=items.some(function(it){return parseTs(it.timestamp)!=null;});
+
   var pc='<span class="fc-l">Platform</span><span class="chip pchip'+(fPlatform==='all'?' on':'')+'" data-p="all">All</span>'+
     platforms.map(function(p){return '<span class="chip pchip'+(fPlatform===p?' on':'')+'" data-p="'+p+'">'+esc(pm(p).n)+'</span>';}).join('');
+
   var sc='';
   if(anySent)sc='<span class="fc-l">Sentiment</span>'+['all','positive','neutral','negative'].map(function(s){
     var cls=s==='positive'?' pos':s==='negative'?' neg':s==='neutral'?' neu':'';
     return '<span class="chip schip'+cls+(fSentiment===s?' on':'')+'" data-s="'+s+'">'+(s==='all'?'All':s[0].toUpperCase()+s.slice(1))+'</span>';
   }).join('');
-  var opts=[['relevance','Relevance'],['newest','Newest'],['oldest','Oldest'],['eng_desc','Most engagement'],['eng_asc','Least engagement'],['pos','Most positive'],['neg','Most negative'],['platform','By platform'],['author','Author A–Z']];
+
+  var tw='';
+  if(anyTime)tw='<span class="fc-l">Window</span>'+[['all','All'],['1','24h'],['7','7d'],['30','30d']].map(function(o){
+    return '<span class="chip wchip'+(fWindow===o[0]?' on':'')+'" data-w="'+o[0]+'">'+o[1]+'</span>';
+  }).join('');
+
+  var me='<span class="fc-l">Min reach</span>'+[['0','Any'],['10','10+'],['100','100+'],['1000','1k+']].map(function(o){
+    return '<span class="chip echip'+(fMinEng===o[0]?' on':'')+'" data-e="'+o[0]+'">'+o[1]+'</span>';
+  }).join('');
+
+  var opts=[['relevance','Relevance'],['newest','Newest first'],['oldest','Oldest first'],
+    ['eng_desc','Most engagement'],['eng_asc','Least engagement'],
+    ['react_desc','Most reactions'],['comm_desc','Most comments'],['share_desc','Most shares'],
+    ['pos','Most positive'],['neg','Most negative'],['platform','By platform'],['author','Author A–Z']];
   var ss='<span class="fc-l">Sort</span><select class="sel" id="sortSel">'+opts.map(function(o){return '<option value="'+o[0]+'"'+(sortMode===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>';
+
   var html='<div class="fc-r">'+pc+'</div>';
   if(sc)html+='<div class="fc-r">'+sc+'</div>';
-  html+='<div class="fc-r">'+ss+'<label class="ftog"><input type="checkbox" id="mchk"'+(fMedia?' checked':'')+'/> Media</label><div class="ftext"><i class="ti ti-search"></i><input id="ftext" placeholder="Filter…" value="'+esc(fText)+'"/></div><span class="fcount" id="fcount"></span></div>';
+  var line3=tw+(tw&&me?'<span style="width:10px"></span>':'')+me;
+  html+='<div class="fc-r">'+line3+'</div>';
+  html+='<div class="fc-r">'+ss+'<label class="ftog"><input type="checkbox" id="mchk"'+(fMedia?' checked':'')+'/> Media</label>'+
+    '<div class="ftext"><i class="ti ti-search"></i><input id="ftext" placeholder="Include text…" value="'+esc(fText)+'"/></div>'+
+    '<div class="ftext"><i class="ti ti-ban" style="color:var(--neg)"></i><input id="fexcl" placeholder="Exclude…" value="'+esc(fExclude)+'"/></div>'+
+    '<span class="fcount" id="fcount"></span></div>';
   $('fc').innerHTML=html;
+
   [].forEach.call(document.querySelectorAll('.pchip'),function(c){c.onclick=function(){fPlatform=c.dataset.p;buildFC();renderFeed();};});
   [].forEach.call(document.querySelectorAll('.schip'),function(c){c.onclick=function(){fSentiment=c.dataset.s;buildFC();renderFeed();};});
+  [].forEach.call(document.querySelectorAll('.wchip'),function(c){c.onclick=function(){fWindow=c.dataset.w;buildFC();renderFeed();};});
+  [].forEach.call(document.querySelectorAll('.echip'),function(c){c.onclick=function(){fMinEng=c.dataset.e;buildFC();renderFeed();};});
   $('sortSel').onchange=function(){sortMode=this.value;renderFeed();};
   $('mchk').onchange=function(){fMedia=this.checked;renderFeed();};
   $('ftext').oninput=function(){fText=this.value;renderFeed();};
+  $('fexcl').oninput=function(){fExclude=this.value;renderFeed();};
 }
 
 function filterSort(items){
+  var nowMs=Date.now();
+  var winMs=fWindow==='all'?null:parseInt(fWindow,10)*864e5;
+  var minE=parseInt(fMinEng,10)||0;
+  var exc=fExclude.trim().toLowerCase();
   var out=items.filter(function(it){
     if(fPlatform!=='all'&&it._p!==fPlatform)return false;
     if(fSentiment!=='all'&&it.sentiment!==fSentiment)return false;
     if(fMedia&&!it.thumbnail)return false;
-    if(fText){var h=((it.title||'')+' '+(it.excerpt||'')+' '+(it.author||'')).toLowerCase();if(h.indexOf(fText.toLowerCase())===-1)return false;}
+    if(minE&&(it.engagement||0)<minE)return false;
+    if(winMs){var ts=parseTs(it.timestamp);if(ts==null||(nowMs-ts)>winMs)return false;}
+    var hay=((it.title||'')+' '+(it.excerpt||'')+' '+(it.author||'')).toLowerCase();
+    if(fText&&hay.indexOf(fText.toLowerCase())===-1)return false;
+    if(exc&&hay.indexOf(exc)!==-1)return false;
     return true;
   });
   function eng(it){return it.engagement||0;}
   function ts(it){var v=parseTs(it.timestamp);return v==null?-Infinity:v;}
+  function eb(it){it.__eb=it.__eb||engBreakdown(it.meta);return it.__eb;}
   var sr={positive:0,neutral:1,negative:2};
   if(sortMode==='newest')out.sort(function(a,b){return ts(b)-ts(a);});
   else if(sortMode==='oldest')out.sort(function(a,b){var x=ts(a),y=ts(b);if(x===-Infinity)return 1;if(y===-Infinity)return -1;return x-y;});
   else if(sortMode==='eng_desc')out.sort(function(a,b){return eng(b)-eng(a);});
   else if(sortMode==='eng_asc')out.sort(function(a,b){return eng(a)-eng(b);});
+  else if(sortMode==='react_desc')out.sort(function(a,b){return eb(b).reactions-eb(a).reactions;});
+  else if(sortMode==='comm_desc')out.sort(function(a,b){return eb(b).comments-eb(a).comments;});
+  else if(sortMode==='share_desc')out.sort(function(a,b){return eb(b).shares-eb(a).shares;});
   else if(sortMode==='pos')out.sort(function(a,b){return(sr[a.sentiment]==null?9:sr[a.sentiment])-(sr[b.sentiment]==null?9:sr[b.sentiment]);});
   else if(sortMode==='neg')out.sort(function(a,b){return(sr[b.sentiment]==null?-9:sr[b.sentiment])-(sr[a.sentiment]==null?-9:sr[a.sentiment]);});
   else if(sortMode==='platform')out.sort(function(a,b){return pm(a._p).n.localeCompare(pm(b._p).n);});
@@ -549,8 +594,9 @@ function renderFeed(){
     var pill=it.sentiment?'<span class="pill '+it.sentiment+'">'+it.sentiment+'</span>':'';
     var title=it.title?'<div class="fi-t">'+esc(it.title)+'</div>':'';
     var body=it.excerpt?'<div class="fi-x">'+esc(it.excerpt)+'</div>':'';
-    var when=ago(it.timestamp);
-    var foot='<div class="fi-f">'+(it.meta?'<span>'+esc(it.meta)+'</span>':'')+(when?'<span>'+when+'</span>':'')+'</div>';
+    var whenRel=ago(it.timestamp);var tms=parseTs(it.timestamp);var whenAbs=tms?fmtDateTime(tms):'';
+    var timeStr=whenAbs?(whenAbs+(whenRel?' \u00b7 '+whenRel:'')):whenRel;
+    var foot='<div class="fi-f">'+(it.meta?'<span>'+esc(it.meta)+'</span>':'')+(timeStr?'<span>'+timeStr+'</span>':'')+'</div>';
     var th=it.thumbnail?'<img class="fi-th" src="'+esc(it.thumbnail)+'" loading="lazy" alt="" onerror="this.style.display=\'none\'"/>':'';
     return '<a class="fi" href="'+esc(it.url||'#')+'" target="_blank" rel="noopener noreferrer">'+badge+'<div class="fi-body"><div class="fi-h"><span class="fi-u">'+esc(it.author||m.n)+'</span><span class="fi-p">'+esc(m.n)+'</span>'+pill+'</div>'+title+body+foot+'</div>'+th+'<i class="ti ti-arrow-up-right fi-e"></i></a>';
   }).join('');
