@@ -1389,14 +1389,14 @@ def api_search():
 
 @app.route("/api/brief", methods=["POST"])
 def api_brief():
-    """NotebookLM-powered brief; falls back to live snippets when no notebook matches."""
+    """Claude-powered intelligence brief grounded in fetched posts."""
     body = request.get_json(silent=True) or {}
     q = (body.get("q") or "").strip()
     snippets = body.get("snippets") or []
     if not q:
         return jsonify({"error": "missing q"}), 400
     if not ANTHROPIC_API_KEY:
-        return jsonify({"brief": None, "reason": "Intelligence brief needs ANTHROPIC_API_KEY."}), 200
+        return jsonify({"brief": None, "reason": "Intelligence brief needs an Anthropic API key (ANTHROPIC_API_KEY)."}), 200
 
     cache_key = "__brief__" + q.lower()
     now = time.time()
@@ -1406,52 +1406,25 @@ def api_brief():
             return jsonify({**cached, "cached": True})
 
     NL = chr(10)
-    nlm_context = []
-    q_lower = q.lstrip("#").lower().strip()
-    if q_lower and _notebook_store:
-        for nb_id, nb in _notebook_store.items():
-            nb_title = nb.get("title", "")
-            if q_lower in nb_title.lower():
-                nlm_context.append("[Notebook: " + nb_title + "]")
-            for src in nb.get("sources", []):
-                src_text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
-                if q_lower in src_text.lower():
-                    nlm_context.append("[" + nb_title + "] " + src_text[:300])
-            for note in nb.get("notes", []):
-                note_text = (note.get("title", "") + " " + note.get("content", "")).strip()
-                if q_lower in note_text.lower():
-                    nlm_context.append("[" + nb_title + " note] " + note_text[:300])
-
-    if nlm_context:
-        ctx = NL.join("- " + s for s in nlm_context[:20])
+    context = NL.join("- " + str(s).replace(NL, " ")[:220] for s in snippets[:15] if s)
+    if context:
         prompt = (
-            "You are an OSINT analyst with curated research notebooks on " + q + ". "
-            "Here is content from those notebooks:" + NL + NL
-            + ctx + NL + NL
-            + "Write a tight 2-3 sentence intelligence brief on " + q + ": "
-            "what it is, who is involved, and why it matters. "
-            "Ground it in the notebook content above. "
-            "ALWAYS write in English. Use **bold** for key entities. Output only the brief."
+            "You are an OSINT analyst. A colleague searched " + q + " across social platforms. "
+            "Here are real posts currently circulating:" + NL + NL
+            + context + NL + NL
+            + "Write a tight 2-3 sentence intelligence brief explaining what " + q + " refers to, "
+            "who or what is involved, and why it is being discussed. "
+            "Ground it in the posts above and your own knowledge. "
+            "ALWAYS write in English. Use **bold** for key people, groups, or events. "
+            "Be factual and neutral. Output only the brief."
         )
-        source_label = "notebooklm"
     else:
-        ctx = NL.join("- " + str(s).replace(NL, " ")[:220] for s in snippets[:15] if s)
-        if ctx:
-            prompt = (
-                "You are an OSINT analyst. A colleague searched " + q + " across social platforms. "
-                "Here are real posts currently circulating:" + NL + NL
-                + ctx + NL + NL
-                + "Write a tight 2-3 sentence intelligence brief on " + q + ": "
-                "what it refers to, who or what is involved, and why it is being discussed. "
-                "ALWAYS write in English. Use **bold** for key entities. Output only the brief."
-            )
-        else:
-            prompt = (
-                "You are an OSINT analyst. Write a tight 2-3 sentence intelligence brief on " + q + ": "
-                "what it refers to, who or what is involved, and why it matters. "
-                "ALWAYS write in English. Use **bold** for key entities. Output only the brief."
-            )
-        source_label = "claude"
+        prompt = (
+            "You are an OSINT analyst. Write a tight 2-3 sentence intelligence brief on " + q + ": "
+            "what it refers to, who or what is involved, and why it matters. "
+            "ALWAYS write in English. Use **bold** for key entities. "
+            "Be factual and neutral. Output only the brief."
+        )
 
     try:
         r = requests.post(
@@ -1468,7 +1441,7 @@ def api_brief():
                 err = (r.json().get("error") or {})
                 emsg = err.get("message", "")
                 if "credit" in emsg.lower() or "billing" in emsg.lower():
-                    reason = "Intelligence brief unavailable - Anthropic API credit balance is empty."
+                    reason = "Intelligence brief unavailable - Anthropic API credit balance is empty. Add credits to enable briefs."
                 elif "rate" in err.get("type", "").lower():
                     reason = "Intelligence brief rate-limited - try again in a moment."
                 elif emsg:
@@ -1480,7 +1453,7 @@ def api_brief():
         brief = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
         if not brief:
             return jsonify({"brief": None, "reason": "Intelligence brief unavailable."}), 200
-        payload = {"brief": brief, "source": source_label}
+        payload = {"brief": brief}
         _cache[cache_key] = (now, payload)
         return jsonify(payload)
     except Exception:
