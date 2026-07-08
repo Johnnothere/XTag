@@ -849,7 +849,9 @@ def _restore_notebooklm_auth() -> bool:
     if not NOTEBOOKLM_AUTH_ARCHIVE:
         return False
     try:
-        data = base64.b64decode(NOTEBOOKLM_AUTH_ARCHIVE)
+        archive = NOTEBOOKLM_AUTH_ARCHIVE
+	archive += "=" * (-len(archive) % 4)
+	data = base64.b64decode(archive)
         home = os.path.expanduser("~")
         proc = subprocess.run(["tar", "-xzf", "-", "-C", home], input=data, capture_output=True)
         if proc.returncode != 0:
