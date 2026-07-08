@@ -236,6 +236,209 @@ a{color:inherit;text-decoration:none;}
 .kb-meta{font-size:10.5px;color:var(--muted);display:flex;align-items:center;gap:6px;}
 .kb-nb{font-size:9px;letter-spacing:.1em;text-transform:uppercase;background:var(--accent-tint);color:var(--accent);border-radius:5px;padding:2px 7px;font-weight:600;}
 
+
+/* ═══ WELCOME REDESIGN ═══ */
+#welcome{
+  position:relative;
+  min-height:calc(100vh - 57px);
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:60px 24px;overflow:hidden;
+}
+.wgrid{
+  position:absolute;inset:0;
+  background-image:linear-gradient(var(--line2) 1px,transparent 1px),
+    linear-gradient(90deg,var(--line2) 1px,transparent 1px);
+  background-size:44px 44px;opacity:.45;pointer-events:none;
+}
+.wc{position:relative;text-align:center;max-width:620px;width:100%;}
+.wmark{
+  font-size:12px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:28px;
+  display:flex;align-items:center;gap:12px;
+}
+.wmark::before,.wmark::after{content:'';flex:1;height:1px;background:var(--line);}
+.wh1{
+  font-family:var(--serif);font-size:54px;line-height:1.03;
+  margin-bottom:14px;letter-spacing:-.01em;
+}
+.wh1 span{color:var(--accent);}
+.wsub{font-size:15px;color:var(--ink2);margin-bottom:34px;line-height:1.65;}
+.wplats{
+  display:flex;gap:10px;justify-content:center;
+  margin-top:38px;align-items:center;flex-wrap:wrap;
+}
+.wplat{
+  width:32px;height:32px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;color:#fff;
+  opacity:.4;transition:opacity .15s;cursor:default;
+}
+.wplat:hover{opacity:.75;}
+.wplats-more{font-size:12px;color:var(--muted);margin-left:4px;}
+
+/* ═══ LOADER REDESIGN ═══ */
+.ld-query{
+  font-size:18px;font-weight:300;color:var(--ink2);
+  letter-spacing:-.01em;margin-bottom:18px;text-align:center;
+}
+.ld-query b{color:var(--accent);font-weight:500;}
+.ld-plat-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  gap:8px;width:min(560px,90vw);margin-bottom:20px;
+}
+.ld-plat-item{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:9px;padding:10px 12px;
+  display:flex;align-items:center;gap:8px;
+  transition:border-color .25s,background .25s;
+}
+.ld-plat-item.ld-loading{border-color:var(--accent);background:var(--accent-tint);}
+.ld-plat-item.ld-done{border-color:var(--pos);background:var(--pos-tint);}
+.ld-plat-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--line);
+  flex:none;transition:background .25s;
+}
+.ld-plat-item.ld-loading .ld-plat-dot{
+  background:var(--accent);
+  animation:ldpd .65s ease-in-out infinite alternate;
+}
+.ld-plat-item.ld-done .ld-plat-dot{background:var(--pos);}
+@keyframes ldpd{from{opacity:1;}to{opacity:.2;}}
+.ld-plat-name{font-size:11px;color:var(--ink2);flex:1;transition:color .25s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ld-plat-item.ld-done .ld-plat-name{color:var(--pos);}
+.ld-plat-item.ld-loading .ld-plat-name{color:var(--accent);}
+.ld-plat-count{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;flex:none;}
+.ld-plat-item.ld-done .ld-plat-count{color:var(--pos);}
+
+/* ═══ NAV TABS (Intelligence / Knowledge Bank) ═══ */
+.nav-tabs{
+  display:none;flex:none;align-items:center;gap:3px;
+  background:var(--surface2);border:1px solid var(--line);
+  border-radius:11px;padding:3px;
+}
+.nav-tabs.show{display:flex;}
+.nav-tab{
+  padding:6px 16px;border-radius:8px;font-size:12.5px;font-weight:500;
+  color:var(--ink2);cursor:pointer;transition:all .15s;
+  display:flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.nav-tab:hover{color:var(--ink);}
+.nav-tab.active{background:var(--surface);color:var(--ink);box-shadow:var(--sh-sm);}
+.nav-tab .ti{font-size:14px;}
+
+/* ═══ KNOWLEDGE BANK CHATBOT ═══ */
+#kb-view{
+  display:none;flex-direction:column;
+  height:calc(100vh - 57px);max-height:calc(100vh - 57px);
+}
+#kb-view.show{display:flex;}
+.kb-nb-bar{
+  padding:10px 24px;border-bottom:1px solid var(--line);
+  display:flex;gap:7px;flex-wrap:wrap;flex:none;align-items:center;
+}
+.kb-nb-label{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);flex:none;margin-right:2px;}
+.kb-nb-pill{
+  font-size:11.5px;border-radius:20px;padding:4px 13px;font-weight:500;
+  cursor:pointer;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink2);transition:all .12s;
+}
+.kb-nb-pill:hover{border-color:var(--accent);color:var(--accent);}
+.kb-nb-pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.kb-live{
+  margin-left:auto;font-size:11px;color:var(--pos);
+  display:flex;align-items:center;gap:5px;flex:none;
+}
+.kb-live-dot{width:6px;height:6px;border-radius:50%;background:var(--pos);}
+.kb-chat{
+  flex:1;overflow-y:auto;padding:20px 24px;
+  display:flex;flex-direction:column;gap:16px;
+}
+.kb-sys-msg{
+  text-align:center;font-size:11.5px;color:var(--muted);
+  background:var(--surface2);border-radius:20px;
+  padding:5px 16px;display:inline-block;align-self:center;
+}
+.kb-bot-row{display:flex;gap:12px;align-items:flex-start;}
+.kb-bot-icon{
+  width:30px;height:30px;border-radius:9px;
+  background:var(--accent-tint);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  flex:none;font-size:15px;margin-top:2px;
+}
+.kb-bot-body{flex:1;min-width:0;}
+.kb-bot-from{font-size:10.5px;color:var(--muted);margin-bottom:6px;}
+.kb-bubble{
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;border-top-left-radius:3px;
+  padding:14px 16px;box-shadow:var(--sh-sm);
+}
+.kb-bubble p{font-size:13.5px;color:var(--ink2);line-height:1.68;margin-bottom:10px;}
+.kb-bubble p:last-child{margin-bottom:0;}
+.kb-bubble b{color:var(--ink);font-weight:600;}
+.kb-source-card{
+  background:var(--surface2);border:1px solid var(--line2);
+  border-radius:9px;padding:11px 13px;margin-top:10px;
+}
+.kb-source-title{font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:4px;}
+.kb-source-text{font-size:12px;color:var(--ink2);line-height:1.55;}
+.kb-source-tag{
+  font-size:10px;color:var(--muted);margin-top:6px;
+  display:flex;align-items:center;gap:5px;
+}
+.kb-nb-tag{
+  font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  background:var(--accent-tint);color:var(--accent);
+  border-radius:4px;padding:2px 7px;font-weight:600;
+}
+.kb-user-row{display:flex;justify-content:flex-end;}
+.kb-user-bubble{
+  background:var(--accent);border-radius:12px;
+  border-bottom-right-radius:3px;padding:12px 16px;max-width:78%;
+}
+.kb-user-bubble p{font-size:13.5px;color:#fff;line-height:1.5;margin:0;}
+.kb-typing{display:flex;align-items:center;gap:5px;padding:6px 0;}
+.kb-typing span{
+  width:7px;height:7px;border-radius:50%;background:var(--muted);
+  animation:kbdot 1.2s ease-in-out infinite;
+}
+.kb-typing span:nth-child(2){animation-delay:.2s;}
+.kb-typing span:nth-child(3){animation-delay:.4s;}
+@keyframes kbdot{0%,80%,100%{transform:scale(.8);opacity:.4;}40%{transform:scale(1.1);opacity:1;}}
+.kb-input-area{border-top:1px solid var(--line);padding:14px 24px;flex:none;}
+.kb-sugg-row{display:flex;gap:7px;margin-bottom:12px;flex-wrap:wrap;}
+.kb-sugg{
+  font-size:12px;color:var(--accent);
+  background:var(--accent-tint);
+  border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);
+  border-radius:16px;padding:5px 13px;cursor:pointer;transition:all .12s;
+}
+.kb-sugg:hover{background:var(--accent);color:#fff;}
+.kb-input-row{
+  display:flex;gap:9px;align-items:center;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;padding:8px 8px 8px 16px;
+  transition:border-color .15s,box-shadow .15s;
+}
+.kb-input-row:focus-within{border-color:var(--accent);box-shadow:0 0 0 4px var(--ring);}
+.kb-input-row input{
+  flex:1;border:none;background:transparent;outline:none;
+  font:inherit;font-size:13.5px;color:var(--ink);
+}
+.kb-input-row input::placeholder{color:var(--muted);}
+.kb-send{
+  height:36px;padding:0 18px;background:var(--accent);color:#fff;
+  border:none;border-radius:9px;font:inherit;font-size:13px;
+  font-weight:500;cursor:pointer;transition:background .12s;
+  display:flex;align-items:center;gap:7px;flex:none;
+}
+.kb-send:hover{background:var(--accent-hover);}
+.kb-send:disabled{opacity:.5;cursor:default;}
+.kb-empty{text-align:center;padding:60px 20px;color:var(--muted);margin:auto;}
+.kb-empty .ti{font-size:40px;display:block;margin-bottom:14px;opacity:.25;}
+.kb-empty p{font-size:13.5px;line-height:1.7;}
+.kb-empty b{color:var(--ink2);}
+
 </style>
 </head>
 <body>
@@ -246,7 +449,8 @@ a{color:inherit;text-decoration:none;}
     <div class="ld-brand">X<span>#</span>Tag</div>
     <div class="ld-orbit"><div class="ring"></div><div class="ring r2"></div><div class="core"></div></div>
     <div class="ld-bar"></div>
-    <div class="ld-pills" id="ldPills"></div>
+    <div class="ld-query" id="ldQuery"></div>
+    <div class="ld-plat-grid" id="ldPlatGrid"></div>
     <div class="ld-status" id="ldStatus">Connecting to platforms…</div>
   </div>
 </div>
@@ -269,15 +473,34 @@ a{color:inherit;text-decoration:none;}
         <input id="q" placeholder="Search any hashtag, keyword, or name across 15+ platforms…" autocomplete="off"/>
         <button class="go" onclick="doSearch()">Search</button>
       </div>
+      <div class="nav-tabs" id="navTabs">
+        <div class="nav-tab active" data-v="intel" onclick="showView('intel')"><i class="ti ti-brain"></i>Intelligence</div>
+        <div class="nav-tab" data-v="kb" onclick="showView('kb')"><i class="ti ti-notebook"></i>Knowledge Bank</div>
+      </div>
       <button class="icon-btn" id="themeBtn" title="Toggle theme"><i class="ti ti-moon"></i></button>
     </div>
 
     <div class="body">
       <div id="welcome">
-        <div class="wm">X<span>#</span>Tag</div>
-        <h1>Every platform. One feed.</h1>
-        <p>Search any hashtag, keyword, or name across 15+ social platforms and news sources — unified, ranked, and analysed in real time.</p>
-        <div class="sugg" id="sugg"></div>
+        <div class="wgrid"></div>
+        <div class="wc">
+          <div class="wmark">X<span style="color:var(--accent)">#</span>TAG &middot; CROSS-PLATFORM INTELLIGENCE</div>
+          <h1 class="wh1">Every platform.<br><span>One feed.</span></h1>
+          <p class="wsub">Search any hashtag, keyword or name across 15+ social platforms and news sources &mdash; unified, ranked, and analysed in real time.</p>
+          <div class="sugg" id="sugg"></div>
+          <div class="wplats">
+            <div class="wplat" style="background:#FF4500" title="Reddit">R</div>
+            <div class="wplat" style="background:#FF0000" title="YouTube">YT</div>
+            <div class="wplat" style="background:#14171a" title="X">X</div>
+            <div class="wplat" style="background:#1185FE" title="Bluesky">BS</div>
+            <div class="wplat" style="background:#229ED9" title="Telegram">TG</div>
+            <div class="wplat" style="background:#FF6600" title="Hacker News">HN</div>
+            <div class="wplat" style="background:#1a73e8" title="Google News">GN</div>
+            <div class="wplat" style="background:#0A66C2" title="LinkedIn">in</div>
+            <div class="wplat" style="background:#6364FF" title="Mastodon">M</div>
+            <span class="wplats-more">+6 more</span>
+          </div>
+        </div>
       </div>
 
       <div id="dash">
@@ -327,6 +550,26 @@ a{color:inherit;text-decoration:none;}
         </div>
       </div>
 
+      <div id="kb-view">
+        <div class="kb-nb-bar">
+          <span class="kb-nb-label">Notebooks</span>
+          <div id="kbNbPills" style="display:contents"></div>
+          <div class="kb-live" id="kbLiveStatus"></div>
+        </div>
+        <div class="kb-chat" id="kbChat">
+          <div class="kb-empty" id="kbEmpty">
+            <i class="ti ti-notebook"></i>
+            <p>Your research notebooks are ready.<br>Ask a question to get started.</p>
+          </div>
+        </div>
+        <div class="kb-input-area">
+          <div class="kb-sugg-row" id="kbSuggRow"></div>
+          <div class="kb-input-row">
+            <input id="kbInput" placeholder="Ask your notebooks…" autocomplete="off"/>
+            <button class="kb-send" id="kbSendBtn"><i class="ti ti-send"></i>Send</button>
+          </div>
+        </div>
+      </div>
       <div id="statusbox"></div>
     </div>
   </div>
@@ -395,26 +638,49 @@ window.loadHistItem=function(q){
   $('q').value=q;data=e.payload;
   fPlatform='all';fSentiment='all';fMedia=false;fText='';sortMode='relevance';fWindow='all';fMinEng='0';fExclude='';fFrom='';fTo='';
   $('welcome').style.display='none';$('statusbox').innerHTML='';
+  $('kb-view').classList.remove('show');
+  var nt=$('navTabs');if(nt)nt.classList.add('show');
+  kbInitDone=false;kbHistory=[];
   renderDashboard();renderHist();fetchBrief(q);
 };
 
 /* loader */
-var LD_PLATFORMS=['Reddit','X / Twitter','YouTube','TikTok','Telegram','Instagram','Facebook','Bluesky','Mastodon','News & Wires','Hacker News','LinkedIn','Google'];
-var LD_STATUS=['Connecting to platforms…','Fetching live posts…','Aggregating results…','Scoring & analysing…','Building dashboard…'];
+var LD_PLATS=[
+  {id:'reddit',n:'Reddit'},{id:'youtube',n:'YouTube'},{id:'x',n:'X / Twitter'},
+  {id:'gnews',n:'Google News'},{id:'telegram',n:'Telegram'},{id:'linkedin',n:'LinkedIn'},
+  {id:'bluesky',n:'Bluesky'},{id:'hackernews',n:'Hacker News'},{id:'instagram',n:'Instagram'},
+  {id:'tiktok',n:'TikTok'},{id:'mastodon',n:'Mastodon'},{id:'notebooklm',n:'NotebookLM'},
+];
+var LD_STATUS=[
+  'Connecting to platforms…','Fetching live posts…',
+  'Aggregating results…','Scoring & analysing…','Building dashboard…'
+];
 var ldTimer=null;
-function loadShow(){
+function loadShow(q){
   var l=$('load');l.classList.remove('done');l.classList.add('show');
-  $('ldPills').innerHTML=LD_PLATFORMS.map(function(p){return '<span class="ld-pill">'+p+'</span>';}).join('');
-  var pills=[].slice.call(document.querySelectorAll('#ldPills .ld-pill'));
-  var st=Date.now(),si=0,pi=0;
+  var lq=$('ldQuery');
+  if(lq)lq.innerHTML=q?'Searching: <b>'+esc(q)+'</b>':'';
+  var grid=$('ldPlatGrid');
+  if(grid){
+    grid.innerHTML=LD_PLATS.map(function(p){
+      return '<div class="ld-plat-item" id="ldp-'+p.id+'">'+
+        '<div class="ld-plat-dot"></div>'+
+        '<span class="ld-plat-name">'+p.n+'</span>'+
+        '<span class="ld-plat-count" id="ldpc-'+p.id+'"></span></div>';
+    }).join('');
+  }
+  var pi=0,si=0,prev=null;
   $('ldStatus').textContent=LD_STATUS[0];
   clearInterval(ldTimer);
   ldTimer=setInterval(function(){
-    var el=(Date.now()-st)/1000;
-    while(pi<pills.length && el>pi*0.22){pills[pi].classList.add('on');pi++;}
-    var ns=Math.min(Math.floor(el/1.3),LD_STATUS.length-1);
+    if(prev){prev.classList.remove('ld-loading');prev.classList.add('ld-done');}
+    if(pi>=LD_PLATS.length){clearInterval(ldTimer);$('ldStatus').textContent='Done! Building dashboard…';return;}
+    var el=document.getElementById('ldp-'+LD_PLATS[pi].id);
+    if(el){el.classList.add('ld-loading');prev=el;}
+    var ns=Math.min(Math.floor(pi/3),LD_STATUS.length-1);
     if(ns!==si){si=ns;$('ldStatus').textContent=LD_STATUS[si];}
-  },70);
+    pi++;
+  },300);
 }
 function loadHide(){
   clearInterval(ldTimer);
@@ -440,9 +706,10 @@ function engBreakdown(meta){
 /* search */
 var input=$('q');
 input.addEventListener('keydown',function(e){if(e.key==='Enter')doSearch();});
+setTimeout(function(){var ki=$('kbInput');if(ki)ki.addEventListener('keydown',function(e){if(e.key==='Enter')kbSend();});var kb=$('kbSendBtn');if(kb)kb.addEventListener('click',function(){kbSend();});},0);
 async function doSearch(){
   var q=input.value.trim();if(!q)return;
-  $('welcome').style.display='none';$('statusbox').innerHTML='';loadShow();
+  $('welcome').style.display='none';$('statusbox').innerHTML='';loadShow(q);
   try{
     var r=await fetch('/api/search?q='+encodeURIComponent(q));
     if(!r.ok){var j=null;try{j=await r.json();}catch(_){}throw new Error(j&&j.error?j.error:'Search failed (HTTP '+r.status+')');}
@@ -503,6 +770,10 @@ function renderKnowledgeBank(){
 /* dashboard */
 function renderDashboard(){
   $('dash').style.display='block';
+  $('kb-view').classList.remove('show');
+  var nt=$('navTabs');if(nt)nt.classList.add('show');
+  var ta=document.querySelector('.nav-tab[data-v="intel"]');if(ta)ta.classList.add('active');
+  var tb=document.querySelector('.nav-tab[data-v="kb"]');if(tb)tb.classList.remove('active');
   var t=data.totals||{},s=data.sentiment||{};
   $('qt').textContent=data.query;
   $('qm').innerHTML='<b>'+comma(t.mentions||0)+'</b> mentions<span class="dot"></span><b>'+comma(t.engagement||0)+'</b> total engagement<span class="dot"></span><b>'+(t.platforms_with_results||0)+'</b> platforms';
@@ -664,6 +935,147 @@ function renderFeed(){
     return '<a class="fi" href="'+esc(it.url||'#')+'" target="_blank" rel="noopener noreferrer">'+badge+'<div class="fi-body"><div class="fi-h"><span class="fi-u">'+esc(it.author||m.n)+'</span><span class="fi-p">'+esc(m.n)+'</span>'+pill+'</div>'+title+body+foot+'</div>'+th+'<i class="ti ti-arrow-up-right fi-e"></i></a>';
   }).join('');
 }
+
+
+/* ── VIEW SWITCHER ────────────────────────────────────────────── */
+function showView(v){
+  var dash=$('dash'),kb=$('kb-view');
+  var ta=document.querySelector('.nav-tab[data-v="intel"]');
+  var tb=document.querySelector('.nav-tab[data-v="kb"]');
+  if(v==='kb'){
+    dash.style.display='none';
+    kb.classList.add('show');
+    if(ta)ta.classList.remove('active');
+    if(tb)tb.classList.add('active');
+    initKBView();
+  } else {
+    kb.classList.remove('show');
+    dash.style.display='block';
+    if(ta)ta.classList.add('active');
+    if(tb)tb.classList.remove('active');
+  }
+}
+window.showView=showView;
+
+/* ── KNOWLEDGE BANK CHATBOT ───────────────────────────────────── */
+var kbHistory=[];
+var kbTyping=false;
+var kbInitDone=false;
+var kbNotebooks=[];
+var kbSuggestions=[
+  'What C2 infrastructure does Hezbollah Cyber Army use?',
+  'What malware tools are in the Volatile Cedar toolchain?',
+  'How is Hezbollah financed?',
+  'What are Hezbollah’s key regional alliances?',
+  'What ransomware tactics did they deploy?',
+];
+
+async function initKBView(){
+  if(kbInitDone)return;
+  kbInitDone=true;
+  try{
+    var r=await fetch('/api/notebooklm/status');
+    var j=await r.json();
+    kbNotebooks=j.titles||[];
+    var live=$('kbLiveStatus');
+    if(live&&kbNotebooks.length){
+      live.innerHTML='<div class="kb-live-dot"></div>'+kbNotebooks.length+' sources live';
+    }
+    renderKBNbBar();
+  }catch(e){renderKBNbBar();}
+  var welcome=kbNotebooks.length
+    ? 'I have access to <b>'+kbNotebooks.length+' research notebooks</b> in your Knowledge Bank. Ask me anything about Hezbollah — cyber operations, financing, structure, regional alliances, or anything else covered in your research.'
+    : 'Knowledge Bank is ready. Ask me anything — I’ll search your notebooks for answers.';
+  kbHistory=[{role:'assistant',content:welcome,sources:[]}];
+  renderKBChat();
+  renderKBSugg();
+}
+
+function renderKBNbBar(){
+  var el=$('kbNbPills');if(!el)return;
+  el.innerHTML=kbNotebooks.slice(0,6).map(function(t,i){
+    var short=t.length>28?t.slice(0,26)+'…':t;
+    return '<span class="kb-nb-pill" title="'+esc(t)+'" onclick="kbFilterNb(this)">'+esc(short)+'</span>';
+  }).join('');
+}
+window.kbFilterNb=function(el){
+  [].forEach.call(document.querySelectorAll('.kb-nb-pill'),function(p){p.classList.remove('active');});
+  el.classList.add('active');
+};
+
+function renderKBSugg(){
+  var el=$('kbSuggRow');if(!el)return;
+  var shown=kbSuggestions.slice(0,4);
+  el.innerHTML=shown.map(function(s){
+    return '<span class="kb-sugg" onclick="kbAsk(this)">'+esc(s)+'</span>';
+  }).join('');
+}
+window.kbAsk=function(el){
+  $('kbInput').value=el.textContent||el.innerText;
+  kbSend();
+};
+
+function renderKBChat(){
+  var chat=$('kbChat');if(!chat)return;
+  if(!kbHistory.length){
+    chat.innerHTML='<div class="kb-empty" id="kbEmpty"><i class="ti ti-notebook"></i><p>Ask a question to get started.</p></div>';
+    return;
+  }
+  chat.innerHTML=kbHistory.map(function(msg){
+    if(msg.role==='user'){
+      return '<div class="kb-user-row"><div class="kb-user-bubble"><p>'+esc(msg.content)+'</p></div></div>';
+    }
+    var sources='';
+    if(msg.sources&&msg.sources.length){
+      sources=msg.sources.slice(0,3).map(function(s){
+        return '<div class="kb-source-card">'+
+          '<div class="kb-source-title">'+esc(s.title||'Source')+'</div>'+
+          '<div class="kb-source-text">'+esc((s.text||'').slice(0,180))+'</div>'+
+          '<div class="kb-source-tag"><span class="kb-nb-tag">'+esc(s.nb||'NLM')+'</span></div>'+
+          '</div>';
+      }).join('');
+    }
+    var body=esc(msg.content).replace(/\*\*(.*?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>');
+    return '<div class="kb-bot-row">'+
+      '<div class="kb-bot-icon"><i class="ti ti-notebook"></i></div>'+
+      '<div class="kb-bot-body">'+
+        '<div class="kb-bot-from">Knowledge Bank &middot; from your notebooks</div>'+
+        '<div class="kb-bubble"><p>'+body+'</p>'+sources+'</div>'+
+      '</div></div>';
+  }).join('');
+  if(kbTyping){
+    chat.innerHTML+='<div class="kb-bot-row">'+
+      '<div class="kb-bot-icon"><i class="ti ti-notebook"></i></div>'+
+      '<div class="kb-bot-body"><div class="kb-bubble"><div class="kb-typing"><span></span><span></span><span></span></div></div></div></div>';
+  }
+  chat.scrollTop=chat.scrollHeight;
+}
+
+async function kbSend(){
+  var input=$('kbInput'),btn=$('kbSendBtn');
+  var q=(input.value||'').trim();
+  if(!q||kbTyping)return;
+  kbHistory.push({role:'user',content:q});
+  input.value='';
+  kbTyping=true;
+  if(btn)btn.disabled=true;
+  renderKBChat();
+  try{
+    var r=await fetch('/api/kb/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({q:q,history:kbHistory.slice(-8).map(function(h){return{role:h.role,content:h.content};})})
+    });
+    var j=await r.json();
+    kbHistory.push({role:'assistant',content:j.answer||'No answer returned.',sources:j.sources||[]});
+  }catch(e){
+    kbHistory.push({role:'assistant',content:'Sorry, the Knowledge Bank is unavailable right now.',sources:[]});
+  }
+  kbTyping=false;
+  if(btn)btn.disabled=false;
+  renderKBChat();
+}
+window.kbSend=kbSend;
 
 /* welcome suggestions */
 var SUG=['#AI','climate change','elections 2026','#crypto','NATO','disinformation'];
