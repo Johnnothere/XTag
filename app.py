@@ -9,10 +9,13 @@ Returns a unified feed with per-platform badges.
 """
 from __future__ import annotations
 
+import base64
 import html
 import json
 import os
 import re
+import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -45,9 +48,26 @@ SERPAPI_TIMEOUT = 20  # SerpApi runs a full browser; 12s was too tight under loa
 CACHE_TTL = 1800  # 30 minutes — protects the SerpApi credit budget on repeat searches
 _cache: dict[str, tuple[float, dict]] = {}
 
+# ── NotebookLM integration ────────────────────────────────────────────────────
+NOTEBOOKLM_SYNC_INTERVAL = 3600  # 60 minutes
+
+def _load_auth_chunks() -> str:
+    """Reassemble auth from NOTEBOOKLM_AUTH_1, _2, _3 ... env vars."""
+    parts, i = [], 1
+    while True:
+        part = os.environ.get(f"NOTEBOOKLM_AUTH_{i}", "").strip()
+        if not part:
+            break
+        parts.append(part)
+        i += 1
+    return "".join(parts)
+
+NOTEBOOKLM_AUTH_ARCHIVE = _load_auth_chunks()
+_notebook_store: dict[str, dict] = {}
+_notebooklm_status: dict = {"last_sync": None, "notebooks": 0, "error": None}
+# ─────────────────────────────────────────────────────────────────────────────
+
 # Telegram channels to search via t.me/s/ web preview (no auth needed).
-# Editable in Railway → Variables as TELEGRAM_CHANNELS (comma-separated names,
-# with or without @ or t.me/ prefix). Falls back to this curated starter set.
 _DEFAULT_TG_CHANNELS = (
     "telegram,durov,bbcnews,reuters,cnn,aljazeera,dwnews,rtnews,"
     "sputnik,tass_agency,nexta_live,disclosetv,insiderpaper,"
@@ -62,19 +82,16 @@ def _parse_tg_channels() -> list:
         c = c.strip()
         if not c:
             continue
-        # Normalize: strip @, t.me/, https://t.me/, /s/ etc.
         c = c.replace("https://", "").replace("http://", "")
         c = c.replace("t.me/s/", "").replace("t.me/", "")
         c = c.lstrip("@/").strip("/")
         if c and c not in channels:
             channels.append(c)
-    return channels[:40]  # cap to keep fan-out reasonable
+    return channels[:40]
 
 
 TELEGRAM_CHANNELS = _parse_tg_channels()
 
-# Domains → platform id (for tagging Google CSE results).
-# Include reddit/bsky/youtube/mastodon in case they're added to the CSE site list.
 DOMAIN_MAP = {
     "x.com": "x",
     "twitter.com": "x",
@@ -90,7 +107,6 @@ DOMAIN_MAP = {
     "threads.net": "threads",
     "threads.com": "threads",
     "tumblr.com": "tumblr",
-    # These get filled from CSE if you add them to your engine's site list:
     "reddit.com": "reddit",
     "old.reddit.com": "reddit",
     "bsky.app": "bluesky",
@@ -100,19 +116,13 @@ DOMAIN_MAP = {
     "mastodon.social": "mastodon",
     "mastodon.online": "mastodon",
     "mstdn.social": "mastodon",
+    "notebooklm.google.com": "notebooklm",
 }
 
 # ---------- helpers ----------
 
 
 def _query_parts(q: str) -> tuple:
-    """Return (is_hashtag, hashtag_form, plain_form).
-
-    hashtag_form keeps a leading # and strips spaces (#Team_313).
-    plain_form is the bare keyword(s) with # removed (Team_313 / energy security).
-    Relevance is much better when hashtag searches keep the # on platforms that
-    support it, so callers can pick the right form.
-    """
     raw = (q or "").strip()
     is_tag = raw.startswith("#")
     plain = raw.lstrip("#").strip()
@@ -121,7 +131,6 @@ def _query_parts(q: str) -> tuple:
 
 
 def _strip_html(s: str | None) -> str:
-    """Remove HTML tags and unescape entities. Mastodon / Google News return HTML."""
     if not s:
         return ""
     s = re.sub(r"<[^>]+>", " ", s)
@@ -137,7 +146,6 @@ def _truncate(s: str, n: int = 280) -> str:
 
 
 def _iso(dt_val) -> str | None:
-    """Coerce various timestamp shapes to ISO 8601."""
     if dt_val is None:
         return None
     if isinstance(dt_val, (int, float)):
@@ -200,11 +208,6 @@ def search_youtube(q: str) -> dict:
 
 
 def search_reddit(q: str) -> dict:
-    """Reddit via ScrapeBadger — the public .json endpoint was deprecated May 2026.
-
-    Uses ScrapeBadger's Reddit search (structured JSON, works from cloud IPs).
-    Falls back to an error note if no ScrapeBadger key is set.
-    """
     is_tag, tag, plain = _query_parts(q)
     keyword = tag if is_tag else plain
     if not keyword:
@@ -233,7 +236,6 @@ def search_reddit(q: str) -> dict:
     except Exception as e:
         return _empty("reddit", f"bad JSON: {str(e)[:80]}")
 
-    # ScrapeBadger may return a list, or {"posts":[...]}/{"data":[...]}/{"results":[...]}
     items = data if isinstance(data, list) else (
         data.get("posts") or data.get("data") or data.get("results") or []
     )
@@ -267,7 +269,6 @@ def search_reddit(q: str) -> dict:
 
 
 def search_sb_twitter(q: str) -> dict:
-    """X/Twitter via ScrapeBadger advanced search — rich engagement data."""
     is_tag, tag, plain = _query_parts(q)
     keyword = tag if is_tag else plain
     if not keyword:
@@ -327,7 +328,6 @@ def search_sb_twitter(q: str) -> dict:
 
 
 def search_sb_tiktok(q: str) -> dict:
-    """TikTok via ScrapeBadger video search — 5 credits per call."""
     is_tag, tag, plain = _query_parts(q)
     keyword = tag if is_tag else plain
     if not keyword:
@@ -356,7 +356,6 @@ def search_sb_tiktok(q: str) -> dict:
     except Exception as e:
         return _empty("tiktok", f"bad JSON: {str(e)[:80]}")
 
-    # ScrapeBadger's TikTok response shape varies; try several container keys.
     videos = []
     if isinstance(data, list):
         videos = data
@@ -416,8 +415,6 @@ def search_sb_tiktok(q: str) -> dict:
 
 
 def _bsky_token():
-    """Return a cached Bluesky access JWT if app-password creds are set, else None.
-    Bluesky's public searchPosts now 403s without auth; an app password fixes it."""
     if not BLUESKY_IDENTIFIER or not BLUESKY_APP_PASSWORD:
         return None
     now = time.time()
@@ -449,7 +446,6 @@ def _bsky_headers():
 
 
 def _bsky_base():
-    # Authenticated requests go through the PDS entryway; public falls back to the AppView.
     return "https://bsky.social" if (BLUESKY_IDENTIFIER and BLUESKY_APP_PASSWORD) else "https://public.api.bsky.app"
 
 
@@ -469,7 +465,6 @@ def search_bluesky(q: str) -> dict:
             record = post.get("record", {}) or {}
             handle = author.get("handle", "")
             uri = post.get("uri", "")
-            # Convert at:// URI to bsky.app link
             post_id = uri.split("/")[-1] if uri else ""
             web_url = f"https://bsky.app/profile/{handle}/post/{post_id}" if handle and post_id else "https://bsky.app"
             results.append({
@@ -492,12 +487,10 @@ def search_bluesky(q: str) -> dict:
 
 
 def search_mastodon(q: str) -> dict:
-    """Mastodon's keyword search requires auth; use the public hashtag timeline for #tags."""
     try:
         tag = q.lstrip("#").strip()
         if not tag:
             return _empty("mastodon", "empty query")
-        # Public unauthenticated hashtag timeline
         r = requests.get(
             f"https://mastodon.social/api/v1/timelines/tag/{quote_plus(tag)}",
             params={"limit": 40},
@@ -585,13 +578,11 @@ def search_gnews(q: str) -> dict:
 
 
 def _detect_platform_from_url(url: str) -> str | None:
-    """Map a URL's hostname to a platform id via DOMAIN_MAP."""
     try:
         host = urlparse(url).hostname or ""
         host = host.lower().lstrip(".")
         if host.startswith("www."):
             host = host[4:]
-        # Try full host, then strip subdomains progressively
         while host:
             if host in DOMAIN_MAP:
                 return DOMAIN_MAP[host]
@@ -614,13 +605,11 @@ SERPAPI_PLATFORM_DOMAINS = {
     "youtube":   ["youtube.com"],
 }
 
-# Flat OR filter covering every social domain — used in a single SerpApi call
 _ALL_SOCIAL_DOMAINS = [d for domains in SERPAPI_PLATFORM_DOMAINS.values() for d in domains]
 SERPAPI_SITE_FILTER = "(" + " OR ".join(f"site:{d}" for d in _ALL_SOCIAL_DOMAINS) + ")"
 
 
 def _extract_author(platform_id: str, url: str) -> str | None:
-    """Best-effort handle/author extraction from a result URL's path."""
     try:
         path_parts = [p for p in urlparse(url).path.split("/") if p]
         if platform_id == "x" and path_parts:
@@ -642,13 +631,6 @@ def _extract_author(platform_id: str, url: str) -> str | None:
 
 
 def search_serpapi(q: str) -> dict:
-    """One SerpApi Google call across all social domains, split by platform.
-
-    SerpApi runs a real browser + solves CAPTCHAs, so it returns what a real Google
-    user sees — including X/Instagram/TikTok/etc. that the dead CSE API can't reach.
-    Cost: 1 search credit per call (free tier = 250/month). Results are split into
-    per-platform buckets by URL domain so the UI can badge them correctly.
-    """
     all_platforms = list(SERPAPI_PLATFORM_DOMAINS.keys())
     is_tag, tag, plain = _query_parts(q)
     clean_q = plain
@@ -659,34 +641,20 @@ def search_serpapi(q: str) -> dict:
         return {p: _empty(p, "SERPAPI_KEY not set") for p in all_platforms}
 
     out: dict = {p: {"platform": p, "results": [], "error": None} for p in all_platforms}
-    # For hashtags, quote the underscore form so Google matches the tag closely.
     search_term = f'"{tag}"' if is_tag else clean_q
     query = f"{search_term} {SERPAPI_SITE_FILTER}"
 
     try:
         r = requests.get(
             "https://serpapi.com/search",
-            params={
-                "engine": "google",
-                "q": query,
-                "num": 60,       # pull up to 60 results, spread across ~8 platforms
-                "api_key": SERPAPI_KEY,
-                "safe": "off",
-            },
+            params={"engine": "google", "q": query, "num": 60, "api_key": SERPAPI_KEY, "safe": "off"},
             timeout=SERPAPI_TIMEOUT,
         )
     except requests.Timeout:
-        # One retry — SerpApi's headless browser occasionally runs slow under load
         try:
             r = requests.get(
                 "https://serpapi.com/search",
-                params={
-                    "engine": "google",
-                    "q": query,
-                    "num": 60,
-                    "api_key": SERPAPI_KEY,
-                    "safe": "off",
-                },
+                params={"engine": "google", "q": query, "num": 60, "api_key": SERPAPI_KEY, "safe": "off"},
                 timeout=SERPAPI_TIMEOUT,
             )
         except requests.RequestException as e:
@@ -714,7 +682,6 @@ def search_serpapi(q: str) -> dict:
     except Exception as e:
         return {p: _empty(p, f"SerpApi bad JSON: {str(e)[:80]}") for p in all_platforms}
 
-    # SerpApi may return its own error field even on 200
     if isinstance(data, dict) and data.get("error"):
         err = str(data["error"])[:140]
         return {p: _empty(p, f"SerpApi: {err}") for p in all_platforms}
@@ -724,8 +691,6 @@ def search_serpapi(q: str) -> dict:
         platform = _detect_platform_from_url(url)
         if not platform or platform not in out:
             continue
-
-        # SerpApi thumbnail sources vary
         thumb = item.get("thumbnail")
         if not thumb:
             rich = item.get("rich_snippet") or {}
@@ -733,7 +698,6 @@ def search_serpapi(q: str) -> dict:
             imgs = top.get("images") or []
             if imgs and isinstance(imgs[0], str):
                 thumb = imgs[0]
-
         out[platform]["results"].append({
             "platform": platform,
             "title": _strip_html(item.get("title")),
@@ -742,7 +706,7 @@ def search_serpapi(q: str) -> dict:
             "author": _extract_author(platform, url),
             "author_url": None,
             "thumbnail": thumb,
-            "timestamp": item.get("date"),  # SerpApi sometimes provides this
+            "timestamp": item.get("date"),
             "meta": (item.get("displayed_link") or "").replace("https://", "").replace("www.", "").split("/")[0],
         })
 
@@ -750,8 +714,6 @@ def search_serpapi(q: str) -> dict:
 
 
 def search_google_web(q: str) -> dict:
-    """Plain Google web search (no site filter) — the general 'Web' results that
-    social-searcher shows. One SerpApi credit. Returns a single 'google' platform group."""
     is_tag, tag, plain = _query_parts(q)
     if not plain:
         return _empty("google", "empty query")
@@ -761,8 +723,7 @@ def search_google_web(q: str) -> dict:
     try:
         r = requests.get(
             "https://serpapi.com/search",
-            params={"engine": "google", "q": search_term, "num": 20,
-                    "api_key": SERPAPI_KEY, "safe": "off"},
+            params={"engine": "google", "q": search_term, "num": 20, "api_key": SERPAPI_KEY, "safe": "off"},
             timeout=SERPAPI_TIMEOUT,
         )
     except requests.RequestException as e:
@@ -801,24 +762,15 @@ def search_google_web(q: str) -> dict:
 
 
 def _fetch_tg_channel(channel: str, keyword_lc: str) -> list:
-    """Fetch one channel's t.me/s/ web preview and return posts matching keyword.
-
-    Telegram serves the message feed only for channels that have the web preview
-    enabled; others redirect to the contact page (no feed). We detect that and
-    skip silently for that channel.
-    """
     url = f"https://t.me/s/{channel}"
     try:
-        r = requests.get(url, headers={"User-Agent": BROWSER_UA},
-                         timeout=TIMEOUT, allow_redirects=True)
+        r = requests.get(url, headers={"User-Agent": BROWSER_UA}, timeout=TIMEOUT, allow_redirects=True)
     except requests.RequestException:
         return []
     if r.status_code != 200:
         return []
-    # If Telegram bounced us off /s/, the feed isn't public — skip
     if "tgme_widget_message_text" not in r.text:
         return []
-
     try:
         soup = BeautifulSoup(r.text, "lxml")
     except Exception:
@@ -832,10 +784,8 @@ def _fetch_tg_channel(channel: str, keyword_lc: str) -> list:
         text = text_el.get_text(" ", strip=True)
         if not text:
             continue
-        # Keyword filter — match against lowercased post text
         if keyword_lc and keyword_lc not in text.lower():
             continue
-
         link_el = m.select_one("a.tgme_widget_message_date")
         link = link_el.get("href") if link_el else f"https://t.me/{channel}"
         time_el = m.select_one("time")
@@ -844,15 +794,12 @@ def _fetch_tg_channel(channel: str, keyword_lc: str) -> list:
         views = views_el.get_text(strip=True) if views_el else None
         data_post = m.get("data-post", "")
         chan_name = data_post.split("/")[0] if "/" in data_post else channel
-
-        # thumbnail from photo/video preview if present
         thumb = None
         photo = m.select_one(".tgme_widget_message_photo_wrap, .tgme_widget_message_video_thumb")
         if photo and photo.get("style"):
             mobj = re.search(r"background-image:\s*url\(['\"]?(.*?)['\"]?\)", photo["style"])
             if mobj:
                 thumb = mobj.group(1)
-
         posts.append({
             "platform": "telegram",
             "title": None,
@@ -869,12 +816,6 @@ def _fetch_tg_channel(channel: str, keyword_lc: str) -> list:
 
 
 def search_telegram(q: str) -> dict:
-    """Search curated public Telegram channels via t.me/s/ preview (no auth).
-
-    Fetches each channel in TELEGRAM_CHANNELS in parallel, filters recent posts
-    for the keyword. Only covers channels the operator has added — Telegram has
-    no accessible global channel index, so 'all of Telegram' isn't possible.
-    """
     keyword = q.lstrip("#").strip()
     keyword_lc = keyword.lower()
     if not keyword:
@@ -884,8 +825,7 @@ def search_telegram(q: str) -> dict:
 
     all_posts = []
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_fetch_tg_channel, ch, keyword_lc): ch
-                   for ch in TELEGRAM_CHANNELS}
+        futures = {ex.submit(_fetch_tg_channel, ch, keyword_lc): ch for ch in TELEGRAM_CHANNELS}
         try:
             for fut in as_completed(futures, timeout=TIMEOUT + 6):
                 try:
@@ -893,14 +833,129 @@ def search_telegram(q: str) -> dict:
                 except Exception:
                     pass
         except Exception:
-            pass  # overall timeout — return what we have
+            pass
 
-    # Newest first, cap to 20
     all_posts.sort(key=lambda p: p.get("_ts_sort", ""), reverse=True)
     for p in all_posts:
         p.pop("_ts_sort", None)
     return {"platform": "telegram", "results": all_posts[:30], "error": None}
 
+
+# ---------- NotebookLM integration ----------
+
+
+def _restore_notebooklm_auth() -> bool:
+    """Decode reassembled auth and extract to ~/.notebooklm on Railway startup."""
+    if not NOTEBOOKLM_AUTH_ARCHIVE:
+        return False
+    try:
+        data = base64.b64decode(NOTEBOOKLM_AUTH_ARCHIVE)
+        home = os.path.expanduser("~")
+        proc = subprocess.run(["tar", "-xzf", "-", "-C", home], input=data, capture_output=True)
+        if proc.returncode != 0:
+            app.logger.warning("NotebookLM: auth restore failed — %s", proc.stderr.decode()[:200])
+            return False
+        app.logger.info("NotebookLM: auth restored.")
+        return True
+    except Exception as exc:
+        app.logger.warning("NotebookLM: auth restore error — %s", exc)
+        return False
+
+
+async def _sync_notebooks_async() -> dict:
+    """Read-only: lists notebooks, sources, notes. Never writes to NotebookLM."""
+    from notebooklm import NotebookLMClient
+    synced: dict[str, dict] = {}
+    async with NotebookLMClient.from_storage() as client:
+        for nb in await client.notebooks.list():
+            nb_id = str(getattr(nb, "id", None) or getattr(nb, "notebook_id", "") or "")
+            nb_title = str(getattr(nb, "title", None) or getattr(nb, "name", "") or "Notebook")
+            if not nb_id:
+                continue
+            sources_out = []
+            try:
+                for s in await client.sources.list(nb_id):
+                    sources_out.append({
+                        "title":      str(getattr(s, "title",      None) or ""),
+                        "url":        str(getattr(s, "url",        None) or getattr(s, "source_url",  "") or ""),
+                        "snippet":    str(getattr(s, "snippet",    None) or getattr(s, "description", "") or ""),
+                        "created_at": str(getattr(s, "created_at", None) or "") or None,
+                    })
+            except Exception:
+                pass
+            notes_out = []
+            try:
+                for n in await client.notes.list(nb_id):
+                    notes_out.append({
+                        "title":      str(getattr(n, "title",      None) or "Note"),
+                        "content":    str(getattr(n, "content",    None) or getattr(n, "text", "") or ""),
+                        "created_at": str(getattr(n, "created_at", None) or "") or None,
+                    })
+            except Exception:
+                pass
+            synced[nb_id] = {
+                "id": nb_id, "title": nb_title,
+                "sources": sources_out, "notes": notes_out,
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+            }
+    return synced
+
+
+def _notebooklm_sync_loop() -> None:
+    """Background thread — syncs every 60 min. Read-only. Runs on Railway."""
+    import asyncio
+    while True:
+        try:
+            synced = asyncio.run(_sync_notebooks_async())
+            _notebook_store.clear()
+            _notebook_store.update(synced)
+            _notebooklm_status.update({
+                "last_sync": datetime.now(timezone.utc).isoformat(),
+                "notebooks": len(synced),
+                "error": None,
+            })
+            app.logger.info("NotebookLM: synced %d notebook(s)", len(synced))
+        except Exception as exc:
+            _notebooklm_status["error"] = str(exc)[:200]
+            app.logger.warning("NotebookLM: sync error — %s", exc)
+        time.sleep(NOTEBOOKLM_SYNC_INTERVAL)
+
+
+def search_notebooklm(q: str) -> dict:
+    """Search cached notebook sources and notes."""
+    if not _notebook_store:
+        return _empty("notebooklm", "Syncing..." if NOTEBOOKLM_AUTH_ARCHIVE else "NOTEBOOKLM_AUTH_1 not set")
+    q_lower = (q or "").lstrip("#").lower().strip()
+    results = []
+    for nb_id, nb in _notebook_store.items():
+        nb_title = nb.get("title", "Notebook")
+        nb_url   = f"https://notebooklm.google.com/notebook/{nb_id}"
+        for src in nb.get("sources", []):
+            if not q_lower or q_lower in f"{src.get('title','')} {src.get('url','')} {src.get('snippet','')}".lower():
+                results.append({
+                    "platform": "notebooklm",
+                    "title": src.get("title") or "(untitled source)",
+                    "excerpt": _truncate(src.get("snippet") or src.get("url") or ""),
+                    "url": src.get("url") or nb_url,
+                    "author": nb_title, "author_url": nb_url,
+                    "thumbnail": None, "timestamp": src.get("created_at"),
+                    "meta": f"NotebookLM · {nb_title} · source",
+                })
+        for note in nb.get("notes", []):
+            if not q_lower or q_lower in f"{note.get('title','')} {note.get('content','')}".lower():
+                results.append({
+                    "platform": "notebooklm",
+                    "title": note.get("title", "Note"),
+                    "excerpt": _truncate(note.get("content", "")),
+                    "url": nb_url,
+                    "author": nb_title, "author_url": nb_url,
+                    "thumbnail": None, "timestamp": note.get("created_at"),
+                    "meta": f"NotebookLM · {nb_title} · note",
+                })
+    return {"platform": "notebooklm", "results": results[:50], "error": None}
+
+
+# ---------- platform registry ----------
 
 API_PLATFORMS = {
     "youtube": search_youtube,
@@ -913,6 +968,7 @@ API_PLATFORMS = {
     "x": search_sb_twitter,
     "tiktok": search_sb_tiktok,
     "google": search_google_web,
+    "notebooklm": search_notebooklm,
 }
 
 
@@ -936,10 +992,10 @@ def index():
 
 # ---------- sentiment: Claude + Babel Street, reconciled ----------
 
-BABEL_CAP = 24          # Babel Street = one HTTP call per post; cap the second-opinion subset
+BABEL_CAP = 24
 BABEL_WORKERS = 12
-BABEL_BUDGET = 12       # seconds — overall wall-clock budget for the Babel Street pass
-BABEL_TIMEOUT = 10      # seconds per Babel Street call
+BABEL_BUDGET = 12
+BABEL_TIMEOUT = 10
 _SCORE = {"positive": 1.0, "neutral": 0.0, "negative": -1.0}
 
 
@@ -953,14 +1009,11 @@ def _norm_label(raw) -> str:
 
 
 def _babel_one(text: str):
-    """Score one document via Babel Street /sentiment. Returns a label or None.
-    Language is omitted so Babel auto-detects — keeps it multilingual-safe (e.g. Arabic channels)."""
     try:
         r = requests.post(
             "https://analytics.babelstreet.com/rest/v1/sentiment",
             headers={"X-BabelStreetAPI-Key": BABELSTREET_API_KEY,
-                     "Content-Type": "application/json",
-                     "Accept": "application/json"},
+                     "Content-Type": "application/json", "Accept": "application/json"},
             json={"content": text[:3500]},
             timeout=BABEL_TIMEOUT,
         )
@@ -976,8 +1029,6 @@ def _babel_one(text: str):
 
 
 def _sentiment_babelstreet(texts: list, indices: list) -> dict:
-    """Score the given subset (indices into texts) concurrently, within BABEL_BUDGET.
-    Returns {index: label} for whatever finished in time. Empty if no key / all failed."""
     if not BABELSTREET_API_KEY or not indices:
         return {}
     out = {}
@@ -989,13 +1040,11 @@ def _sentiment_babelstreet(texts: list, indices: list) -> dict:
                 if lab:
                     out[futs[fut]] = lab
         except Exception:
-            pass  # budget hit — take whatever finished
+            pass
     return out
 
 
 def _sentiment_claude(texts: list) -> list | None:
-    """Score sentiment via the Anthropic API. Returns list aligned to texts, or None.
-    Caps at 120 posts per call so the JSON response can't overflow max_tokens."""
     if not ANTHROPIC_API_KEY or not texts:
         return None
     batch = texts[:120]
@@ -1009,16 +1058,10 @@ def _sentiment_claude(texts: list) -> list | None:
     try:
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 2000,
-                "messages": [{"role": "user", "content": prompt}],
-            },
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 2000,
+                  "messages": [{"role": "user", "content": prompt}]},
             timeout=SERPAPI_TIMEOUT + 8,
         )
         if r.status_code >= 400:
@@ -1037,8 +1080,6 @@ def _sentiment_claude(texts: list) -> list | None:
 
 
 def attach_sentiment(platforms: dict) -> dict:
-    """Score every result with Claude, add a Babel Street second opinion on the top-engagement
-    posts, reconcile the two, attach labels, and compute a net sentiment score. Mutates results."""
     flat = []
     for group in platforms.values():
         for r in group.get("results", []):
@@ -1052,14 +1093,11 @@ def attach_sentiment(platforms: dict) -> dict:
     texts = [t for _, t in flat]
     engines = []
 
-    # Claude scores the whole set in one batched call.
     claude = _sentiment_claude(texts)
     if claude:
         engines.append("claude")
 
-    # Babel Street second opinion on the highest-engagement subset.
-    order = sorted(range(len(flat)),
-                   key=lambda i: int(flat[i][0].get("engagement") or 0), reverse=True)
+    order = sorted(range(len(flat)), key=lambda i: int(flat[i][0].get("engagement") or 0), reverse=True)
     babel = _sentiment_babelstreet(texts, order[:BABEL_CAP])
     if babel:
         engines.append("babelstreet")
@@ -1098,11 +1136,9 @@ def attach_sentiment(platforms: dict) -> dict:
     }
 
 
-# ---------- narratives: theme clustering from the fetched results ----------
+# ---------- narratives ----------
 
 def extract_narratives(platforms: dict, max_posts: int = 80, max_narratives: int = 6) -> list:
-    """Cluster the fetched posts into recurring narratives via Claude. Returns [{label, count}]
-    ranked by count. No acceleration % — that needs stored history, which XTag doesn't keep."""
     if not ANTHROPIC_API_KEY:
         return []
     items = []
@@ -1160,8 +1196,6 @@ _INT_RE = re.compile(r"\d[\d,]*")
 
 
 def _engagement_breakdown(meta) -> dict:
-    """Split a result's meta string into reactions / comments / shares using its markers.
-    Views/plays (impressions) are deliberately excluded from engagement."""
     out = {"reactions": 0, "comments": 0, "shares": 0}
     if not meta:
         return out
@@ -1176,17 +1210,15 @@ def _engagement_breakdown(meta) -> dict:
         except (TypeError, ValueError):
             return 0
 
-    out["reactions"] += grab(r"\u2665\s*([\d,]+)")      # ♥ likes / favourites
-    out["shares"]    += grab(r"\u21ba\s*([\d,]+)")      # ↺ reposts / retweets
-    out["comments"]  += grab(r"\U0001f4ac\s*([\d,]+)")  # comments emoji
-    out["reactions"] += grab(r"([\d,]+)\s*pts")          # reddit / HN points
-    out["comments"]  += grab(r"([\d,]+)\s*comments")     # reddit / HN comments
+    out["reactions"] += grab(r"♥\s*([\d,]+)")
+    out["shares"]    += grab(r"↺\s*([\d,]+)")
+    out["comments"]  += grab(r"\U0001f4ac\s*([\d,]+)")
+    out["reactions"] += grab(r"([\d,]+)\s*pts")
+    out["comments"]  += grab(r"([\d,]+)\s*comments")
     return out
 
 
 def _engagement_from_meta(meta) -> int:
-    """Sum the integer counts embedded in a result's meta string (likes/comments/plays/etc.).
-    Real figures, parsed back out of the human-readable string — an engagement proxy for sorting."""
     if not meta:
         return 0
     total = 0
@@ -1199,7 +1231,6 @@ def _engagement_from_meta(meta) -> int:
 
 
 def _parse_dt(val):
-    """Best-effort parse of the many timestamp shapes the fetchers produce -> UTC datetime or None."""
     if val is None:
         return None
     if isinstance(val, (int, float)):
@@ -1237,7 +1268,6 @@ def _parse_dt(val):
 
 
 def _build_aggregates(platforms: dict) -> dict:
-    """Compute the dashboard's live tiles: totals (with engagement breakdown) + source mix."""
     source_mix = []
     total_mentions = with_results = 0
     reactions = comments = shares = 0
@@ -1278,7 +1308,6 @@ def api_search():
     if len(q) > 200:
         return jsonify({"error": "query too long"}), 400
 
-    # Check cache
     cache_key = q.lower()
     now = time.time()
     if cache_key in _cache:
@@ -1286,7 +1315,6 @@ def api_search():
         if now - ts < CACHE_TTL:
             return jsonify({**cached, "cached": True})
 
-    # Fire all platforms in parallel — direct APIs + Google CSE
     direct_out: dict[str, dict] = {}
     cse_out: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=len(API_PLATFORMS) + 1) as ex:
@@ -1306,33 +1334,24 @@ def api_search():
                 except Exception as e:
                     direct_out[name] = _empty(name, str(e)[:120])
 
-    # Merge: direct API results first (richer metadata), then SerpApi dedupe-appended.
-    # If direct API errored but SerpApi has results, clear the error so user sees data.
     out: dict[str, dict] = {}
     for pid in set(direct_out.keys()) | set(cse_out.keys()):
         direct = direct_out.get(pid)
         cse = cse_out.get(pid)
         if direct and cse:
             existing_urls = {r.get("url") for r in direct.get("results", []) if r.get("url")}
-            cse_extra = [r for r in cse.get("results", [])
-                         if r.get("url") and r["url"] not in existing_urls]
+            cse_extra = [r for r in cse.get("results", []) if r.get("url") and r["url"] not in existing_urls]
             merged_results = direct.get("results", []) + cse_extra
-            # Prefer direct's error only if BOTH failed; otherwise show whichever has data
-            if merged_results:
-                error = None
-            else:
-                error = direct.get("error") or cse.get("error")
+            error = None if merged_results else (direct.get("error") or cse.get("error"))
             out[pid] = {"platform": pid, "results": merged_results, "error": error}
         else:
             out[pid] = direct or cse
 
-    # Numeric engagement on every result (parsed from the human-readable meta string).
     for group in out.values():
         for r in group.get("results", []):
             eb = _engagement_breakdown(r.get("meta"))
             r["engagement"] = eb["reactions"] + eb["comments"] + eb["shares"]
 
-    # Sentiment — Claude + Babel Street, reconciled. Never allowed to crash a search.
     sentiment = {"scored": 0, "positive": 0, "neutral": 0, "negative": 0,
                  "net": None, "engines": [], "agreement": None, "babel_scored": 0}
     if SENTIMENT_ENABLED:
@@ -1342,7 +1361,6 @@ def api_search():
             app.logger.warning("sentiment failed: %s", e)
             sentiment["error"] = str(e)[:120]
 
-    # Trending narratives — themes clustered from the fetched results (Claude). Best-effort.
     narratives = []
     try:
         narratives = extract_narratives(out)
@@ -1354,7 +1372,6 @@ def api_search():
                "narratives": narratives, "totals": agg["totals"],
                "source_mix": agg["source_mix"], "cached": False}
     _cache[cache_key] = (now, payload)
-    # Cap cache size (simple LRU-ish)
     if len(_cache) > 200:
         oldest = sorted(_cache.items(), key=lambda kv: kv[1][0])[:50]
         for k, _ in oldest:
@@ -1362,12 +1379,8 @@ def api_search():
     return jsonify(payload)
 
 
-
 @app.route("/api/brief", methods=["POST"])
 def api_brief():
-    """Grounded intelligence brief: Claude synthesises what the searched term is about,
-    using the actual fetched posts plus its own knowledge. Always answers in English.
-    Returns {brief, reason} so the UI can explain any failure (e.g. no API credits)."""
     body = request.get_json(silent=True) or {}
     q = (body.get("q") or "").strip()
     snippets = body.get("snippets") or []
@@ -1428,8 +1441,7 @@ def api_brief():
                 pass
             return jsonify({"brief": None, "reason": reason}), 200
         data = r.json()
-        brief = "".join(b.get("text", "") for b in data.get("content", [])
-                        if b.get("type") == "text").strip()
+        brief = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
         if not brief:
             return jsonify({"brief": None, "reason": "Intelligence brief unavailable."}), 200
         payload = {"brief": brief}
@@ -1441,7 +1453,6 @@ def api_brief():
 
 @app.route("/debug/tiktok")
 def debug_tiktok():
-    """Diagnostic: dump the raw ScrapeBadger TikTok response so we can map its real shape."""
     debug_token = os.environ.get("DEBUG_TOKEN", "").strip()
     if debug_token and request.headers.get("X-Debug-Token") != debug_token:
         return {"error": "auth required"}, 401
@@ -1461,7 +1472,6 @@ def debug_tiktok():
             body = r.json()
         except Exception:
             body = {"raw_text": (r.text or "")[:1500]}
-        # summarise structure
         top_keys = list(body.keys()) if isinstance(body, dict) else "(list)" if isinstance(body, list) else str(type(body))
         container = None
         sample = None
@@ -1497,7 +1507,6 @@ def debug_tiktok():
 
 @app.route("/debug/brief")
 def debug_brief():
-    """Diagnostic: run the brief pipeline directly (GET, no cache) and surface the raw result/error."""
     q = (request.args.get("q") or "").strip()
     if not q:
         return {"error": "pass ?q="}, 400
@@ -1534,20 +1543,16 @@ def debug_brief():
 
 @app.route("/debug/serpapi")
 def debug_serpapi():
-    """Diagnostic: hit SerpApi with a test query and return status + credit info."""
     debug_token = os.environ.get("DEBUG_TOKEN", "").strip()
     if debug_token and request.headers.get("X-Debug-Token") != debug_token:
         return {"error": "auth required"}, 401
-
     if not SERPAPI_KEY:
         return {"serpapi_key_set": False, "error": "SERPAPI_KEY not set"}, 200
-
     q = (request.args.get("q") or "test").strip()
     try:
         r = requests.get(
             "https://serpapi.com/search",
-            params={"engine": "google", "q": f"{q} site:x.com",
-                    "num": 3, "api_key": SERPAPI_KEY},
+            params={"engine": "google", "q": f"{q} site:x.com", "num": 3, "api_key": SERPAPI_KEY},
             timeout=SERPAPI_TIMEOUT,
         )
         try:
@@ -1570,15 +1575,13 @@ def debug_serpapi():
 
 @app.route("/debug/account")
 def debug_account():
-    """Show remaining SerpApi search credits this month."""
     debug_token = os.environ.get("DEBUG_TOKEN", "").strip()
     if debug_token and request.headers.get("X-Debug-Token") != debug_token:
         return {"error": "auth required"}, 401
     if not SERPAPI_KEY:
         return {"error": "SERPAPI_KEY not set"}, 200
     try:
-        r = requests.get("https://serpapi.com/account",
-                         params={"api_key": SERPAPI_KEY}, timeout=SERPAPI_TIMEOUT)
+        r = requests.get("https://serpapi.com/account", params={"api_key": SERPAPI_KEY}, timeout=SERPAPI_TIMEOUT)
         return r.json(), r.status_code
     except Exception as e:
         return {"error": f"{type(e).__name__}: {str(e)[:160]}"}, 500
@@ -1586,7 +1589,6 @@ def debug_account():
 
 @app.route("/debug/scrapebadger")
 def debug_scrapebadger():
-    """Diagnostic: test ScrapeBadger Reddit search + show account credits."""
     debug_token = os.environ.get("DEBUG_TOKEN", "").strip()
     if debug_token and request.headers.get("X-Debug-Token") != debug_token:
         return {"error": "auth required"}, 401
@@ -1594,19 +1596,15 @@ def debug_scrapebadger():
         return {"scrapebadger_key_set": False, "error": "SCRAPEBADGER_KEY not set"}, 200
     out = {"scrapebadger_key_last4": SCRAPEBADGER_KEY[-4:]}
     q = (request.args.get("q") or "test").strip()
-    # Account info (no credits charged)
     try:
-        acct = requests.get(f"{SB_BASE}/account",
-                            headers={"x-api-key": SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
+        acct = requests.get(f"{SB_BASE}/account", headers={"x-api-key": SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
         out["account_status"] = acct.status_code
         if acct.ok:
             out["account"] = acct.json()
     except Exception as e:
         out["account_error"] = f"{type(e).__name__}: {str(e)[:100]}"
-    # Reddit search test
     try:
-        r = requests.get(f"{SB_BASE}/reddit/search/posts",
-                         params={"q": q, "limit": 3},
+        r = requests.get(f"{SB_BASE}/reddit/search/posts", params={"q": q, "limit": 3},
                          headers={"x-api-key": SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
         out["reddit_search_status"] = r.status_code
         try:
@@ -1620,6 +1618,30 @@ def debug_scrapebadger():
     except Exception as e:
         out["reddit_error"] = f"{type(e).__name__}: {str(e)[:100]}"
     return out, 200
+
+
+# ---------- NotebookLM routes ----------
+
+
+@app.route("/api/notebooklm/status")
+def notebooklm_status():
+    """Shows sync health and cached notebook titles."""
+    chunks = sum(1 for i in range(1, 20) if os.environ.get(f"NOTEBOOKLM_AUTH_{i}"))
+    return jsonify({
+        "configured":   chunks > 0,
+        "auth_chunks":  chunks,
+        "notebooks":    _notebooklm_status["notebooks"],
+        "titles":       [nb.get("title") for nb in _notebook_store.values()],
+        "last_sync":    _notebooklm_status["last_sync"],
+        "error":        _notebooklm_status["error"],
+        "interval_min": NOTEBOOKLM_SYNC_INTERVAL // 60,
+    })
+
+
+# Start background sync thread if auth chunks are present.
+# Syncs immediately on startup then every 60 minutes. Read-only.
+if NOTEBOOKLM_AUTH_ARCHIVE and _restore_notebooklm_auth():
+    threading.Thread(target=_notebooklm_sync_loop, daemon=True, name="notebooklm-sync").start()
 
 
 if __name__ == "__main__":
