@@ -225,6 +225,17 @@ a{color:inherit;text-decoration:none;}
   .side{display:none;}
   .dh .qt{font-size:36px;}
 }
+
+/* knowledge bank */
+.kb-item{padding:13px 0;border-top:1px solid var(--line2);}
+.kb-item:first-child{border-top:none;padding-top:0;}
+.kb-title{font-size:13.5px;font-weight:600;color:var(--ink);margin-bottom:3px;line-height:1.35;}
+.kb-title a{color:inherit;}
+.kb-title a:hover{color:var(--accent);}
+.kb-body{font-size:12.5px;color:var(--ink2);line-height:1.55;margin-bottom:5px;}
+.kb-meta{font-size:10.5px;color:var(--muted);display:flex;align-items:center;gap:6px;}
+.kb-nb{font-size:9px;letter-spacing:.1em;text-transform:uppercase;background:var(--accent-tint);color:var(--accent);border-radius:5px;padding:2px 7px;font-weight:600;}
+
 </style>
 </head>
 <body>
@@ -295,6 +306,15 @@ a{color:inherit;text-decoration:none;}
               <div class="cs">Recurring themes across results</div>
               <div id="nar"></div>
             </div>
+
+            <div class="card card-pad" id="kbCard" style="display:none">
+              <h2 class="ch" style="display:flex;align-items:center;gap:9px;">
+                <i class="ti ti-notebook" style="font-size:18px;color:var(--accent);"></i>
+                Knowledge Bank
+              </h2>
+              <div class="cs" id="kbSub">NotebookLM</div>
+              <div id="kb"></div>
+            </div>
           </div>
           <div class="card feed-panel">
             <div class="feed-head">
@@ -323,7 +343,7 @@ var META={
   tiktok:{n:'TikTok',c:'#111',i:'TT'},facebook:{n:'Facebook',c:'#1877F2',i:'f'},
   linkedin:{n:'LinkedIn',c:'#0A66C2',i:'in'},pinterest:{n:'Pinterest',c:'#E60023',i:'P'},
   threads:{n:'Threads',c:'#111',i:'@'},tumblr:{n:'Tumblr',c:'#34526f',i:'t'},
-  telegram:{n:'Telegram',c:'#229ED9',i:'TG'},google:{n:'Google',c:'#4285F4',i:'G'}
+  telegram:{n:'Telegram',c:'#229ED9',i:'TG'},google:{n:'Google',c:'#4285F4',i:'G'},notebooklm:{n:'NotebookLM',c:'#1a73e8',i:'NB'}
 };
 function pm(id){return META[id]||{n:id,c:'#888',i:(id||'?').slice(0,2).toUpperCase()};}
 
@@ -459,6 +479,27 @@ async function fetchBrief(q){
   }catch(e){card.style.display='none';}
 }
 
+
+function renderKnowledgeBank(){
+  var card=$('kbCard');
+  if(!data||!data.platforms||!data.platforms.notebooklm){card.style.display='none';return;}
+  var results=(data.platforms.notebooklm.results||[]);
+  if(!results.length){card.style.display='none';return;}
+  card.style.display='';
+  var nbs=[...new Set(results.map(function(r){return r.author;}).filter(Boolean))];
+  $('kbSub').textContent='NotebookLM · '+nbs.slice(0,3).join(', ');
+  $('kb').innerHTML=results.slice(0,12).map(function(r){
+    var titleHtml=r.url
+      ?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+esc(r.title||'(untitled)')+'</a>'
+      :esc(r.title||'(untitled)');
+    return '<div class="kb-item">'+
+      '<div class="kb-title">'+titleHtml+'</div>'+
+      (r.excerpt?'<div class="kb-body">'+esc(r.excerpt)+'</div>':'')+
+      '<div class="kb-meta"><span class="kb-nb">NLM</span>'+esc(r.author||'')+'</div>'+
+      '</div>';
+  }).join('');
+}
+
 /* dashboard */
 function renderDashboard(){
   $('dash').style.display='block';
@@ -469,6 +510,7 @@ function renderDashboard(){
   renderSrc(data.source_mix||[]);
   renderNar(data.narratives||[]);
   renderErrors();
+  renderKnowledgeBank();
   buildFC();renderFeed();
   if(!(data.narratives&&data.narratives.length))$('narCard').style.display='none';else $('narCard').style.display='';
 }
