@@ -1396,36 +1396,31 @@ def api_brief():
     if not q:
         return jsonify({"error": "missing q"}), 400
     if not ANTHROPIC_API_KEY:
-        return jsonify({"brief": None, "reason": "Intelligence brief needs an Anthropic API key (ANTHROPIC_API_KEY)."}), 200
-
+        return jsonify({"brief": None, "reason": "Intelligence brief needs ANTHROPIC_API_KEY."}), 200
     cache_key = "__brief__" + q.lower()
     now = time.time()
     if cache_key in _cache:
         ts, cached = _cache[cache_key]
         if now - ts < CACHE_TTL:
             return jsonify({**cached, "cached": True})
-
     NL = chr(10)
-    context = NL.join("- " + str(s).replace(NL, " ")[:220] for s in snippets[:15] if s)
-    if context:
+    ctx = NL.join("- " + str(s).replace(NL, " ")[:220] for s in snippets[:15] if s)
+    if ctx:
         prompt = (
             "You are an OSINT analyst. A colleague searched " + q + " across social platforms. "
             "Here are real posts currently circulating:" + NL + NL
-            + context + NL + NL
-            + "Write a tight 2-3 sentence intelligence brief explaining what " + q + " refers to, "
-            "who or what is involved, and why it is being discussed. "
-            "Ground it in the posts above and your own knowledge. "
-            "ALWAYS write in English. Use **bold** for key people, groups, or events. "
-            "Be factual and neutral. Output only the brief."
+            + ctx + NL + NL
+            + "Write a tight 2-3 sentence intelligence brief on " + q + ": "
+            "what it refers to, who or what is involved, and why it is being discussed. "
+            "Ground it in the posts above. ALWAYS write in English. "
+            "Use **bold** for key entities. Output only the brief."
         )
     else:
         prompt = (
             "You are an OSINT analyst. Write a tight 2-3 sentence intelligence brief on " + q + ": "
             "what it refers to, who or what is involved, and why it matters. "
-            "ALWAYS write in English. Use **bold** for key entities. "
-            "Be factual and neutral. Output only the brief."
+            "ALWAYS write in English. Use **bold** for key entities. Output only the brief."
         )
-
     try:
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
@@ -1441,7 +1436,7 @@ def api_brief():
                 err = (r.json().get("error") or {})
                 emsg = err.get("message", "")
                 if "credit" in emsg.lower() or "billing" in emsg.lower():
-                    reason = "Intelligence brief unavailable - Anthropic API credit balance is empty. Add credits to enable briefs."
+                    reason = "Intelligence brief unavailable - Anthropic API credit balance is empty."
                 elif "rate" in err.get("type", "").lower():
                     reason = "Intelligence brief rate-limited - try again in a moment."
                 elif emsg:
@@ -1449,8 +1444,8 @@ def api_brief():
             except Exception:
                 pass
             return jsonify({"brief": None, "reason": reason}), 200
-        data = r.json()
-        brief = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        rdata = r.json()
+        brief = "".join(b.get("text", "") for b in rdata.get("content", []) if b.get("type") == "text").strip()
         if not brief:
             return jsonify({"brief": None, "reason": "Intelligence brief unavailable."}), 200
         payload = {"brief": brief}
@@ -1458,6 +1453,87 @@ def api_brief():
         return jsonify(payload)
     except Exception:
         return jsonify({"brief": None, "reason": "Intelligence brief unavailable - request failed."}), 200
+
+
+
+@app.route("/api/kb/chat", methods=["POST"])
+def api_kb_chat():
+    """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
+    body = request.get_json(silent=True) or {}
+    q = (body.get("q") or "").strip()
+    history = body.get("history") or []
+    if not q:
+        return jsonify({"error": "missing q"}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"answer": "Knowledge Bank needs ANTHROPIC_API_KEY.", "sources": []}), 200
+    NL = chr(10)
+    matches = []
+    q_lower = q.lower()
+    q_words = [w for w in q_lower.split() if len(w) > 3]
+    if _notebook_store:
+        for nb_id, nb in _notebook_store.items():
+            nb_title = nb.get("title", "Unknown")
+            for src in nb.get("sources", []):
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": src.get("title", ""),
+                        "text": text[:400],
+                        "url": src.get("url", ""),
+                    })
+            for note in nb.get("notes", []):
+                text = (note.get("title", "") + " " + note.get("content", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": note.get("title", "Note"),
+                        "text": text[:400],
+                        "url": "",
+                    })
+    if not matches and _notebook_store:
+        for nb_id, nb in list(_notebook_store.items())[:3]:
+            nb_title = nb.get("title", "Unknown")
+            for src in list(nb.get("sources", []))[:3]:
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                matches.append({
+                    "nb": nb_title, "title": src.get("title", ""),
+                    "text": text[:200], "url": src.get("url", ""),
+                })
+    ctx_parts = ["- [" + m["nb"] + "] " + m["title"] + ": " + m["text"] for m in matches[:15]]
+    ctx = NL.join(ctx_parts) if ctx_parts else "No specific notebook content found for this query."
+    msgs = []
+    for h in history[-5:]:
+        if h.get("role") in ("user", "assistant"):
+            msgs.append({"role": h["role"], "content": str(h.get("content", ""))})
+    if not msgs or msgs[-1]["role"] != "user":
+        msgs.append({"role": "user", "content": q})
+    system = (
+        "You are an expert intelligence research assistant for a Hezbollah Knowledge Bank. "
+        "You have access to curated research notebooks with analysis, source documents, and notes." + NL
+        + "Relevant notebook content:" + NL + NL + ctx + NL + NL
+        + "Answer based on the notebook content. Be specific and cite which notebook each fact comes from. "
+        "Use **bold** for key entities, groups, or facts. "
+        "If notebooks lack info on the question, say so clearly. ALWAYS write in English."
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 600,
+                  "system": system, "messages": msgs},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return jsonify({"answer": "Knowledge Bank unavailable.", "sources": []}), 200
+        rdata = r.json()
+        answer = "".join(b.get("text", "") for b in rdata.get("content", []) if b.get("type") == "text").strip()
+        sources = [{"nb": m["nb"], "title": m["title"], "text": m["text"][:200], "url": m["url"]}
+                   for m in matches[:5]]
+        return jsonify({"answer": answer, "sources": sources})
+    except Exception:
+        return jsonify({"answer": "Knowledge Bank unavailable - request failed.", "sources": []}), 200
 
 
 
@@ -1515,6 +1591,87 @@ def debug_tiktok():
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
 
 
+@app.route("/api/kb/chat", methods=["POST"])
+def api_kb_chat():
+    """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
+    body = request.get_json(silent=True) or {}
+    q = (body.get("q") or "").strip()
+    history = body.get("history") or []
+    if not q:
+        return jsonify({"error": "missing q"}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"answer": "Knowledge Bank needs ANTHROPIC_API_KEY.", "sources": []}), 200
+    NL = chr(10)
+    matches = []
+    q_lower = q.lower()
+    q_words = [w for w in q_lower.split() if len(w) > 3]
+    if _notebook_store:
+        for nb_id, nb in _notebook_store.items():
+            nb_title = nb.get("title", "Unknown")
+            for src in nb.get("sources", []):
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": src.get("title", ""),
+                        "text": text[:400],
+                        "url": src.get("url", ""),
+                    })
+            for note in nb.get("notes", []):
+                text = (note.get("title", "") + " " + note.get("content", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": note.get("title", "Note"),
+                        "text": text[:400],
+                        "url": "",
+                    })
+    if not matches and _notebook_store:
+        for nb_id, nb in list(_notebook_store.items())[:3]:
+            nb_title = nb.get("title", "Unknown")
+            for src in list(nb.get("sources", []))[:3]:
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                matches.append({
+                    "nb": nb_title, "title": src.get("title", ""),
+                    "text": text[:200], "url": src.get("url", ""),
+                })
+    ctx_parts = ["- [" + m["nb"] + "] " + m["title"] + ": " + m["text"] for m in matches[:15]]
+    ctx = NL.join(ctx_parts) if ctx_parts else "No specific notebook content found for this query."
+    msgs = []
+    for h in history[-5:]:
+        if h.get("role") in ("user", "assistant"):
+            msgs.append({"role": h["role"], "content": str(h.get("content", ""))})
+    if not msgs or msgs[-1]["role"] != "user":
+        msgs.append({"role": "user", "content": q})
+    system = (
+        "You are an expert intelligence research assistant for a Hezbollah Knowledge Bank. "
+        "You have access to curated research notebooks with analysis, source documents, and notes." + NL
+        + "Relevant notebook content:" + NL + NL + ctx + NL + NL
+        + "Answer based on the notebook content. Be specific and cite which notebook each fact comes from. "
+        "Use **bold** for key entities, groups, or facts. "
+        "If notebooks lack info on the question, say so clearly. ALWAYS write in English."
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 600,
+                  "system": system, "messages": msgs},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return jsonify({"answer": "Knowledge Bank unavailable.", "sources": []}), 200
+        rdata = r.json()
+        answer = "".join(b.get("text", "") for b in rdata.get("content", []) if b.get("type") == "text").strip()
+        sources = [{"nb": m["nb"], "title": m["title"], "text": m["text"][:200], "url": m["url"]}
+                   for m in matches[:5]]
+        return jsonify({"answer": answer, "sources": sources})
+    except Exception:
+        return jsonify({"answer": "Knowledge Bank unavailable - request failed.", "sources": []}), 200
+
+
+
 @app.route("/debug/brief")
 def debug_brief():
     q = (request.args.get("q") or "").strip()
@@ -1551,6 +1708,87 @@ def debug_brief():
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
 
 
+@app.route("/api/kb/chat", methods=["POST"])
+def api_kb_chat():
+    """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
+    body = request.get_json(silent=True) or {}
+    q = (body.get("q") or "").strip()
+    history = body.get("history") or []
+    if not q:
+        return jsonify({"error": "missing q"}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"answer": "Knowledge Bank needs ANTHROPIC_API_KEY.", "sources": []}), 200
+    NL = chr(10)
+    matches = []
+    q_lower = q.lower()
+    q_words = [w for w in q_lower.split() if len(w) > 3]
+    if _notebook_store:
+        for nb_id, nb in _notebook_store.items():
+            nb_title = nb.get("title", "Unknown")
+            for src in nb.get("sources", []):
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": src.get("title", ""),
+                        "text": text[:400],
+                        "url": src.get("url", ""),
+                    })
+            for note in nb.get("notes", []):
+                text = (note.get("title", "") + " " + note.get("content", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": note.get("title", "Note"),
+                        "text": text[:400],
+                        "url": "",
+                    })
+    if not matches and _notebook_store:
+        for nb_id, nb in list(_notebook_store.items())[:3]:
+            nb_title = nb.get("title", "Unknown")
+            for src in list(nb.get("sources", []))[:3]:
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                matches.append({
+                    "nb": nb_title, "title": src.get("title", ""),
+                    "text": text[:200], "url": src.get("url", ""),
+                })
+    ctx_parts = ["- [" + m["nb"] + "] " + m["title"] + ": " + m["text"] for m in matches[:15]]
+    ctx = NL.join(ctx_parts) if ctx_parts else "No specific notebook content found for this query."
+    msgs = []
+    for h in history[-5:]:
+        if h.get("role") in ("user", "assistant"):
+            msgs.append({"role": h["role"], "content": str(h.get("content", ""))})
+    if not msgs or msgs[-1]["role"] != "user":
+        msgs.append({"role": "user", "content": q})
+    system = (
+        "You are an expert intelligence research assistant for a Hezbollah Knowledge Bank. "
+        "You have access to curated research notebooks with analysis, source documents, and notes." + NL
+        + "Relevant notebook content:" + NL + NL + ctx + NL + NL
+        + "Answer based on the notebook content. Be specific and cite which notebook each fact comes from. "
+        "Use **bold** for key entities, groups, or facts. "
+        "If notebooks lack info on the question, say so clearly. ALWAYS write in English."
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 600,
+                  "system": system, "messages": msgs},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return jsonify({"answer": "Knowledge Bank unavailable.", "sources": []}), 200
+        rdata = r.json()
+        answer = "".join(b.get("text", "") for b in rdata.get("content", []) if b.get("type") == "text").strip()
+        sources = [{"nb": m["nb"], "title": m["title"], "text": m["text"][:200], "url": m["url"]}
+                   for m in matches[:5]]
+        return jsonify({"answer": answer, "sources": sources})
+    except Exception:
+        return jsonify({"answer": "Knowledge Bank unavailable - request failed.", "sources": []}), 200
+
+
+
 @app.route("/debug/serpapi")
 def debug_serpapi():
     debug_token = os.environ.get("DEBUG_TOKEN", "").strip()
@@ -1583,6 +1821,87 @@ def debug_serpapi():
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
 
 
+@app.route("/api/kb/chat", methods=["POST"])
+def api_kb_chat():
+    """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
+    body = request.get_json(silent=True) or {}
+    q = (body.get("q") or "").strip()
+    history = body.get("history") or []
+    if not q:
+        return jsonify({"error": "missing q"}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"answer": "Knowledge Bank needs ANTHROPIC_API_KEY.", "sources": []}), 200
+    NL = chr(10)
+    matches = []
+    q_lower = q.lower()
+    q_words = [w for w in q_lower.split() if len(w) > 3]
+    if _notebook_store:
+        for nb_id, nb in _notebook_store.items():
+            nb_title = nb.get("title", "Unknown")
+            for src in nb.get("sources", []):
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": src.get("title", ""),
+                        "text": text[:400],
+                        "url": src.get("url", ""),
+                    })
+            for note in nb.get("notes", []):
+                text = (note.get("title", "") + " " + note.get("content", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": note.get("title", "Note"),
+                        "text": text[:400],
+                        "url": "",
+                    })
+    if not matches and _notebook_store:
+        for nb_id, nb in list(_notebook_store.items())[:3]:
+            nb_title = nb.get("title", "Unknown")
+            for src in list(nb.get("sources", []))[:3]:
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                matches.append({
+                    "nb": nb_title, "title": src.get("title", ""),
+                    "text": text[:200], "url": src.get("url", ""),
+                })
+    ctx_parts = ["- [" + m["nb"] + "] " + m["title"] + ": " + m["text"] for m in matches[:15]]
+    ctx = NL.join(ctx_parts) if ctx_parts else "No specific notebook content found for this query."
+    msgs = []
+    for h in history[-5:]:
+        if h.get("role") in ("user", "assistant"):
+            msgs.append({"role": h["role"], "content": str(h.get("content", ""))})
+    if not msgs or msgs[-1]["role"] != "user":
+        msgs.append({"role": "user", "content": q})
+    system = (
+        "You are an expert intelligence research assistant for a Hezbollah Knowledge Bank. "
+        "You have access to curated research notebooks with analysis, source documents, and notes." + NL
+        + "Relevant notebook content:" + NL + NL + ctx + NL + NL
+        + "Answer based on the notebook content. Be specific and cite which notebook each fact comes from. "
+        "Use **bold** for key entities, groups, or facts. "
+        "If notebooks lack info on the question, say so clearly. ALWAYS write in English."
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 600,
+                  "system": system, "messages": msgs},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return jsonify({"answer": "Knowledge Bank unavailable.", "sources": []}), 200
+        rdata = r.json()
+        answer = "".join(b.get("text", "") for b in rdata.get("content", []) if b.get("type") == "text").strip()
+        sources = [{"nb": m["nb"], "title": m["title"], "text": m["text"][:200], "url": m["url"]}
+                   for m in matches[:5]]
+        return jsonify({"answer": answer, "sources": sources})
+    except Exception:
+        return jsonify({"answer": "Knowledge Bank unavailable - request failed.", "sources": []}), 200
+
+
+
 @app.route("/debug/account")
 def debug_account():
     debug_token = os.environ.get("DEBUG_TOKEN", "").strip()
@@ -1595,6 +1914,87 @@ def debug_account():
         return r.json(), r.status_code
     except Exception as e:
         return {"error": f"{type(e).__name__}: {str(e)[:160]}"}, 500
+
+
+@app.route("/api/kb/chat", methods=["POST"])
+def api_kb_chat():
+    """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
+    body = request.get_json(silent=True) or {}
+    q = (body.get("q") or "").strip()
+    history = body.get("history") or []
+    if not q:
+        return jsonify({"error": "missing q"}), 400
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"answer": "Knowledge Bank needs ANTHROPIC_API_KEY.", "sources": []}), 200
+    NL = chr(10)
+    matches = []
+    q_lower = q.lower()
+    q_words = [w for w in q_lower.split() if len(w) > 3]
+    if _notebook_store:
+        for nb_id, nb in _notebook_store.items():
+            nb_title = nb.get("title", "Unknown")
+            for src in nb.get("sources", []):
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": src.get("title", ""),
+                        "text": text[:400],
+                        "url": src.get("url", ""),
+                    })
+            for note in nb.get("notes", []):
+                text = (note.get("title", "") + " " + note.get("content", "")).strip()
+                if q_lower in text.lower() or any(w in text.lower() for w in q_words):
+                    matches.append({
+                        "nb": nb_title,
+                        "title": note.get("title", "Note"),
+                        "text": text[:400],
+                        "url": "",
+                    })
+    if not matches and _notebook_store:
+        for nb_id, nb in list(_notebook_store.items())[:3]:
+            nb_title = nb.get("title", "Unknown")
+            for src in list(nb.get("sources", []))[:3]:
+                text = (src.get("title", "") + " " + src.get("snippet", "")).strip()
+                matches.append({
+                    "nb": nb_title, "title": src.get("title", ""),
+                    "text": text[:200], "url": src.get("url", ""),
+                })
+    ctx_parts = ["- [" + m["nb"] + "] " + m["title"] + ": " + m["text"] for m in matches[:15]]
+    ctx = NL.join(ctx_parts) if ctx_parts else "No specific notebook content found for this query."
+    msgs = []
+    for h in history[-5:]:
+        if h.get("role") in ("user", "assistant"):
+            msgs.append({"role": h["role"], "content": str(h.get("content", ""))})
+    if not msgs or msgs[-1]["role"] != "user":
+        msgs.append({"role": "user", "content": q})
+    system = (
+        "You are an expert intelligence research assistant for a Hezbollah Knowledge Bank. "
+        "You have access to curated research notebooks with analysis, source documents, and notes." + NL
+        + "Relevant notebook content:" + NL + NL + ctx + NL + NL
+        + "Answer based on the notebook content. Be specific and cite which notebook each fact comes from. "
+        "Use **bold** for key entities, groups, or facts. "
+        "If notebooks lack info on the question, say so clearly. ALWAYS write in English."
+    )
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": "claude-haiku-4-5-20251001", "max_tokens": 600,
+                  "system": system, "messages": msgs},
+            timeout=SERPAPI_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return jsonify({"answer": "Knowledge Bank unavailable.", "sources": []}), 200
+        rdata = r.json()
+        answer = "".join(b.get("text", "") for b in rdata.get("content", []) if b.get("type") == "text").strip()
+        sources = [{"nb": m["nb"], "title": m["title"], "text": m["text"][:200], "url": m["url"]}
+                   for m in matches[:5]]
+        return jsonify({"answer": answer, "sources": sources})
+    except Exception:
+        return jsonify({"answer": "Knowledge Bank unavailable - request failed.", "sources": []}), 200
+
 
 
 @app.route("/debug/scrapebadger")
