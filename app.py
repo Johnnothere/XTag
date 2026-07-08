@@ -1456,7 +1456,6 @@ def api_brief():
 
 
 
-@app.route("/api/kb/chat", methods=["POST"])
 def api_kb_chat():
     """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
     body = request.get_json(silent=True) or {}
@@ -1591,7 +1590,6 @@ def debug_tiktok():
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
 
 
-@app.route("/api/kb/chat", methods=["POST"])
 def api_kb_chat():
     """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
     body = request.get_json(silent=True) or {}
@@ -1708,7 +1706,6 @@ def debug_brief():
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
 
 
-@app.route("/api/kb/chat", methods=["POST"])
 def api_kb_chat():
     """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
     body = request.get_json(silent=True) or {}
@@ -1821,7 +1818,6 @@ def debug_serpapi():
         return {"error": f"{type(e).__name__}: {str(e)[:200]}"}, 500
 
 
-@app.route("/api/kb/chat", methods=["POST"])
 def api_kb_chat():
     """Knowledge Bank chatbot — searches NotebookLM notebooks and answers via Claude."""
     body = request.get_json(silent=True) or {}
