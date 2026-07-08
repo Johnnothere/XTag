@@ -277,7 +277,7 @@ a{color:inherit;text-decoration:none;}
         <div id="errors"></div>
 
         <div class="brief" id="brief">
-          <div class="brief-h"><div class="bi"><i class="ti ti-sparkles"></i></div><div class="bl">Intelligence Brief</div></div>
+          <div class="brief-h"><div class="bi" id="briefIcon"><i class="ti ti-sparkles"></i></div><div class="bl" id="briefLabel">Intelligence Brief</div></div>
           <div class="brief-t" id="briefT"><div class="brief-load"><span class="spin"></span>Analysing results…</div></div>
         </div>
 
@@ -439,14 +439,21 @@ window.doSearch=doSearch;
 
 /* brief — grounded in fetched posts */
 async function fetchBrief(q){
-  var card=$('brief'),el=$('briefT');
-  card.style.display='';
+  var card=$('brief'),el=$('briefT'),icon=$('briefIcon'),lbl=$('briefLabel');
+  card.style.display='';icon.innerHTML='<i class="ti ti-sparkles"></i>';lbl.textContent='Intelligence Brief';
   el.innerHTML='<div class="brief-load"><span class="spin"></span>Analysing results…</div>';
   var snippets=allItems().slice(0,15).map(function(it){return((it.title||'')+' '+(it.excerpt||'')).trim();}).filter(Boolean);
   try{
     var r=await fetch('/api/brief',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q:q,snippets:snippets})});
     var j=await r.json();
-    if(j&&j.brief){el.innerHTML=esc(j.brief).replace(/\*\*(.*?)\*\*/g,'<b>$1</b>');}
+    if(j&&j.brief){
+      if(j.source==='notebooklm'){icon.innerHTML='<i class="ti ti-notebook"></i>';lbl.innerHTML='NotebookLM <span style="font-size:9px;opacity:.55;letter-spacing:.06em;">POWERED</span>';}
+      el.innerHTML=esc(j.brief).replace(/\*\*(.*?)\*\*/g,'<b>$1</b>');
+    }
+    else if(j&&j.reason){el.innerHTML='<span style="color:var(--muted);font-size:13.5px;display:flex;align-items:center;gap:8px;"><i class="ti ti-alert-circle" style="color:var(--accent);font-size:15px;"></i>'+esc(j.reason)+'</span>';}
+    else{card.style.display='none';}
+  }catch(e){card.style.display='none';}
+}
     else if(j&&j.reason){el.innerHTML='<span style="color:var(--muted);font-size:13.5px;display:flex;align-items:center;gap:8px;"><i class="ti ti-alert-circle" style="color:var(--accent);font-size:15px;"></i>'+esc(j.reason)+'</span>';}
     else{card.style.display='none';}
   }catch(e){card.style.display='none';}
