@@ -845,22 +845,28 @@ def search_telegram(q: str) -> dict:
 
 
 def _restore_notebooklm_auth() -> bool:
-    """Decode reassembled auth and extract to ~/.notebooklm on Railway startup."""
     if not NOTEBOOKLM_AUTH_ARCHIVE:
+        _notebooklm_status["restore"] = "no auth archive"
         return False
     try:
         archive = NOTEBOOKLM_AUTH_ARCHIVE
-	archive += "=" * (-len(archive) % 4)
-	data = base64.b64decode(archive)
+        archive += "=" * (-len(archive) % 4)
+        data = base64.b64decode(archive)
         home = os.path.expanduser("~")
-        proc = subprocess.run(["tar", "-xzf", "-", "-C", home], input=data, capture_output=True)
-        if proc.returncode != 0:
-            app.logger.warning("NotebookLM: auth restore failed — %s", proc.stderr.decode()[:200])
-            return False
-        app.logger.info("NotebookLM: auth restored.")
-        return True
+        proc = subprocess.run(
+            ["tar", "-xzf", "-", "-C", home, "--no-same-owner"],
+            input=data, capture_output=True
+        )
+        nlm_dir = os.path.join(home, ".notebooklm")
+        if os.path.isdir(nlm_dir):
+            _notebooklm_status["restore"] = "ok"
+            app.logger.info("NotebookLM: auth restored.")
+            return True
+        msg = proc.stderr.decode()[:300]
+        _notebooklm_status["restore"] = f"tar failed: {msg}"
+        return False
     except Exception as exc:
-        app.logger.warning("NotebookLM: auth restore error — %s", exc)
+        _notebooklm_status["restore"] = str(exc)[:300]
         return False
 
 
