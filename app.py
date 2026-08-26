@@ -41,6 +41,7 @@ BLUESKY_IDENTIFIER   = os.environ.get("BLUESKY_IDENTIFIER", "").strip()
 BLUESKY_APP_PASSWORD = os.environ.get("BLUESKY_APP_PASSWORD", "").strip()
 PODCAST_INDEX_KEY    = os.environ.get("PODCAST_INDEX_KEY", "").strip()
 PODCAST_INDEX_SECRET = os.environ.get("PODCAST_INDEX_SECRET", "").strip()
+OPENALEX_MAILTO      = os.environ.get("OPENALEX_MAILTO", "").strip() or "osint@xtag.app"
 
 SB_BASE = "https://scrapebadger.com/v1"
 SENTIMENT_ENABLED = bool(ANTHROPIC_API_KEY or BABELSTREET_API_KEY)
@@ -92,17 +93,37 @@ def make_doc(platform, url, text, title=None, author=None, author_url=None,
     }
 
 # ── Adversary/state media RSS feeds ──────────────────────────────────────────
+# NOTE ON EDITIONS: English editions of state media are sanitised for foreign
+# audiences. The native-language originals carry markedly different framing and
+# are the higher-value collection target. Both are included; native-language
+# feeds are marked lang so the multilingual pipeline analyses them in-language.
 ADVERSARY_RSS_FEEDS = [
-    {"url": "https://en.mehrnews.com/rss", "platform": "state_media", "author": "Mehr News (Iran)", "credibility": "state"},
-    {"url": "https://en.irna.ir/rss", "platform": "state_media", "author": "IRNA (Iran)", "credibility": "state"},
-    {"url": "https://www.tasnimnews.com/en/rss", "platform": "state_media", "author": "Tasnim (Iran)", "credibility": "state"},
-    {"url": "https://english.khamenei.ir/rss", "platform": "state_media", "author": "Khamenei.ir", "credibility": "state"},
-    {"url": "https://english.al-manar.com.lb/rss.php", "platform": "state_media", "author": "Al-Manar (Hezbollah)", "credibility": "state"},
-    {"url": "https://www.almayadeen.net/rss.xml", "platform": "state_media", "author": "Al Mayadeen", "credibility": "state"},
-    {"url": "https://tass.com/rss/v2.xml", "platform": "state_media", "author": "TASS (Russia)", "credibility": "state"},
-    {"url": "https://www.rt.com/rss/", "platform": "state_media", "author": "RT (Russia)", "credibility": "state"},
-    {"url": "https://www.cgtn.com/subscribe/rss/section/world.do", "platform": "state_media", "author": "CGTN (China)", "credibility": "state"},
-    {"url": "https://www.presstv.ir/section/351020109.rss", "platform": "state_media", "author": "PressTV (Iran)", "credibility": "state"},
+    # ── Native language — PRIMARY collection value ──
+    {"url": "https://www.almanar.com.lb/rss", "platform": "state_media",
+     "author": "Al-Manar عربي (Hezbollah)", "credibility": "state", "lang": "ar"},
+    {"url": "https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9",
+     "platform": "state_media", "author": "Al Jazeera عربي", "credibility": "medium", "lang": "ar"},
+    {"url": "https://www.almayadeen.net/rss/all", "platform": "state_media",
+     "author": "Al Mayadeen عربي", "credibility": "state", "lang": "ar"},
+    {"url": "https://arabic.rt.com/rss/", "platform": "state_media",
+     "author": "RT عربي (Russia)", "credibility": "state", "lang": "ar"},
+    {"url": "https://www.mehrnews.com/rss", "platform": "state_media",
+     "author": "Mehr فارسی (Iran)", "credibility": "state", "lang": "fa"},
+    {"url": "https://www.irna.ir/rss", "platform": "state_media",
+     "author": "IRNA فارسی (Iran)", "credibility": "state", "lang": "fa"},
+    {"url": "https://farsi.khamenei.ir/rss-full", "platform": "state_media",
+     "author": "Khamenei فارسی", "credibility": "state", "lang": "fa"},
+    # ── English editions — for comparison against native framing ──
+    {"url": "https://english.al-manar.com.lb/rss.php", "platform": "state_media", "author": "Al-Manar EN (Hezbollah)", "credibility": "state", "lang": "en"},
+    {"url": "https://en.mehrnews.com/rss", "platform": "state_media", "author": "Mehr News EN (Iran)", "credibility": "state", "lang": "en"},
+    {"url": "https://en.irna.ir/rss", "platform": "state_media", "author": "IRNA EN (Iran)", "credibility": "state", "lang": "en"},
+    {"url": "https://www.tasnimnews.com/en/rss", "platform": "state_media", "author": "Tasnim EN (Iran)", "credibility": "state", "lang": "en"},
+    {"url": "https://english.khamenei.ir/rss", "platform": "state_media", "author": "Khamenei.ir EN", "credibility": "state", "lang": "en"},
+    {"url": "https://www.almayadeen.net/rss.xml", "platform": "state_media", "author": "Al Mayadeen EN", "credibility": "state", "lang": "en"},
+    {"url": "https://www.presstv.ir/section/351020109.rss", "platform": "state_media", "author": "PressTV EN (Iran)", "credibility": "state", "lang": "en"},
+    {"url": "https://tass.com/rss/v2.xml", "platform": "state_media", "author": "TASS EN (Russia)", "credibility": "state", "lang": "en"},
+    {"url": "https://www.rt.com/rss/", "platform": "state_media", "author": "RT EN (Russia)", "credibility": "state", "lang": "en"},
+    {"url": "https://www.cgtn.com/subscribe/rss/section/world.do", "platform": "state_media", "author": "CGTN EN (China)", "credibility": "state", "lang": "en"},
 ]
 
 PODCAST_WATCHLIST = [
@@ -186,6 +207,173 @@ def _parse_dt(val):
             return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
         except: continue
     return None
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 3 — MULTILINGUAL PIPELINE
+# Analyse in SOURCE language, translate for display only.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+LANG_META = {
+    "ar": {"name": "Arabic",   "native": "العربية",   "rtl": True,  "flag": "🇸🇦"},
+    "fa": {"name": "Persian",  "native": "فارسی",     "rtl": True,  "flag": "🇮🇷"},
+    "he": {"name": "Hebrew",   "native": "עברית",     "rtl": True,  "flag": "🇮🇱"},
+    "ru": {"name": "Russian",  "native": "Русский",   "rtl": False, "flag": "🇷🇺"},
+    "zh": {"name": "Chinese",  "native": "中文",       "rtl": False, "flag": "🇨🇳"},
+    "ur": {"name": "Urdu",     "native": "اردو",      "rtl": True,  "flag": "🇵🇰"},
+    "tr": {"name": "Turkish",  "native": "Türkçe",    "rtl": False, "flag": "🇹🇷"},
+    "en": {"name": "English",  "native": "English",   "rtl": False, "flag": "🇬🇧"},
+}
+
+# Persian-specific letters (not in standard Arabic): پ چ ژ گ ک ی
+_FARSI_CHARS = set("\u067E\u0686\u0698\u06AF\u06A9\u06CC")
+# Urdu-specific: ٹ ڈ ڑ ں ھ ے
+_URDU_CHARS = set("\u0679\u0688\u0691\u06BA\u06BE\u06D2")
+
+def detect_language(text: str) -> str:
+    """
+    Script-based language detection. Fast, no dependencies, reliable for the
+    scripts that matter here (Arabic/Farsi/Hebrew/Cyrillic/CJK).
+    Returns ISO 639-1 code.
+    """
+    if not text:
+        return "en"
+    sample = text[:600]
+    counts = {"arabic": 0, "hebrew": 0, "cyrillic": 0, "cjk": 0, "latin": 0}
+    has_farsi = has_urdu = False
+
+    for ch in sample:
+        cp = ord(ch)
+        if 0x0600 <= cp <= 0x06FF or 0x0750 <= cp <= 0x077F or 0xFB50 <= cp <= 0xFDFF:
+            counts["arabic"] += 1
+            if ch in _FARSI_CHARS: has_farsi = True
+            if ch in _URDU_CHARS:  has_urdu = True
+        elif 0x0590 <= cp <= 0x05FF:
+            counts["hebrew"] += 1
+        elif 0x0400 <= cp <= 0x04FF:
+            counts["cyrillic"] += 1
+        elif 0x4E00 <= cp <= 0x9FFF or 0x3040 <= cp <= 0x30FF:
+            counts["cjk"] += 1
+        elif ch.isalpha() and cp < 0x250:
+            counts["latin"] += 1
+
+    total = sum(counts.values())
+    if total < 3:
+        return "en"
+
+    dominant = max(counts, key=counts.get)
+    ratio = counts[dominant] / total
+    if ratio < 0.25:
+        return "en"
+
+    if dominant == "arabic":
+        if has_urdu:  return "ur"
+        if has_farsi: return "fa"
+        return "ar"
+    if dominant == "hebrew":   return "he"
+    if dominant == "cyrillic": return "ru"
+    if dominant == "cjk":      return "zh"
+    return "en"
+
+
+def translate_batch(texts: list, source_lang: str) -> list | None:
+    """
+    Translate a batch of texts to English for DISPLAY only.
+    Analysis is always performed on the original language text.
+    """
+    if not ANTHROPIC_API_KEY or not texts:
+        return None
+    lang_name = LANG_META.get(source_lang, {}).get("name", source_lang)
+    batch = texts[:40]
+    numbered = "\n".join(f"{i+1}. {t[:300]}" for i, t in enumerate(batch))
+    prompt = (
+        f"Translate each numbered {lang_name} text to English.\n"
+        "Preserve meaning precisely — this is for intelligence analysis, so keep "
+        "connotation, register, and any loaded or euphemistic language intact.\n"
+        "Do NOT sanitise, soften, or editorialise.\n"
+        'Output ONLY a JSON array of strings, one per input, in order. No prose.\n\n'
+        + numbered
+    )
+    text = _claude_call(prompt, 2600)
+    if not text:
+        return None
+    try:
+        arr = json.loads(re.sub(r"```json|```", "", text).strip())
+        out = [str(x) for x in arr]
+        while len(out) < len(texts):
+            out.append("")
+        return out[:len(texts)]
+    except Exception:
+        return None
+
+
+def enrich_languages(platforms: dict) -> dict:
+    """
+    Detect language on every document, then translate non-English documents
+    for display. Returns language distribution summary.
+    Sets on each doc: language, language_name, rtl, title_en, excerpt_en, translated.
+    """
+    all_docs = []
+    for group in platforms.values():
+        all_docs.extend(group.get("results", []) or [])
+
+    lang_counts: dict[str, int] = defaultdict(int)
+    by_lang: dict[str, list] = defaultdict(list)
+
+    for doc in all_docs:
+        combined = ((doc.get("title") or "") + " " + (doc.get("excerpt") or "")).strip()
+        lang = detect_language(combined)
+        doc["language"] = lang
+        meta = LANG_META.get(lang, {})
+        doc["language_name"] = meta.get("name", lang)
+        doc["rtl"] = meta.get("rtl", False)
+        doc["translated"] = False
+        lang_counts[lang] += 1
+        if lang != "en":
+            by_lang[lang].append(doc)
+
+    # Translate non-English docs, grouped by language, in parallel
+    def _translate_lang(lang: str, docs: list):
+        # Cap translation volume per language to control cost/latency
+        subset = docs[:40]
+        titles = [(d.get("title") or "")[:300] for d in subset]
+        excerpts = [(d.get("excerpt") or "")[:300] for d in subset]
+        combined = [f"{t} || {e}".strip(" |") for t, e in zip(titles, excerpts)]
+        translated = translate_batch(combined, lang)
+        if not translated:
+            return
+        for d, tr in zip(subset, translated):
+            if not tr:
+                continue
+            if "||" in tr:
+                t_part, _, e_part = tr.partition("||")
+                d["title_en"] = t_part.strip() or None
+                d["excerpt_en"] = e_part.strip()
+            else:
+                d["excerpt_en"] = tr.strip()
+            d["translated"] = True
+
+    if by_lang and ANTHROPIC_API_KEY:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = [ex.submit(_translate_lang, lang, docs)
+                       for lang, docs in list(by_lang.items())[:5]]
+            for f in futures:
+                try: f.result(timeout=25)
+                except Exception: pass
+
+    distribution = [
+        {"lang": lang, "count": n,
+         "name": LANG_META.get(lang, {}).get("name", lang),
+         "native": LANG_META.get(lang, {}).get("native", lang),
+         "flag": LANG_META.get(lang, {}).get("flag", "")}
+        for lang, n in sorted(lang_counts.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+    return {
+        "distribution": distribution,
+        "languages_detected": len(lang_counts),
+        "non_english_docs": sum(n for l, n in lang_counts.items() if l != "en"),
+        "total_docs": len(all_docs),
+    }
+
 
 # ── NotebookLM ────────────────────────────────────────────────────────────────
 NOTEBOOKLM_SYNC_INTERVAL = 3600
@@ -529,7 +717,7 @@ def search_gdelt(q):
         r = requests.get("https://api.gdeltproject.org/api/v2/doc/doc",
             params={"query":plain,"mode":"artlist","maxrecords":75,"format":"json",
                     "sort":"DateDesc","TIMESPAN":"72H"},
-            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT+4)
+            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT+10)
         if r.status_code == 204: return _empty("gdelt","no results")
         r.raise_for_status()
         data = r.json(); articles = data.get("articles") or []; results = []
@@ -553,47 +741,149 @@ def search_gdelt(q):
     except Exception as e: return _empty("gdelt", str(e)[:120])
 
 # ── State media RSS (Phase 1) ─────────────────────────────────────────────────
-def _fetch_rss_feed(feed_cfg, keyword_lc):
+# ── Cross-lingual query expansion ─────────────────────────────────────────────
+# Searching "Hezbollah" in English will never match an Arabic feed that says
+# "حزب الله". Queries are expanded into the target languages before filtering.
+
+# Curated translations for high-frequency OSINT terms — instant, no API call.
+QUERY_LEXICON: dict[str, dict[str, list]] = {
+    "hezbollah":   {"ar": ["حزب الله"], "fa": ["حزب الله"], "he": ["חיזבאללה"]},
+    "hizbullah":   {"ar": ["حزب الله"], "fa": ["حزب الله"], "he": ["חיזבאללה"]},
+    "israel":      {"ar": ["إسرائيل", "الكيان الصهيوني"], "fa": ["اسرائیل", "رژیم صهیونیستی"], "he": ["ישראל"]},
+    "iran":        {"ar": ["إيران"], "fa": ["ایران"], "he": ["איראן"]},
+    "irgc":        {"ar": ["الحرس الثوري"], "fa": ["سپاه پاسداران"], "he": ["משמרות המהפכה"]},
+    "lebanon":     {"ar": ["لبنان"], "fa": ["لبنان"], "he": ["לבנון"]},
+    "gaza":        {"ar": ["غزة"], "fa": ["غزه"], "he": ["עזה"]},
+    "hamas":       {"ar": ["حماس"], "fa": ["حماس"], "he": ["חמאס"]},
+    "syria":       {"ar": ["سوريا"], "fa": ["سوریه"], "he": ["סוריה"]},
+    "yemen":       {"ar": ["اليمن"], "fa": ["یمن"], "he": ["תימן"]},
+    "houthi":      {"ar": ["الحوثي", "أنصار الله"], "fa": ["حوثی"], "he": ["חות'ים"]},
+    "nasrallah":   {"ar": ["نصر الله"], "fa": ["نصرالله"], "he": ["נסראללה"]},
+    "khamenei":    {"ar": ["خامنئي"], "fa": ["خامنه‌ای"], "he": ["ח'אמנputti"]},
+    "idf":         {"ar": ["الجيش الإسرائيلي"], "fa": ["ارتش اسرائیل"], "he": ["צה\"ל"]},
+    "ceasefire":   {"ar": ["وقف إطلاق النار"], "fa": ["آتش‌بس"], "he": ["הפסקת אש"]},
+    "nuclear":     {"ar": ["نووي"], "fa": ["هسته‌ای"], "he": ["גרעיני"]},
+    "sanctions":   {"ar": ["عقوبات"], "fa": ["تحریم"], "he": ["סנקציות"]},
+    "drone":       {"ar": ["مسيرة", "طائرة مسيرة"], "fa": ["پهپاد"], "he": ["רחפן"]},
+    "missile":     {"ar": ["صاروخ"], "fa": ["موشک"], "he": ["טיל"]},
+    "russia":      {"ar": ["روسيا"], "fa": ["روسیه"], "he": ["רוסיה"]},
+    "ukraine":     {"ar": ["أوكرانيا"], "fa": ["اوکراین"], "he": ["אוקראינה"]},
+    "nato":        {"ar": ["الناتو"], "fa": ["ناتو"], "he": ["נאט\"ו"]},
+    "palestine":   {"ar": ["فلسطين"], "fa": ["فلسطین"], "he": ["פלסטין"]},
+}
+
+_query_expansion_cache: dict[str, dict] = {}
+
+def expand_query(q: str, target_langs: tuple = ("ar", "fa", "he")) -> dict:
+    """
+    Expand an English query into target languages so native-language sources
+    can actually be searched. Lexicon first (instant), Claude fallback (cached).
+    Returns {lang: [terms]} including the original under 'en'.
+    """
+    key = q.lower().strip()
+    if key in _query_expansion_cache:
+        return _query_expansion_cache[key]
+
+    out: dict[str, list] = {"en": [key]}
+    # Lexicon lookup — handles multi-word queries by checking each known term
+    matched = False
+    for term, translations in QUERY_LEXICON.items():
+        if term in key:
+            matched = True
+            for lang, variants in translations.items():
+                if lang in target_langs:
+                    out.setdefault(lang, []).extend(variants)
+
+    # Claude fallback for anything not in the lexicon
+    if not matched and ANTHROPIC_API_KEY and len(key) < 60:
+        lang_names = ", ".join(LANG_META.get(l, {}).get("name", l) for l in target_langs)
+        prompt = (
+            f'Translate the search term "{q}" into: {lang_names}.\n'
+            "Give the term as it would actually appear in news media in that language "
+            "(including common alternative renderings).\n"
+            'ONLY JSON: {"ar":["..."],"fa":["..."],"he":["..."]}. No prose.'
+        )
+        text = _claude_call(prompt, 300)
+        if text:
+            try:
+                arr = json.loads(re.sub(r"```json|```", "", text).strip())
+                for lang, variants in arr.items():
+                    if lang in target_langs and isinstance(variants, list):
+                        out.setdefault(lang, []).extend(str(v) for v in variants[:3])
+            except Exception:
+                pass
+
+    # Dedupe
+    for lang in out:
+        out[lang] = list(dict.fromkeys(out[lang]))
+    _query_expansion_cache[key] = out
+    return out
+
+
+def _fetch_rss_feed(feed_cfg, terms: list):
+    """Fetch one feed; match against ANY of the supplied terms (multilingual)."""
     try:
-        r = requests.get(feed_cfg["url"], headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT)
+        r = requests.get(feed_cfg["url"], headers={"User-Agent":BROWSER_UA}, timeout=TIMEOUT+2)
         if r.status_code >= 400: return []
         feed = feedparser.parse(r.content); results = []
-        for entry in feed.entries[:30]:
+        feed_lang = feed_cfg.get("lang", "en")
+        for entry in feed.entries[:40]:
             title = _strip_html(entry.get("title",""))
             summary = _strip_html(entry.get("summary",""))
-            if keyword_lc and keyword_lc not in (title+" "+summary).lower(): continue
+            haystack = (title + " " + summary)
+            haystack_lc = haystack.lower()
+            if terms and not any(t.lower() in haystack_lc for t in terms if t):
+                continue
             eurl = entry.get("link","")
-            results.append(make_doc("state_media", eurl, summary, title=title,
+            doc = make_doc("state_media", eurl, summary, title=title,
                 author=feed_cfg.get("author"), timestamp=entry.get("published"),
                 meta=feed_cfg.get("author",""), source_type="state_media",
-                credibility=feed_cfg.get("credibility","state")))
+                language=feed_lang,
+                credibility=feed_cfg.get("credibility","state"))
+            results.append(doc)
         return results
-    except: return []
+    except Exception:
+        return []
+
 
 def search_state_media(q):
-    keyword = q.lstrip("#").strip().lower()
+    keyword = q.lstrip("#").strip()
     if not keyword: return _empty("state_media","empty query")
+    expansion = expand_query(keyword)
     all_results = []
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        futures = {ex.submit(_fetch_rss_feed, cfg, keyword): cfg for cfg in ADVERSARY_RSS_FEEDS}
+    errors = 0
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {}
+        for cfg in ADVERSARY_RSS_FEEDS:
+            feed_lang = cfg.get("lang", "en")
+            # Match against terms in the feed's own language, plus the raw query
+            terms = list(expansion.get(feed_lang, [])) + [keyword]
+            futures[ex.submit(_fetch_rss_feed, cfg, terms)] = cfg
         try:
-            for fut in as_completed(futures, timeout=TIMEOUT+4):
+            for fut in as_completed(futures, timeout=TIMEOUT+8):
                 try: all_results.extend(fut.result())
-                except: pass
-        except: pass
+                except Exception: errors += 1
+        except Exception: pass
     all_results.sort(key=lambda d: d.get("timestamp") or "", reverse=True)
-    return {"platform":"state_media","results":all_results[:60],"error":None}
+    err = None
+    if not all_results:
+        err = f"no matches across {len(ADVERSARY_RSS_FEEDS)} state media feeds"
+    return {"platform":"state_media","results":all_results[:80],"error":err,
+            "expansion":{k:v for k,v in expansion.items() if k!="en"}}
 
 # ── Academic (Phase 1) ────────────────────────────────────────────────────────
 def search_academic(q):
     plain = _query_parts(q)[2]
     if not plain: return _empty("academic","empty query")
     results = []
+    errors = []
     try:
         r = requests.get("https://api.openalex.org/works",
             params={"search":plain,"filter":"is_oa:true","per_page":20,
-                    "sort":"publication_date:desc","mailto":"xtag@intelligence.local"},
-            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT)
+                    "sort":"publication_date:desc","mailto":OPENALEX_MAILTO},
+            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT+4)
+        if r.status_code == 429:
+            errors.append("OpenAlex rate limited — set OPENALEX_MAILTO env var for the polite pool")
         r.raise_for_status()
         for work in r.json().get("results",[]):
             primary_loc = work.get("primary_location") or {}
@@ -616,11 +906,15 @@ def search_academic(q):
                 timestamp=work.get("publication_date"),
                 meta=f"{source.get('display_name','')} · {work.get('publication_year','')} · {work.get('cited_by_count',0)} citations",
                 source_type="academic", credibility="high"))
-    except Exception as e: app.logger.warning("OpenAlex: %s", e)
+    except Exception as e:
+        app.logger.warning("OpenAlex: %s", e)
+        if not errors: errors.append(f"OpenAlex: {str(e)[:80]}")
     try:
         r = requests.get("https://export.arxiv.org/api/query",
             params={"search_query":f"all:{plain}","max_results":15,"sortBy":"submittedDate","sortOrder":"descending"},
-            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT)
+            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT+4)
+        if r.status_code == 429:
+            errors.append("arXiv rate limited — retry shortly")
         r.raise_for_status()
         feed = feedparser.parse(r.content)
         for entry in feed.entries:
@@ -631,8 +925,12 @@ def search_academic(q):
                 title=_strip_html(entry.get("title")),
                 author=authors or None, timestamp=entry.get("published"),
                 meta=f"arXiv · {cats}", source_type="academic", credibility="high"))
-    except Exception as e: app.logger.warning("arXiv: %s", e)
-    return {"platform":"academic","results":results,"error":None}
+    except Exception as e:
+        app.logger.warning("arXiv: %s", e)
+        errors.append(f"arXiv: {str(e)[:80]}")
+    # Honesty: if we got nothing, say WHY rather than silently returning empty
+    err = None if results else (" · ".join(errors[:2]) if errors else "no matching papers")
+    return {"platform":"academic","results":results,"error":err}
 
 # ── Podcasts (Phase 1) ────────────────────────────────────────────────────────
 def search_podcasts(q):
@@ -1024,14 +1322,31 @@ def _sentiment_babelstreet(texts, indices):
         except: pass
     return out
 
-def _sentiment_claude(texts):
+def _sentiment_claude(texts, lang="en"):
+    """
+    Analyse sentiment + framing IN THE SOURCE LANGUAGE.
+    Translating first destroys exactly the connotative signal we're hunting for,
+    so the model is instructed to reason natively in the source language.
+    """
     if not ANTHROPIC_API_KEY or not texts: return None, None
     batch = texts[:120]
     numbered = "\n".join(f"{i+1}. {t[:240]}" for i,t in enumerate(batch))
+    meta = LANG_META.get(lang, {})
+    lang_name = meta.get("name", "English")
+    if lang == "en":
+        lang_instruction = ""
+    else:
+        lang_instruction = (
+            f"\nThese posts are in {lang_name}. Analyse them NATIVELY in {lang_name} — "
+            "do NOT mentally translate to English first. Judge connotation, register, "
+            "religious/political idiom, and euphemism as a native reader of "
+            f"{lang_name} media would. Output labels in English.\n"
+        )
     prompt = (
         "For each numbered post classify:\n"
         "1. SENTIMENT: positive|neutral|negative\n"
         "2. FRAMING: fear|anger|hope|pride|grief|threat|disinformation|neutral\n"
+        + lang_instruction +
         'ONLY JSON array: [{"s":"...","f":"..."},...] one per post. No prose.\n\n' + numbered)
     text = _claude_call(prompt, 2400)
     if not text: return None, None
@@ -1045,6 +1360,10 @@ def _sentiment_claude(texts):
     except: return None, None
 
 def attach_sentiment(platforms):
+    """
+    Language-aware sentiment. Documents are grouped by detected language and
+    each group is analysed in its own language, in parallel.
+    """
     flat = []
     for group in platforms.values():
         for r in group.get("results",[]):
@@ -1052,19 +1371,46 @@ def attach_sentiment(platforms):
             if txt: flat.append((r,txt))
     if not flat:
         return {"scored":0,"positive":0,"neutral":0,"negative":0,"net":None,
-                "engines":[],"agreement":None,"babel_scored":0,"framing_counts":{}}
-    texts = [t for _,t in flat]; engines = []
-    claude_s, claude_f = _sentiment_claude(texts)
-    if claude_s: engines.append("claude")
+                "engines":[],"agreement":None,"babel_scored":0,"framing_counts":{},
+                "by_language":{}}
+
+    # Group indices by language
+    lang_groups: dict[str, list] = defaultdict(list)
+    for i, (r, _) in enumerate(flat):
+        lang_groups[r.get("language", "en")].append(i)
+
+    texts = [t for _, t in flat]
+    engines = []
+    claude_s: list = [None] * len(flat)
+    claude_f: list = [None] * len(flat)
+
+    def _run_lang(lang: str, indices: list):
+        sub_texts = [texts[i] for i in indices]
+        s, f = _sentiment_claude(sub_texts, lang)
+        if not s: return
+        for local_i, global_i in enumerate(indices):
+            if local_i < len(s): claude_s[global_i] = s[local_i]
+            if f and local_i < len(f): claude_f[global_i] = f[local_i]
+
+    if ANTHROPIC_API_KEY:
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futs = [ex.submit(_run_lang, lang, idxs)
+                    for lang, idxs in sorted(lang_groups.items(),
+                                             key=lambda kv: len(kv[1]), reverse=True)[:6]]
+            for fut in futs:
+                try: fut.result(timeout=30)
+                except Exception: pass
+        if any(x is not None for x in claude_s): engines.append("claude")
+
     order = sorted(range(len(flat)), key=lambda i:flat[i][0].get("engagement",0), reverse=True)
     babel = _sentiment_babelstreet(texts, order[:BABEL_CAP])
     if babel: engines.append("babelstreet")
+
     counts={"positive":0,"neutral":0,"negative":0}; framing_counts=defaultdict(int)
+    by_language: dict[str, dict] = defaultdict(lambda: {"positive":0,"neutral":0,"negative":0,"scored":0})
     net_sum=0.0; scored=agree_n=agree_d=0
     for i,(r,_) in enumerate(flat):
-        c = claude_s[i] if claude_s and i < len(claude_s) else None
-        f = claude_f[i] if claude_f and i < len(claude_f) else None
-        b = babel.get(i)
+        c = claude_s[i]; f = claude_f[i]; b = babel.get(i)
         if c and b:
             agree_d+=1; agree_n+=(1 if c==b else 0)
             score = (_SCORE[c]+_SCORE[b])/2.0
@@ -1076,9 +1422,13 @@ def attach_sentiment(platforms):
         r["sentiment"]=final
         if f: r["framing"]=f; framing_counts[f]+=1
         counts[final]+=1; net_sum+=score; scored+=1
+        lg = r.get("language","en")
+        by_language[lg][final]+=1; by_language[lg]["scored"]+=1
+
     return {**counts,"scored":scored,"net":round(net_sum/scored,2) if scored else None,
             "engines":engines,"agreement":round(agree_n/agree_d,2) if agree_d else None,
-            "babel_scored":len(babel),"framing_counts":dict(framing_counts)}
+            "babel_scored":len(babel),"framing_counts":dict(framing_counts),
+            "by_language":{k:dict(v) for k,v in by_language.items()}}
 
 def _build_aggregates(platforms):
     source_mix=[]; total=with_results=0; reactions=comments=shares=0
@@ -1100,6 +1450,185 @@ def _build_aggregates(platforms):
                       "platforms_with_results":with_results,"platforms_searched":searched,
                       "state_media":state_media,"academic":academic,"news":news,"social":social},
             "source_mix":sorted([s for s in source_mix if s["count"]>0],key=lambda s:s["count"],reverse=True)}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WATCHLISTS & ALERTS
+# NOTE: This is an in-process store. It survives until the Railway dyno restarts
+# (i.e. until the next deploy). Watchlist definitions are ALSO persisted client-side
+# in localStorage, which is the durable copy. Background alerting between sessions
+# would need a real DB + worker — this evaluates rules on demand.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_watchlists: dict[str, dict] = {}
+_watch_lock = threading.Lock()
+
+DEFAULT_RULES = {
+    "coordination_above": 60,     # alert if coordination score exceeds
+    "velocity_accelerating": True, # alert if narrative volume accelerating
+    "mentions_above": None,        # alert if raw mention count exceeds
+    "state_media_above": None,     # alert if state media pickup exceeds
+    "new_narrative": True,         # alert if a narrative cluster appears that wasn't there before
+}
+
+def evaluate_watchlist(query: str, rules: dict, baseline: dict | None = None) -> dict:
+    """
+    Run a search for the query and evaluate alert rules against the result.
+    Returns triggered alerts with evidence.
+    """
+    payload = _run_full_search(query)
+    alerts = []
+
+    coord = payload.get("coordination") or {}
+    vel = payload.get("velocity") or {}
+    totals = payload.get("totals") or {}
+    narratives = payload.get("narratives") or []
+
+    thresh = rules.get("coordination_above")
+    if thresh is not None and coord.get("coordination_score", 0) >= thresh:
+        alerts.append({
+            "type": "coordination_spike",
+            "severity": "high" if coord.get("coordination_score", 0) >= 75 else "medium",
+            "message": f"Coordination score {coord.get('coordination_score')}/100 "
+                       f"({coord.get('risk','?')} risk) — threshold was {thresh}",
+            "evidence": coord.get("signals", [])[:3],
+        })
+
+    if rules.get("velocity_accelerating") and vel.get("acceleration") == "accelerating":
+        w = vel.get("windows", {})
+        alerts.append({
+            "type": "velocity_acceleration",
+            "severity": "medium",
+            "message": f"Narrative volume accelerating — {w.get('6h',0)} posts in last 6h "
+                       f"vs {max(w.get('24h',0)-w.get('6h',0),0)} in prior 18h",
+            "evidence": [],
+        })
+
+    m_thresh = rules.get("mentions_above")
+    if m_thresh is not None and totals.get("mentions", 0) >= m_thresh:
+        alerts.append({
+            "type": "volume_spike",
+            "severity": "medium",
+            "message": f"{totals.get('mentions')} mentions — threshold was {m_thresh}",
+            "evidence": [],
+        })
+
+    sm_thresh = rules.get("state_media_above")
+    if sm_thresh is not None and totals.get("state_media", 0) >= sm_thresh:
+        alerts.append({
+            "type": "state_media_pickup",
+            "severity": "high",
+            "message": f"{totals.get('state_media')} posts from state/adversary media "
+                       f"— threshold was {sm_thresh}",
+            "evidence": [],
+        })
+
+    if rules.get("new_narrative") and baseline:
+        old_labels = {n.get("label","").lower() for n in (baseline.get("narratives") or [])}
+        new_ones = [n for n in narratives if n.get("label","").lower() not in old_labels]
+        if new_ones:
+            alerts.append({
+                "type": "new_narrative",
+                "severity": "medium",
+                "message": f"{len(new_ones)} new narrative cluster(s) detected since last check",
+                "evidence": [{"label": n.get("label"), "framing": n.get("framing"),
+                              "count": n.get("count")} for n in new_ones[:4]],
+            })
+
+    return {
+        "query": query,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "alerts": alerts,
+        "alert_count": len(alerts),
+        "snapshot": {
+            "mentions": totals.get("mentions", 0),
+            "coordination_score": coord.get("coordination_score", 0),
+            "acceleration": vel.get("acceleration"),
+            "state_media": totals.get("state_media", 0),
+            "narratives": [{"label": n.get("label"), "framing": n.get("framing"),
+                            "count": n.get("count")} for n in narratives],
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 5 — REPORT / DOSSIER GENERATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def build_dossier(payload: dict, brief_text: str | None = None) -> dict:
+    """
+    Assemble a structured intelligence dossier from a search payload.
+    Returns a dict ready for rendering to HTML/PDF or export as JSON.
+    """
+    q = payload.get("query", "")
+    totals = payload.get("totals") or {}
+    sentiment = payload.get("sentiment") or {}
+    narratives = payload.get("narratives") or []
+    entities = (payload.get("entities") or {}).get("entities") or []
+    edges = (payload.get("entities") or {}).get("edges") or []
+    coord = payload.get("coordination") or {}
+    vel = payload.get("velocity") or {}
+    prop = payload.get("propagation") or {}
+    langs = payload.get("languages") or {}
+    source_mix = payload.get("source_mix") or []
+
+    # Top evidence: highest-engagement docs per platform
+    evidence = []
+    for pid, group in (payload.get("platforms") or {}).items():
+        results = sorted(group.get("results", []) or [],
+                         key=lambda d: d.get("engagement", 0), reverse=True)
+        for doc in results[:3]:
+            evidence.append({
+                "platform": pid,
+                "source_type": doc.get("source_type"),
+                "credibility": doc.get("credibility"),
+                "language": doc.get("language"),
+                "author": doc.get("author"),
+                "title": doc.get("title_en") or doc.get("title"),
+                "excerpt": doc.get("excerpt_en") or doc.get("excerpt"),
+                "url": doc.get("url"),
+                "timestamp": doc.get("timestamp"),
+                "sentiment": doc.get("sentiment"),
+                "framing": doc.get("framing"),
+                "engagement": doc.get("engagement", 0),
+                "translated": doc.get("translated", False),
+            })
+    evidence.sort(key=lambda d: d.get("engagement", 0), reverse=True)
+
+    # Confidence assessment — honest about what we actually have
+    confidence_factors = []
+    if totals.get("mentions", 0) < 20:
+        confidence_factors.append(("LOW sample size", f"only {totals.get('mentions',0)} documents retrieved"))
+    if totals.get("platforms_with_results", 0) < 4:
+        confidence_factors.append(("Narrow source base", f"{totals.get('platforms_with_results',0)} platforms returned data"))
+    if not sentiment.get("scored"):
+        confidence_factors.append(("No sentiment scoring", "sentiment engine unavailable"))
+    if sentiment.get("agreement") is not None and sentiment["agreement"] < 0.6:
+        confidence_factors.append(("Engine disagreement", f"sentiment engines agree only {int(sentiment['agreement']*100)}% of the time"))
+    if not narratives:
+        confidence_factors.append(("No narrative clusters", "insufficient volume for clustering"))
+
+    overall = "HIGH" if not confidence_factors else \
+              "MODERATE" if len(confidence_factors) <= 2 else "LOW"
+
+    return {
+        "query": q,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "classification": "OSINT — OPEN SOURCE",
+        "executive_brief": brief_text,
+        "confidence": {"overall": overall, "caveats": confidence_factors},
+        "totals": totals,
+        "sentiment": sentiment,
+        "languages": langs,
+        "narratives": narratives,
+        "entities": entities[:25],
+        "entity_edges": edges[:20],
+        "coordination": coord,
+        "velocity": vel,
+        "propagation": prop,
+        "source_mix": source_mix,
+        "evidence": evidence[:40],
+    }
+
 
 def generate_brief(q, snippets, narratives, entities, coordination):
     if not ANTHROPIC_API_KEY: return {"brief":None,"reason":"ANTHROPIC_API_KEY not set"}
@@ -1160,15 +1689,12 @@ def index():
     resp.headers["Permissions-Policy"]="geolocation=(), microphone=(), camera=()"
     return resp
 
-@app.route("/api/search")
-def api_search():
-    q=(request.args.get("q") or "").strip()
-    if not q: return jsonify({"error":"missing q"}),400
-    if len(q)>200: return jsonify({"error":"query too long"}),400
+def _run_full_search(q: str, use_cache: bool = True) -> dict:
+    """Core search + analysis pipeline. Used by /api/search and watchlist checks."""
     cache_key=q.lower(); now=time.time()
-    if cache_key in _cache:
+    if use_cache and cache_key in _cache:
         ts,cached=_cache[cache_key]
-        if now-ts<CACHE_TTL: return jsonify({**cached,"cached":True})
+        if now-ts<CACHE_TTL: return {**cached,"cached":True}
     direct_out={}; cse_out={}
     with ThreadPoolExecutor(max_workers=len(API_PLATFORMS)+1) as ex:
         futures={ex.submit(fn,q):name for name,fn in API_PLATFORMS.items()}
@@ -1193,10 +1719,19 @@ def api_search():
     for group in out.values():
         for r in group.get("results",[]):
             eb=_engagement_breakdown(r.get("meta")); r["engagement"]=eb["reactions"]+eb["comments"]+eb["shares"]
-    sentiment={"scored":0,"positive":0,"neutral":0,"negative":0,"net":None,"engines":[],"agreement":None,"babel_scored":0,"framing_counts":{}}
+
+    # PHASE 3: Detect language + translate for display BEFORE sentiment,
+    # so sentiment can be run natively per-language.
+    languages={"distribution":[],"languages_detected":0,"non_english_docs":0,"total_docs":0}
+    try: languages=enrich_languages(out)
+    except Exception as e: app.logger.warning("language enrichment failed: %s",e)
+
+    sentiment={"scored":0,"positive":0,"neutral":0,"negative":0,"net":None,"engines":[],
+               "agreement":None,"babel_scored":0,"framing_counts":{},"by_language":{}}
     if SENTIMENT_ENABLED:
         try: sentiment=attach_sentiment(out)
         except Exception as e: app.logger.warning("sentiment failed: %s",e); sentiment["error"]=str(e)[:120]
+
     narratives=[]; entities={}; velocity={}; coordination={}; propagation={}
     with ThreadPoolExecutor(max_workers=5) as ex:
         f_narr=ex.submit(extract_narratives_v2,out,q)
@@ -1217,12 +1752,146 @@ def api_search():
     agg=_build_aggregates(out)
     payload={"query":q,"platforms":out,"sentiment":sentiment,"narratives":narratives,
              "entities":entities,"velocity":velocity,"coordination":coordination,
-             "propagation":propagation,"totals":agg["totals"],"source_mix":agg["source_mix"],"cached":False}
+             "propagation":propagation,"languages":languages,
+             "totals":agg["totals"],"source_mix":agg["source_mix"],"cached":False}
     _cache[cache_key]=(now,payload)
     if len(_cache)>200:
         oldest=sorted(_cache.items(),key=lambda kv:kv[1][0])[:50]
         for k,_ in oldest: _cache.pop(k,None)
-    return jsonify(payload)
+    return payload
+
+
+@app.route("/api/search")
+def api_search():
+    q=(request.args.get("q") or "").strip()
+    if not q: return jsonify({"error":"missing q"}),400
+    if len(q)>200: return jsonify({"error":"query too long"}),400
+    return jsonify(_run_full_search(q))
+
+
+# ── Watchlist endpoints ───────────────────────────────────────────────────────
+@app.route("/api/watchlist", methods=["GET"])
+def api_watchlist_list():
+    with _watch_lock:
+        return jsonify({"watchlists": list(_watchlists.values())})
+
+@app.route("/api/watchlist", methods=["POST"])
+def api_watchlist_add():
+    body = request.get_json(silent=True) or {}
+    q = (body.get("query") or "").strip()
+    if not q: return jsonify({"error": "missing query"}), 400
+    rules = {**DEFAULT_RULES, **(body.get("rules") or {})}
+    wl_id = hashlib.sha256(q.lower().encode()).hexdigest()[:12]
+    entry = {
+        "id": wl_id, "query": q, "rules": rules,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "last_checked": None, "last_snapshot": None, "last_alerts": [],
+    }
+    with _watch_lock:
+        _watchlists[wl_id] = entry
+    return jsonify(entry)
+
+@app.route("/api/watchlist/<wl_id>", methods=["DELETE"])
+def api_watchlist_delete(wl_id):
+    with _watch_lock:
+        _watchlists.pop(wl_id, None)
+    return jsonify({"deleted": wl_id})
+
+@app.route("/api/watchlist/<wl_id>/check", methods=["POST"])
+def api_watchlist_check(wl_id):
+    with _watch_lock:
+        entry = _watchlists.get(wl_id)
+    if not entry:
+        # Allow ad-hoc check by passing query + rules directly
+        body = request.get_json(silent=True) or {}
+        q = (body.get("query") or "").strip()
+        if not q: return jsonify({"error": "watchlist not found"}), 404
+        rules = {**DEFAULT_RULES, **(body.get("rules") or {})}
+        baseline = body.get("baseline")
+        return jsonify(evaluate_watchlist(q, rules, baseline))
+    result = evaluate_watchlist(entry["query"], entry["rules"], entry.get("last_snapshot"))
+    with _watch_lock:
+        entry["last_checked"] = result["checked_at"]
+        entry["last_snapshot"] = result["snapshot"]
+        entry["last_alerts"] = result["alerts"]
+    return jsonify(result)
+
+@app.route("/api/watchlist/check-all", methods=["POST"])
+def api_watchlist_check_all():
+    """Evaluate every watchlist. Returns only those with triggered alerts."""
+    body = request.get_json(silent=True) or {}
+    # Accept client-side watchlists (localStorage is the durable copy)
+    client_wls = body.get("watchlists") or []
+    targets = []
+    with _watch_lock:
+        targets.extend(list(_watchlists.values()))
+    seen = {t["query"].lower() for t in targets}
+    for cw in client_wls:
+        if cw.get("query") and cw["query"].lower() not in seen:
+            targets.append({"id": cw.get("id"), "query": cw["query"],
+                            "rules": {**DEFAULT_RULES, **(cw.get("rules") or {})},
+                            "last_snapshot": cw.get("last_snapshot")})
+    results = []
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs = {ex.submit(evaluate_watchlist, t["query"], t["rules"], t.get("last_snapshot")): t
+                for t in targets[:10]}
+        for fut in as_completed(futs, timeout=120):
+            t = futs[fut]
+            try:
+                r = fut.result()
+                r["watchlist_id"] = t.get("id")
+                results.append(r)
+            except Exception as e:
+                results.append({"watchlist_id": t.get("id"), "query": t["query"],
+                                "error": str(e)[:120], "alerts": [], "alert_count": 0})
+    total_alerts = sum(r.get("alert_count", 0) for r in results)
+    return jsonify({"results": results, "total_alerts": total_alerts,
+                    "checked": len(results),
+                    "checked_at": datetime.now(timezone.utc).isoformat()})
+
+
+# ── Report / dossier endpoints ────────────────────────────────────────────────
+@app.route("/api/dossier", methods=["POST"])
+def api_dossier():
+    """Return a structured dossier JSON for a query."""
+    body = request.get_json(silent=True) or {}
+    q = (body.get("q") or "").strip()
+    if not q: return jsonify({"error": "missing q"}), 400
+    payload = _run_full_search(q)
+    brief_text = body.get("brief")
+    if not brief_text and ANTHROPIC_API_KEY:
+        snippets = []
+        for group in (payload.get("platforms") or {}).values():
+            for r in (group.get("results") or [])[:3]:
+                t = ((r.get("title_en") or r.get("title") or "") + " " +
+                     (r.get("excerpt_en") or r.get("excerpt") or "")).strip()
+                if t: snippets.append(t)
+        br = generate_brief(q, snippets[:20], payload.get("narratives") or [],
+                            payload.get("entities") or {}, payload.get("coordination") or {})
+        brief_text = br.get("brief")
+    return jsonify(build_dossier(payload, brief_text))
+
+
+@app.route("/report")
+def report_view():
+    """Printable HTML dossier. Opens in a new tab; user prints to PDF."""
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return "<p style='font-family:sans-serif;padding:40px'>Pass ?q=your+query</p>", 400
+    payload = _run_full_search(q)
+    brief_text = None
+    if ANTHROPIC_API_KEY:
+        snippets = []
+        for group in (payload.get("platforms") or {}).values():
+            for r in (group.get("results") or [])[:3]:
+                t = ((r.get("title_en") or r.get("title") or "") + " " +
+                     (r.get("excerpt_en") or r.get("excerpt") or "")).strip()
+                if t: snippets.append(t)
+        br = generate_brief(q, snippets[:20], payload.get("narratives") or [],
+                            payload.get("entities") or {}, payload.get("coordination") or {})
+        brief_text = br.get("brief")
+    d = build_dossier(payload, brief_text)
+    return render_template("report.html", d=d)
 
 @app.route("/api/brief",methods=["POST"])
 def api_brief():
