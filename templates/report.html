@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>XTag Dossier — {{ d.query }}</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --ink:#111;--ink2:#444;--ink3:#777;--line:#ddd;--line2:#eee;
+  --accent:#c2410c;--bg:#fff;--surface:#fafafa;
+  --pos:#0d9669;--neg:#dc2626;--neu:#71717a;--warn:#d97706;
+  --state:#7c3aed;--academic:#0369a1;
+  --serif:"Instrument Serif",Georgia,serif;--sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:11pt;line-height:1.6;}
+.page{max-width:920px;margin:0 auto;padding:48px 56px;}
+a{color:var(--accent);text-decoration:none;}
+
+/* PRINT TOOLBAR */
+.toolbar{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:12px 56px;display:flex;align-items:center;gap:12px;z-index:100;max-width:920px;margin:0 auto;}
+.tb-btn{font:inherit;font-size:12px;font-weight:600;background:var(--accent);color:#fff;border:none;border-radius:7px;padding:8px 18px;cursor:pointer;}
+.tb-btn:hover{background:#a5330a;}
+.tb-btn.alt{background:#fff;color:var(--ink2);border:1px solid var(--line);}
+.tb-btn.alt:hover{background:var(--surface);}
+.tb-note{font-size:11px;color:var(--ink3);margin-left:auto;}
+
+/* HEADER */
+.doc-head{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px;}
+.doc-class{font-size:9pt;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:14px;}
+.doc-title{font-family:var(--serif);font-size:32pt;line-height:1.1;letter-spacing:-.01em;margin-bottom:8px;}
+.doc-sub{font-size:10pt;color:var(--ink3);display:flex;gap:16px;flex-wrap:wrap;}
+.doc-sub span{display:flex;align-items:center;gap:5px;}
+
+/* CONFIDENCE */
+.conf-box{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:4px;padding:14px 18px;margin-bottom:28px;background:var(--surface);}
+.conf-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.conf-label{font-size:9pt;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:600;}
+.conf-val{font-size:11pt;font-weight:700;letter-spacing:.04em;}
+.conf-val.HIGH{color:var(--pos);}
+.conf-val.MODERATE{color:var(--warn);}
+.conf-val.LOW{color:var(--neg);}
+.conf-caveat{font-size:10pt;color:var(--ink2);padding:3px 0 3px 16px;position:relative;}
+.conf-caveat::before{content:"▸";position:absolute;left:0;color:var(--ink3);}
+.conf-caveat b{color:var(--ink);}
+.conf-none{font-size:10pt;color:var(--ink2);}
+
+/* SECTIONS */
+h2{font-size:11pt;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:600;margin:32px 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line);}
+h2:first-of-type{margin-top:0;}
+.brief-text{font-size:11.5pt;line-height:1.8;color:var(--ink2);}
+.brief-text strong{color:var(--ink);font-weight:600;}
+
+/* STATS GRID */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px;}
+.stat{border:1px solid var(--line);border-radius:5px;padding:12px 14px;}
+.stat-v{font-size:20pt;font-weight:300;line-height:1;letter-spacing:-.02em;}
+.stat-l{font-size:8.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-top:4px;}
+
+/* SENTIMENT */
+.sent-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:10px 0;}
+.sent-seg.pos{background:var(--pos);}
+.sent-seg.neu{background:var(--neu);}
+.sent-seg.neg{background:var(--neg);}
+.sent-legend{display:flex;gap:18px;font-size:10pt;color:var(--ink2);flex-wrap:wrap;}
+.sent-legend span{display:flex;align-items:center;gap:6px;}
+.sdot{width:8px;height:8px;border-radius:50%;}
+
+/* TABLES */
+table{width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:8px;}
+th{text-align:left;font-size:8.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line);}
+td{padding:9px 10px;border-bottom:1px solid var(--line2);vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+.tag{display:inline-block;font-size:8.5pt;font-weight:600;padding:2px 8px;border-radius:10px;letter-spacing:.03em;}
+.tag.fear{background:#fff2e6;color:#c2410c;}
+.tag.anger{background:#fee;color:#dc2626;}
+.tag.hope{background:#e6f9f2;color:var(--pos);}
+.tag.pride{background:#f0ebff;color:#7c3aed;}
+.tag.grief{background:#f1f5f9;color:#64748b;}
+.tag.threat{background:#fee;color:#b91c1c;}
+.tag.disinformation{background:#fce7f3;color:#be185d;}
+.tag.neutral{background:#f4f4f5;color:var(--neu);}
+.tag.positive{background:#e6f9f2;color:var(--pos);}
+.tag.negative{background:#fee;color:var(--neg);}
+.tag.high{background:#e6f9f2;color:var(--pos);}
+.tag.medium{background:#fef3c7;color:var(--warn);}
+.tag.low{background:#fee;color:var(--neg);}
+.tag.state{background:#f0ebff;color:var(--state);}
+.tag.academic{background:#e0f2fe;color:var(--academic);}
+.tag.news{background:#fef3c7;color:var(--warn);}
+.mono{font-family:var(--mono);font-size:9.5pt;}
+
+/* LANGUAGE */
+.lang-row{display:flex;gap:8px;flex-wrap:wrap;}
+.lang-pill{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:16px;padding:5px 12px;font-size:10pt;}
+.lang-n{font-family:var(--mono);font-size:9pt;color:var(--ink3);}
+
+/* ENTITIES */
+.ent-row{display:flex;flex-wrap:wrap;gap:6px;}
+.ent{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:14px;padding:4px 11px;font-size:10pt;}
+.ent-type{font-size:8pt;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);}
+.ent-n{font-family:var(--mono);font-size:9pt;color:var(--accent);}
+
+/* PROPAGATION */
+.prop{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:10pt;}
+.prop-node{border:1px solid var(--line);border-radius:5px;padding:4px 10px;}
+.prop-node.origin{border-color:var(--accent);color:var(--accent);font-weight:600;}
+.prop-lag{font-size:8.5pt;color:var(--ink3);}
+
+/* EVIDENCE */
+.ev{border:1px solid var(--line);border-radius:5px;padding:12px 14px;margin-bottom:8px;page-break-inside:avoid;}
+.ev-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;font-size:9.5pt;}
+.ev-plat{font-weight:600;color:var(--ink);}
+.ev-author{color:var(--ink3);}
+.ev-time{color:var(--ink3);margin-left:auto;font-family:var(--mono);font-size:9pt;}
+.ev-title{font-size:10.5pt;font-weight:600;margin-bottom:4px;line-height:1.4;}
+.ev-text{font-size:10pt;color:var(--ink2);line-height:1.55;margin-bottom:6px;}
+.ev-url{font-size:8.5pt;color:var(--ink3);font-family:var(--mono);word-break:break-all;}
+.ev-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
+.translated-note{font-size:8.5pt;color:var(--accent);font-style:italic;}
+
+/* FOOTER */
+.doc-foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);font-size:9pt;color:var(--ink3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+
+/* PRINT */
+@media print{
+  .toolbar{display:none;}
+  .page{padding:0;max-width:100%;}
+  body{font-size:10pt;}
+  h2{page-break-after:avoid;}
+  .ev,.conf-box,table{page-break-inside:avoid;}
+  @page{margin:18mm 16mm;}
+}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button class="tb-btn" onclick="window.print()">Print / Save as PDF</button>
+  <button class="tb-btn alt" onclick="downloadJSON()">Download JSON</button>
+  <span class="tb-note">Use your browser's print dialog → "Save as PDF"</span>
+</div>
+
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="doc-head">
+    <div class="doc-class">{{ d.classification }}</div>
+    <div class="doc-title">{{ d.query }}</div>
+    <div class="doc-sub">
+      <span>Narrative Intelligence Dossier</span>
+      <span>·</span>
+      <span>{{ d.generated_at[:19].replace('T',' ') }} UTC</span>
+      <span>·</span>
+      <span>{{ d.totals.mentions }} documents</span>
+      <span>·</span>
+      <span>{{ d.totals.platforms_with_results }} sources</span>
+    </div>
+  </div>
+
+  <!-- CONFIDENCE -->
+  <div class="conf-box">
+    <div class="conf-head">
+      <span class="conf-label">Analytic Confidence</span>
+      <span class="conf-val {{ d.confidence.overall }}">{{ d.confidence.overall }}</span>
+    </div>
+    {% if d.confidence.caveats %}
+      {% for c in d.confidence.caveats %}
+      <div class="conf-caveat"><b>{{ c[0] }}</b> — {{ c[1] }}</div>
+      {% endfor %}
+    {% else %}
+      <div class="conf-none">No significant collection or analysis limitations identified.</div>
+    {% endif %}
+  </div>
+
+  <!-- EXECUTIVE BRIEF -->
+  {% if d.executive_brief %}
+  <h2>Executive Assessment</h2>
+  <div class="brief-text">{{ d.executive_brief | replace('**','') | replace('\n','<br/>') | safe }}</div>
+  {% endif %}
+
+  <!-- KEY METRICS -->
+  <h2>Key Metrics</h2>
+  <div class="stats">
+    <div class="stat"><div class="stat-v">{{ d.totals.mentions }}</div><div class="stat-l">Documents</div></div>
+    <div class="stat"><div class="stat-v">{{ d.sentiment.net if d.sentiment.net is not none else '—' }}</div><div class="stat-l">Net Sentiment</div></div>
+    <div class="stat"><div class="stat-v">{{ d.totals.state_media }}</div><div class="stat-l">State Media</div></div>
+    <div class="stat"><div class="stat-v">{{ d.coordination.coordination_score if d.coordination.coordination_score is defined else 0 }}</div><div class="stat-l">Coord. Score</div></div>
+  </div>
+
+  <!-- SENTIMENT -->
+  {% if d.sentiment.scored %}
+  <h2>Sentiment Distribution</h2>
+  {% set tot = d.sentiment.scored %}
+  <div class="sent-bar">
+    <div class="sent-seg pos" style="width:{{ (d.sentiment.positive / tot * 100)|round(1) }}%"></div>
+    <div class="sent-seg neu" style="width:{{ (d.sentiment.neutral / tot * 100)|round(1) }}%"></div>
+    <div class="sent-seg neg" style="width:{{ (d.sentiment.negative / tot * 100)|round(1) }}%"></div>
+  </div>
+  <div class="sent-legend">
+    <span><span class="sdot" style="background:var(--pos)"></span>Positive {{ d.sentiment.positive }} ({{ (d.sentiment.positive / tot * 100)|round(0)|int }}%)</span>
+    <span><span class="sdot" style="background:var(--neu)"></span>Neutral {{ d.sentiment.neutral }} ({{ (d.sentiment.neutral / tot * 100)|round(0)|int }}%)</span>
+    <span><span class="sdot" style="background:var(--neg)"></span>Negative {{ d.sentiment.negative }} ({{ (d.sentiment.negative / tot * 100)|round(0)|int }}%)</span>
+  </div>
+  {% if d.sentiment.engines %}
+  <p style="font-size:9.5pt;color:var(--ink3);margin-top:8px;">
+    Engines: {{ d.sentiment.engines | join(', ') }}{% if d.sentiment.agreement is not none %} · inter-engine agreement {{ (d.sentiment.agreement * 100)|round(0)|int }}%{% endif %}
+  </p>
+  {% endif %}
+  {% endif %}
+
+  <!-- LANGUAGES -->
+  {% if d.languages.distribution and d.languages.languages_detected > 1 %}
+  <h2>Language Distribution</h2>
+  <div class="lang-row">
+    {% for l in d.languages.distribution %}
+    <div class="lang-pill">{{ l.flag }} {{ l.name }} <span class="lang-n">{{ l.count }}</span></div>
+    {% endfor %}
+  </div>
+  <p style="font-size:9.5pt;color:var(--ink3);margin-top:8px;">
+    {{ d.languages.non_english_docs }} of {{ d.languages.total_docs }} documents are non-English.
+    Sentiment and framing were analysed in the source language; translations shown in evidence are for display only.
+  </p>
+  {% endif %}
+
+  <!-- NARRATIVES -->
+  {% if d.narratives %}
+  <h2>Narrative Clusters</h2>
+  <table>
+    <thead><tr><th>Narrative</th><th>Framing</th><th>Vol.</th><th>Velocity</th><th>Key Claim</th></tr></thead>
+    <tbody>
+    {% for n in d.narratives %}
+    <tr>
+      <td><b>{{ n.label }}</b>{% if n.actors %}<br/><span style="font-size:9pt;color:var(--ink3)">{{ n.actors[:4] | join(', ') }}</span>{% endif %}</td>
+      <td><span class="tag {{ n.framing }}">{{ n.framing }}</span></td>
+      <td class="mono">{{ n.count }}</td>
+      <td style="font-size:9.5pt;color:var(--ink3)">{{ n.velocity }}</td>
+      <td style="font-size:9.5pt;">{{ n.key_claim }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- ENTITIES -->
+  {% if d.entities %}
+  <h2>Key Entities</h2>
+  <div class="ent-row">
+    {% for e in d.entities %}
+    <div class="ent"><span class="ent-type">{{ e.type }}</span><span>{{ e.name }}</span><span class="ent-n">×{{ e.mentions }}</span></div>
+    {% endfor %}
+  </div>
+  {% if d.entity_edges %}
+  <table style="margin-top:14px;">
+    <thead><tr><th>From</th><th>Relation</th><th>To</th></tr></thead>
+    <tbody>
+    {% for edge in d.entity_edges %}
+    <tr><td>{{ edge.from }}</td><td style="color:var(--ink3);font-size:9.5pt">{{ edge.relation }}</td><td>{{ edge.to }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+
+  <!-- COORDINATION -->
+  {% if d.coordination.signals %}
+  <h2>Coordination Assessment</h2>
+  <p style="margin-bottom:10px;">
+    Score <b class="mono">{{ d.coordination.coordination_score }}/100</b> —
+    <span class="tag {{ d.coordination.risk }}">{{ d.coordination.risk }} risk</span>
+  </p>
+  <table>
+    <thead><tr><th>Signal</th><th>Severity</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for s in d.coordination.signals %}
+    <tr>
+      <td>{{ s.type | replace('_',' ') | title }}</td>
+      <td><span class="tag {{ s.severity }}">{{ s.severity }}</span></td>
+      <td style="font-size:9.5pt">{{ s.description }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- VELOCITY -->
+  {% if d.velocity.windows %}
+  <h2>Velocity</h2>
+  <table>
+    <thead><tr><th>1h</th><th>6h</th><th>24h</th><th>48h</th><th>72h</th><th>7d</th><th>Trend</th></tr></thead>
+    <tbody><tr>
+      <td class="mono">{{ d.velocity.windows['1h'] }}</td>
+      <td class="mono">{{ d.velocity.windows['6h'] }}</td>
+      <td class="mono">{{ d.velocity.windows['24h'] }}</td>
+      <td class="mono">{{ d.velocity.windows['48h'] }}</td>
+      <td class="mono">{{ d.velocity.windows['72h'] }}</td>
+      <td class="mono">{{ d.velocity.windows['7d'] }}</td>
+      <td><b>{{ d.velocity.acceleration }}</b></td>
+    </tr></tbody>
+  </table>
+  {% endif %}
+
+  <!-- PROPAGATION -->
+  {% if d.propagation.propagation_chain and d.propagation.propagation_chain|length > 1 %}
+  <h2>Propagation Chain</h2>
+  <div class="prop">
+    {% for step in d.propagation.propagation_chain %}
+      <div>
+        <div class="prop-node {% if step.platform == d.propagation.origin %}origin{% endif %}">{{ step.platform }}</div>
+        <div class="prop-lag" style="text-align:center">{% if loop.index0 > 0 and step.lag_hours %}+{{ step.lag_hours }}h{% else %}origin{% endif %}</div>
+      </div>
+      {% if not loop.last %}<span style="color:var(--ink3)">→</span>{% endif %}
+    {% endfor %}
+  </div>
+  {% if d.propagation.spread_hours %}
+  <p style="font-size:9.5pt;color:var(--ink3);margin-top:8px;">
+    Total spread {{ d.propagation.spread_hours }}h across {{ d.propagation.platforms_reached }} platforms.
+  </p>
+  {% endif %}
+  {% endif %}
+
+  <!-- SOURCE MIX -->
+  {% if d.source_mix %}
+  <h2>Source Mix</h2>
+  <table>
+    <thead><tr><th>Platform</th><th>Documents</th></tr></thead>
+    <tbody>
+    {% for s in d.source_mix %}
+    <tr><td>{{ s.platform | replace('_',' ') | title }}</td><td class="mono">{{ s.count }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- EVIDENCE -->
+  {% if d.evidence %}
+  <h2>Evidence — Top Documents</h2>
+  {% for e in d.evidence[:25] %}
+  <div class="ev">
+    <div class="ev-head">
+      <span class="ev-plat">{{ e.platform | replace('_',' ') | title }}</span>
+      {% if e.author %}<span class="ev-author">{{ e.author }}</span>{% endif %}
+      {% if e.credibility == 'state' %}<span class="tag state">state</span>
+      {% elif e.credibility == 'high' %}<span class="tag high">high cred</span>{% endif %}
+      {% if e.timestamp %}<span class="ev-time">{{ e.timestamp[:16] | replace('T',' ') }}</span>{% endif %}
+    </div>
+    {% if e.title %}<div class="ev-title">{{ e.title }}</div>{% endif %}
+    {% if e.excerpt %}<div class="ev-text">{{ e.excerpt }}</div>{% endif %}
+    {% if e.translated %}<div class="translated-note">Translated from {{ e.language }} — analysis performed on original text</div>{% endif %}
+    <div class="ev-url">{{ e.url }}</div>
+    <div class="ev-tags">
+      {% if e.sentiment %}<span class="tag {{ e.sentiment }}">{{ e.sentiment }}</span>{% endif %}
+      {% if e.framing and e.framing != 'neutral' %}<span class="tag {{ e.framing }}">{{ e.framing }}</span>{% endif %}
+      {% if e.source_type and e.source_type != 'social' %}<span class="tag {{ e.source_type }}">{{ e.source_type | replace('_',' ') }}</span>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- FOOTER -->
+  <div class="doc-foot">
+    <span>XTag Narrative Intelligence Platform</span>
+    <span>Generated {{ d.generated_at[:19] | replace('T',' ') }} UTC</span>
+  </div>
+
+</div>
+
+<script>
+var DOSSIER = {{ d | tojson }};
+function downloadJSON(){
+  var blob = new Blob([JSON.stringify(DOSSIER, null, 2)], {type:'application/json'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'xtag-dossier-' + DOSSIER.query.replace(/[^a-z0-9]/gi,'-').toLowerCase() + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+</script>
+</body>
+</html>

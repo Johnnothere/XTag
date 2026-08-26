@@ -1,12 +1,4 @@
+*.bak
 __pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-env/
+*.pyc
 .env
-.env.local
-.DS_Store
-.idea/
-.vscode/
-*.log

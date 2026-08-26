@@ -398,6 +398,69 @@ a{color:inherit;text-decoration:none;}
 /* PLATFORM COLORS MAP for JS */
 .pcolors{display:none;}
 
+/* ══ LANGUAGE ══ */
+.lang-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:20px;}
+.lang-pill{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--line);border-radius:14px;padding:4px 11px;font-size:11.5px;color:var(--ink2);}
+.lang-pill .lnum{font-family:var(--mono);font-size:10px;color:var(--ink3);}
+.lang-pill.nonEn{border-color:rgba(14,165,233,.25);}
+.lang-note{font-size:10.5px;color:var(--ink3);line-height:1.5;margin-top:-12px;margin-bottom:20px;}
+.mc-lang{font-size:8.5px;font-weight:600;padding:1px 5px;border-radius:3px;background:var(--academic-tint);color:var(--academic);}
+.mc-rtl{direction:rtl;text-align:right;}
+.translated-flag{font-size:9px;color:var(--academic);font-style:italic;margin-top:3px;}
+.orig-toggle{font-size:9.5px;color:var(--ink3);cursor:pointer;text-decoration:underline;margin-top:3px;display:inline-block;}
+.orig-toggle:hover{color:var(--accent2);}
+
+/* ══ WATCHLIST ══ */
+.watch-panel{position:fixed;top:0;right:0;bottom:0;width:min(420px,92vw);z-index:300;
+  background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur));-webkit-backdrop-filter:blur(var(--glass-blur));
+  border-left:1px solid var(--glass-border);box-shadow:var(--glass-shadow);
+  transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column;}
+.watch-panel.show{transform:translateX(0);}
+.wp-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);flex:none;}
+.wp-title{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:600;}
+.wp-close{margin-left:auto;width:28px;height:28px;display:flex;align-items:center;justify-content:center;background:var(--surface2);border:1px solid var(--line);border-radius:7px;cursor:pointer;color:var(--ink3);font-size:14px;transition:all .12s;}
+.wp-close:hover{color:var(--ink);}
+.wp-body{flex:1;overflow-y:auto;padding:16px 18px;}
+.wp-add{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:16px;}
+.wp-add-title{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:10px;}
+.wp-input{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit;font-size:12.5px;color:var(--ink);outline:none;margin-bottom:10px;}
+.wp-input:focus{border-color:var(--accent);}
+.wp-rule{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--ink2);}
+.wp-rule input[type=number]{width:60px;background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:4px 8px;font:inherit;font-size:11.5px;color:var(--ink);outline:none;}
+.wp-rule input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;}
+.wp-btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:background .12s;}
+.wp-btn:hover{background:var(--accent2);}
+.wp-btn.alt{background:var(--surface2);color:var(--ink2);border:1px solid var(--line);}
+.wp-btn.alt:hover{background:var(--surface3);color:var(--ink);}
+.wl-item{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;margin-bottom:8px;}
+.wl-top{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.wl-q{font-size:12.5px;font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wl-del{font-size:13px;color:var(--ink3);cursor:pointer;padding:2px 5px;border-radius:4px;transition:all .12s;}
+.wl-del:hover{color:var(--neg);background:var(--neg-tint);}
+.wl-rules{font-size:10.5px;color:var(--ink3);margin-bottom:8px;line-height:1.5;}
+.wl-checked{font-size:10px;color:var(--ink3);font-family:var(--mono);}
+.wl-alerts{margin-top:8px;}
+.wl-alert{display:flex;align-items:flex-start;gap:7px;padding:7px 9px;border-radius:7px;margin-bottom:5px;font-size:11.5px;line-height:1.45;}
+.wl-alert.high{background:var(--neg-tint);border:1px solid rgba(245,101,101,.25);}
+.wl-alert.medium{background:var(--warn-tint);border:1px solid rgba(246,166,9,.25);}
+.wl-alert-sev{font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;border-radius:4px;flex:none;}
+.wl-alert.high .wl-alert-sev{background:var(--neg);color:#fff;}
+.wl-alert.medium .wl-alert-sev{background:var(--warn);color:#000;}
+.wl-alert-msg{flex:1;color:var(--ink2);}
+.wl-none{font-size:11.5px;color:var(--pos);display:flex;align-items:center;gap:5px;margin-top:6px;}
+.wp-empty{font-size:12px;color:var(--ink3);text-align:center;padding:32px 16px;line-height:1.6;}
+.wp-note{font-size:10.5px;color:var(--ink3);line-height:1.5;padding:12px 14px;background:var(--surface2);border-radius:8px;border:1px solid var(--line);margin-top:12px;}
+.watch-badge{position:absolute;top:-3px;right:-3px;min-width:15px;height:15px;border-radius:8px;background:var(--neg);color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;}
+.wp-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:290;opacity:0;pointer-events:none;transition:opacity .2s;}
+.wp-backdrop.show{opacity:1;pointer-events:auto;}
+
+/* ══ EXPORT ══ */
+.export-row{display:flex;gap:7px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);}
+.export-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;font-size:11.5px;font-weight:500;color:var(--ink2);background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:8px;cursor:pointer;transition:all .12s;}
+.export-btn:hover{color:var(--ink);border-color:rgba(255,255,255,.18);background:var(--surface3);}
+.export-btn.primary{background:var(--accent-tint);border-color:var(--accent);color:var(--accent2);}
+.export-btn.primary:hover{background:var(--accent);color:#fff;}
+
 /* UTIL */
 .hidden{display:none!important;}
 .mono{font-family:var(--mono);}
@@ -480,6 +543,10 @@ a{color:inherit;text-decoration:none;}
         <button class="mode-tab" data-mode="timeline" onclick="setMode(this)">Timeline</button>
       </div>
       <div class="top-actions">
+        <div class="top-act" onclick="openWatch()" id="watchBtn" title="Watchlists" style="position:relative;">
+          <i class="ti ti-bell"></i>
+          <span class="watch-badge hidden" id="watchBadge">0</span>
+        </div>
         <div class="top-act" onclick="toggleTheme()" id="themeBtn" title="Toggle theme"><i class="ti ti-sun"></i></div>
       </div>
     </div>
@@ -563,6 +630,50 @@ a{color:inherit;text-decoration:none;}
     </div><!-- /split -->
   </div><!-- /center -->
 </div><!-- /shell -->
+
+<!-- WATCHLIST PANEL -->
+<div class="wp-backdrop" id="wpBackdrop" onclick="closeWatch()"></div>
+<div class="watch-panel" id="watchPanel">
+  <div class="wp-head">
+    <i class="ti ti-bell" style="color:var(--accent2);font-size:16px;"></i>
+    <span class="wp-title">Watchlists &amp; Alerts</span>
+    <div class="wp-close" onclick="closeWatch()"><i class="ti ti-x"></i></div>
+  </div>
+  <div class="wp-body">
+    <div class="wp-add">
+      <div class="wp-add-title">Add watchlist</div>
+      <input class="wp-input" id="wlQuery" type="text" placeholder="Query to monitor…"/>
+      <div class="wp-rule">
+        <input type="checkbox" id="wlCoordOn" checked/>
+        <span>Coordination score above</span>
+        <input type="number" id="wlCoord" value="60" min="0" max="100"/>
+      </div>
+      <div class="wp-rule">
+        <input type="checkbox" id="wlVelOn" checked/>
+        <span>Narrative volume accelerating</span>
+      </div>
+      <div class="wp-rule">
+        <input type="checkbox" id="wlStateOn"/>
+        <span>State media posts above</span>
+        <input type="number" id="wlState" value="10" min="0"/>
+      </div>
+      <div class="wp-rule">
+        <input type="checkbox" id="wlNewNarrOn" checked/>
+        <span>New narrative cluster appears</span>
+      </div>
+      <button class="wp-btn" onclick="addWatchlist()">Add to watchlist</button>
+    </div>
+    <div id="wlList"></div>
+    <button class="wp-btn alt" onclick="checkAllWatchlists()" id="wlCheckBtn" style="margin-top:10px;">
+      <i class="ti ti-refresh"></i> Check all now
+    </button>
+    <div class="wp-note">
+      <b style="color:var(--ink2)">How alerts work:</b> watchlists are stored in your browser and evaluated
+      on demand when you press "Check all now". Continuous background alerting between
+      sessions would need a persistent database and worker process — not yet built.
+    </div>
+  </div>
+</div>
 
 <script>
 (function(){
@@ -779,6 +890,25 @@ function renderReport(data){
     }
   }
 
+  // Language distribution (Phase 3)
+  var langs=data.languages||{};
+  if(langs.distribution&&langs.distribution.length>1){
+    html+='<div class="report-section">'+
+      '<div class="report-section-title"><i class="ti ti-language"></i>Languages Detected</div>'+
+      '<div class="lang-row">'+
+        langs.distribution.map(function(l){
+          return'<div class="lang-pill'+(l.lang!=='en'?' nonEn':'')+'">'+
+            (l.flag||'')+' '+esc(l.name)+
+            '<span class="lnum">'+l.count+'</span>'+
+          '</div>';
+        }).join('')+
+      '</div>'+
+      (langs.non_english_docs?'<div class="lang-note">'+langs.non_english_docs+' of '+langs.total_docs+
+        ' documents are non-English. Sentiment and framing analysed in the <b>source language</b>; '+
+        'translations shown for display only.</div>':'')+
+    '</div>';
+  }
+
   // Narrative clusters — Annex style
   var narr=data.narratives||[];
   if(narr.length){
@@ -903,6 +1033,13 @@ function renderReport(data){
     '</div>';
   }
 
+  // Export row (Phase 5)
+  html+='<div class="export-row">'+
+    '<div class="export-btn primary" onclick="openReport()"><i class="ti ti-file-text"></i> Full Dossier</div>'+
+    '<div class="export-btn" onclick="downloadDossierJSON()"><i class="ti ti-download"></i> JSON</div>'+
+    '<div class="export-btn" onclick="addCurrentToWatchlist()"><i class="ti ti-bell-plus"></i> Watch</div>'+
+  '</div>';
+
   // Follow-up
   html+='<div class="follow-up" id="followUp" style="display:none">'+
     '<div class="follow-up-text" id="followUpText"></div>'+
@@ -1013,16 +1150,24 @@ function renderGrid(rawItems){
     if(it.sentiment)pills+='<span class="mpill '+it.sentiment+'">'+it.sentiment+'</span>';
     if(it.framing&&it.framing!=='neutral')pills+='<span class="mpill framing">'+it.framing+'</span>';
     if(st!=='social'&&st!=='unknown')pills+='<span class="mpill '+st+'">'+(SRC_LABELS[st]||st)+'</span>';
+    // Language handling (Phase 3): show translation, allow toggle to original
+    var lang=it.language||'en';
+    var langH=lang!=='en'?'<span class="mc-lang">'+esc((it.language_name||lang).toUpperCase())+'</span>':'';
+    var showTitle=it.title_en||it.title;
+    var showExcerpt=it.excerpt_en||it.excerpt;
+    var rtlClass=(it.rtl&&!it.translated)?' mc-rtl':'';
+    var transFlag=it.translated?'<div class="translated-flag">translated from '+esc(it.language_name||lang)+'</div>':'';
     return'<a class="mc" href="'+esc(it.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
       thumb+
       '<div class="mc-body">'+
         '<div class="mc-head">'+
           '<div class="mc-badge" data-p="'+esc(it._p)+'">'+esc(m.i)+'</div>'+
           '<span class="mc-platform">'+esc(m.n)+'</span>'+
-          credH+
+          langH+credH+
         '</div>'+
-        (it.title?'<div class="mc-title">'+esc(it.title)+'</div>':'')+
-        (it.excerpt?'<div class="mc-excerpt">'+esc(it.excerpt)+'</div>':'')+
+        (showTitle?'<div class="mc-title'+rtlClass+'">'+esc(showTitle)+'</div>':'')+
+        (showExcerpt?'<div class="mc-excerpt'+rtlClass+'">'+esc(showExcerpt)+'</div>':'')+
+        transFlag+
         '<div class="mc-foot">'+
           '<span class="mc-author">'+esc(it.author||m.n)+'</span>'+
           '<span class="mc-time">'+ago(it.timestamp)+'</span>'+
@@ -1155,11 +1300,159 @@ document.querySelectorAll('.hero-mode').forEach(function(el){
   });
 });
 
+/* ══════════════════════════════════════════════════════════════
+   WATCHLISTS & ALERTS
+   Stored in localStorage (durable copy), evaluated on demand.
+   ══════════════════════════════════════════════════════════════ */
+var WL_KEY='xtag-watchlists-v1';
+function loadWL(){try{return JSON.parse(localStorage.getItem(WL_KEY)||'[]');}catch(e){return[];}}
+function saveWL(list){localStorage.setItem(WL_KEY,JSON.stringify(list.slice(0,20)));}
+
+function openWatch(){
+  $('watchPanel').classList.add('show');
+  $('wpBackdrop').classList.add('show');
+  renderWL();
+}
+function closeWatch(){
+  $('watchPanel').classList.remove('show');
+  $('wpBackdrop').classList.remove('show');
+}
+function addCurrentToWatchlist(){
+  if(!lastQ)return;
+  $('wlQuery').value=lastQ;
+  openWatch();
+}
+function addWatchlist(){
+  var q=($('wlQuery').value||'').trim();
+  if(!q){alert('Enter a query to monitor');return;}
+  var rules={
+    coordination_above: $('wlCoordOn').checked?parseInt($('wlCoord').value,10)||60:null,
+    velocity_accelerating: $('wlVelOn').checked,
+    state_media_above: $('wlStateOn').checked?parseInt($('wlState').value,10)||10:null,
+    new_narrative: $('wlNewNarrOn').checked,
+    mentions_above: null
+  };
+  var list=loadWL().filter(function(w){return w.query.toLowerCase()!==q.toLowerCase();});
+  list.unshift({
+    id:'wl_'+Date.now().toString(36),
+    query:q, rules:rules,
+    created_at:new Date().toISOString(),
+    last_checked:null, last_snapshot:null, last_alerts:[]
+  });
+  saveWL(list);
+  $('wlQuery').value='';
+  renderWL();
+}
+function delWatchlist(id){
+  saveWL(loadWL().filter(function(w){return w.id!==id;}));
+  renderWL();updateWatchBadge();
+}
+function renderWL(){
+  var list=loadWL();
+  var el=$('wlList');if(!el)return;
+  if(!list.length){
+    el.innerHTML='<div class="wp-empty">No watchlists yet.<br/>Add a query above to start monitoring.</div>';
+    return;
+  }
+  el.innerHTML=list.map(function(w){
+    var ruleParts=[];
+    if(w.rules.coordination_above!==null&&w.rules.coordination_above!==undefined)ruleParts.push('coord ≥'+w.rules.coordination_above);
+    if(w.rules.velocity_accelerating)ruleParts.push('accelerating');
+    if(w.rules.state_media_above!==null&&w.rules.state_media_above!==undefined)ruleParts.push('state media ≥'+w.rules.state_media_above);
+    if(w.rules.new_narrative)ruleParts.push('new narrative');
+    var alertsH='';
+    if(w.last_checked){
+      if(w.last_alerts&&w.last_alerts.length){
+        alertsH='<div class="wl-alerts">'+w.last_alerts.map(function(a){
+          return'<div class="wl-alert '+(a.severity||'medium')+'">'+
+            '<span class="wl-alert-sev">'+esc(a.severity||'med')+'</span>'+
+            '<span class="wl-alert-msg">'+esc(a.message)+'</span>'+
+          '</div>';
+        }).join('')+'</div>';
+      }else{
+        alertsH='<div class="wl-none"><i class="ti ti-check"></i> No alerts triggered</div>';
+      }
+    }
+    return'<div class="wl-item">'+
+      '<div class="wl-top">'+
+        '<span class="wl-q">'+esc(w.query)+'</span>'+
+        '<span class="wl-del ti ti-trash" onclick="delWatchlist('+JSON.stringify(w.id)+')"></span>'+
+      '</div>'+
+      '<div class="wl-rules">'+esc(ruleParts.join(' · ')||'no rules set')+'</div>'+
+      (w.last_checked?'<div class="wl-checked">checked '+ago(w.last_checked)+' ago</div>':'<div class="wl-checked">never checked</div>')+
+      alertsH+
+    '</div>';
+  }).join('');
+}
+function checkAllWatchlists(){
+  var list=loadWL();
+  if(!list.length){alert('No watchlists to check');return;}
+  var btn=$('wlCheckBtn');
+  var orig=btn.innerHTML;
+  btn.innerHTML='<i class="ti ti-loader"></i> Checking '+list.length+' watchlist'+(list.length>1?'s':'')+'…';
+  btn.disabled=true;
+  fetch('/api/watchlist/check-all',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({watchlists:list})
+  })
+  .then(function(r){return r.json();})
+  .then(function(j){
+    var byQuery={};
+    (j.results||[]).forEach(function(r){byQuery[r.query.toLowerCase()]=r;});
+    var updated=list.map(function(w){
+      var r=byQuery[w.query.toLowerCase()];
+      if(r){
+        w.last_checked=r.checked_at;
+        w.last_snapshot=r.snapshot;
+        w.last_alerts=r.alerts||[];
+      }
+      return w;
+    });
+    saveWL(updated);
+    renderWL();updateWatchBadge();
+    btn.innerHTML=orig;btn.disabled=false;
+  })
+  .catch(function(e){
+    btn.innerHTML=orig;btn.disabled=false;
+    alert('Check failed: '+e);
+  });
+}
+function updateWatchBadge(){
+  var list=loadWL();
+  var total=0;
+  list.forEach(function(w){total+=(w.last_alerts||[]).length;});
+  var badge=$('watchBadge');
+  if(!badge)return;
+  if(total>0){badge.textContent=total;badge.classList.remove('hidden');}
+  else badge.classList.add('hidden');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   REPORT / DOSSIER EXPORT
+   ══════════════════════════════════════════════════════════════ */
+function openReport(){
+  if(!lastQ)return;
+  window.open('/report?q='+encodeURIComponent(lastQ),'_blank');
+}
+function downloadDossierJSON(){
+  if(!lastData)return;
+  var blob=new Blob([JSON.stringify(lastData,null,2)],{type:'application/json'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='xtag-'+lastQ.replace(/[^a-z0-9]/gi,'-').toLowerCase()+'.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 /* ── KEYBOARD ── */
 $('q').addEventListener('keydown',function(e){if(e.key==='Enter')doSearch();});
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){closeWatch();closeAll();}
+});
 
 /* ── BOOT ── */
 renderRailHist();
+updateWatchBadge();
 var q0=new URLSearchParams(location.search).get('q');
 if(q0){$('q').value=q0;doSearch();}else{$('q').focus();}
 
