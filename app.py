@@ -35,6 +35,8 @@ app = Flask(__name__)
 YOUTUBE_API_KEY      = os.environ.get("YOUTUBE_API_KEY", "").strip()
 SERPAPI_KEY          = os.environ.get("SERPAPI_KEY", "").strip()
 SCRAPEBADGER_KEY     = os.environ.get("SCRAPEBADGER_KEY", "").strip()
+REDDIT_CLIENT_ID     = os.environ.get("REDDIT_CLIENT_ID", "").strip()
+REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET", "").strip()
 ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 BABELSTREET_API_KEY  = os.environ.get("BABELSTREET_API_KEY", "").strip()
 BLUESKY_IDENTIFIER   = os.environ.get("BLUESKY_IDENTIFIER", "").strip()
@@ -443,10 +445,64 @@ def search_youtube(q):
         return {"platform":"youtube","results":results,"error":None}
     except Exception as e: return _empty("youtube", str(e)[:120])
 
+_reddit_session = {"token": None, "ts": 0.0}
+
+def _reddit_token():
+    """Official Reddit OAuth (client_credentials, installed-app grant) — free,
+    read-only, no user login required. 100 req/min once authenticated vs 10/min
+    unauthenticated. Personal/research use only per Reddit's API terms; a
+    commercial deployment needs Reddit's separate paid developer agreement."""
+    if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET: return None
+    now = time.time()
+    if _reddit_session["token"] and now - _reddit_session["ts"] < 3300: return _reddit_session["token"]
+    try:
+        r = requests.post("https://www.reddit.com/api/v1/access_token",
+            data={"grant_type":"client_credentials"},
+            auth=(REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET),
+            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT)
+        if r.status_code >= 400: return None
+        tok = r.json().get("access_token")
+        _reddit_session["token"]=tok; _reddit_session["ts"]=now
+        return tok
+    except Exception: return None
+
+def _search_reddit_official(keyword):
+    token = _reddit_token()
+    if not token: return None  # signal: fall through to ScrapeBadger
+    try:
+        r = requests.get("https://oauth.reddit.com/search",
+            params={"q":keyword,"sort":"relevance","t":"year","limit":100,"raw_json":1},
+            headers={"Authorization":f"bearer {token}","User-Agent":USER_AGENT}, timeout=TIMEOUT)
+    except Exception as e: return _empty("reddit", str(e)[:120])
+    if r.status_code >= 400: return None  # token/app issue — fall through rather than fail the platform
+    try: data = r.json()
+    except Exception: return None
+    children = ((data.get("data") or {}).get("children")) or []
+    results = []
+    for c in children:
+        d = (c or {}).get("data") or {}
+        if not d: continue
+        permalink = f"https://www.reddit.com{d.get('permalink','')}" if d.get("permalink") else "https://www.reddit.com"
+        sub = d.get("subreddit") or ""; author = d.get("author") or "unknown"
+        score = d.get("score") or 0; nc = d.get("num_comments") or 0
+        thumb = d.get("thumbnail")
+        if not (isinstance(thumb,str) and thumb.startswith("http")): thumb = None
+        results.append(make_doc("reddit", permalink,
+            _strip_html(d.get("selftext") or ""),
+            title=_strip_html(d.get("title")), author=f"u/{author}",
+            author_url=f"https://www.reddit.com/user/{author}", thumbnail=thumb,
+            timestamp=_iso(d.get("created_utc")) if d.get("created_utc") else None,
+            meta=f"r/{sub} · {score} pts · {nc} comments", source_type="social"))
+    return {"platform":"reddit","results":results,"error":None}
+
 def search_reddit(q):
     is_tag,tag,plain = _query_parts(q); keyword = tag if is_tag else plain
     if not keyword: return _empty("reddit","empty query")
-    if not SCRAPEBADGER_KEY: return _empty("reddit","SCRAPEBADGER_KEY not set")
+
+    official = _search_reddit_official(keyword)
+    if official is not None: return official
+
+    if not SCRAPEBADGER_KEY: return _empty("reddit","REDDIT_CLIENT_ID/SECRET and SCRAPEBADGER_KEY both unset")
     try:
         r = requests.get(f"{SB_BASE}/reddit/search/posts",
             params={"q":keyword,"sort":"relevance","t":"year","limit":100},
@@ -454,7 +510,7 @@ def search_reddit(q):
     except Exception as e: return _empty("reddit", str(e)[:120])
     if r.status_code >= 400: return _empty("reddit", f"HTTP {r.status_code}")
     try: data = r.json()
-    except: return _empty("reddit","bad JSON")
+    except Exception: return _empty("reddit","bad JSON")
     items = data if isinstance(data,list) else (data.get("posts") or data.get("data") or [])
     results = []
     for d in items:
@@ -1699,14 +1755,28 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
     with ThreadPoolExecutor(max_workers=len(API_PLATFORMS)+1) as ex:
         futures={ex.submit(fn,q):name for name,fn in API_PLATFORMS.items()}
         cse_future=ex.submit(search_serpapi,q)
-        for fut in as_completed(list(futures.keys())+[cse_future],timeout=SERPAPI_TIMEOUT+10):
-            if fut is cse_future:
-                try: cse_out=fut.result()
-                except Exception as e: cse_out={p:_empty(p,str(e)[:120]) for p in SERPAPI_PLATFORM_DOMAINS}
-            else:
-                name=futures[fut]
-                try: direct_out[name]=fut.result()
-                except Exception as e: direct_out[name]=_empty(name,str(e)[:120])
+        all_futures=list(futures.keys())+[cse_future]
+        try:
+            done_iter=as_completed(all_futures,timeout=SERPAPI_TIMEOUT+10)
+            for fut in done_iter:
+                if fut is cse_future:
+                    try: cse_out=fut.result()
+                    except Exception as e: cse_out={p:_empty(p,str(e)[:120]) for p in SERPAPI_PLATFORM_DOMAINS}
+                else:
+                    name=futures[fut]
+                    try: direct_out[name]=fut.result()
+                    except Exception as e: direct_out[name]=_empty(name,str(e)[:120])
+        except TimeoutError:
+            # One or more sources hung past the deadline — degrade gracefully
+            # instead of 500ing the whole search. Anything that finished stays;
+            # anything still running gets marked as timed-out for this query.
+            app.logger.warning("search pool timeout for q=%r; %d/%d sources finished",
+                                q, len(direct_out)+(1 if cse_out else 0), len(all_futures))
+            for fut, name in futures.items():
+                if name not in direct_out:
+                    direct_out[name]=_empty(name,"timed out")
+            if not cse_out:
+                cse_out={p:_empty(p,"timed out") for p in SERPAPI_PLATFORM_DOMAINS}
     out={}
     for pid in set(direct_out.keys())|set(cse_out.keys()):
         direct=direct_out.get(pid); cse=cse_out.get(pid)
@@ -1732,28 +1802,38 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
         try: sentiment=attach_sentiment(out)
         except Exception as e: app.logger.warning("sentiment failed: %s",e); sentiment["error"]=str(e)[:120]
 
+    # These five are the actual narrative-intelligence output (narratives,
+    # entities, velocity, coordination, propagation) — previously any failure
+    # here was a bare `except: pass`, so a broken narrative extraction call
+    # looked identical to "nothing found," with nothing in the logs to tell
+    # them apart. Now failures are logged and surfaced to the UI as errors.
     narratives=[]; entities={}; velocity={}; coordination={}; propagation={}
+    engine_errors={}
     with ThreadPoolExecutor(max_workers=5) as ex:
         f_narr=ex.submit(extract_narratives_v2,out,q)
         f_ents=ex.submit(extract_entities,out,q)
         f_vel=ex.submit(compute_velocity,out)
         f_coord=ex.submit(detect_coordination,out)
         f_prop=ex.submit(trace_propagation,out)
-        try: narratives=f_narr.result(timeout=25)
-        except: pass
-        try: entities=f_ents.result(timeout=20)
-        except: pass
-        try: velocity=f_vel.result(timeout=5)
-        except: pass
-        try: coordination=f_coord.result(timeout=10)
-        except: pass
-        try: propagation=f_prop.result(timeout=5)
-        except: pass
+        for key,fut,tmo in (("narratives",f_narr,25),("entities",f_ents,20),
+                             ("velocity",f_vel,5),("coordination",f_coord,10),
+                             ("propagation",f_prop,5)):
+            try:
+                result=fut.result(timeout=tmo)
+                if key=="narratives": narratives=result
+                elif key=="entities": entities=result
+                elif key=="velocity": velocity=result
+                elif key=="coordination": coordination=result
+                elif key=="propagation": propagation=result
+            except Exception as e:
+                app.logger.warning("narrative engine stage %r failed for q=%r: %s", key, q, e)
+                engine_errors[key]=str(e)[:160]
     agg=_build_aggregates(out)
     payload={"query":q,"platforms":out,"sentiment":sentiment,"narratives":narratives,
              "entities":entities,"velocity":velocity,"coordination":coordination,
              "propagation":propagation,"languages":languages,
-             "totals":agg["totals"],"source_mix":agg["source_mix"],"cached":False}
+             "totals":agg["totals"],"source_mix":agg["source_mix"],"cached":False,
+             "engine_errors":engine_errors}
     _cache[cache_key]=(now,payload)
     if len(_cache)>200:
         oldest=sorted(_cache.items(),key=lambda kv:kv[1][0])[:50]
@@ -1766,7 +1846,11 @@ def api_search():
     q=(request.args.get("q") or "").strip()
     if not q: return jsonify({"error":"missing q"}),400
     if len(q)>200: return jsonify({"error":"query too long"}),400
-    return jsonify(_run_full_search(q))
+    try:
+        return jsonify(_run_full_search(q))
+    except Exception as e:
+        app.logger.exception("unhandled error in /api/search for q=%r", q)
+        return jsonify({"error":f"search failed: {str(e)[:200]}","query":q}),500
 
 
 # ── Watchlist endpoints ───────────────────────────────────────────────────────
@@ -1801,20 +1885,24 @@ def api_watchlist_delete(wl_id):
 def api_watchlist_check(wl_id):
     with _watch_lock:
         entry = _watchlists.get(wl_id)
-    if not entry:
-        # Allow ad-hoc check by passing query + rules directly
-        body = request.get_json(silent=True) or {}
-        q = (body.get("query") or "").strip()
-        if not q: return jsonify({"error": "watchlist not found"}), 404
-        rules = {**DEFAULT_RULES, **(body.get("rules") or {})}
-        baseline = body.get("baseline")
-        return jsonify(evaluate_watchlist(q, rules, baseline))
-    result = evaluate_watchlist(entry["query"], entry["rules"], entry.get("last_snapshot"))
-    with _watch_lock:
-        entry["last_checked"] = result["checked_at"]
-        entry["last_snapshot"] = result["snapshot"]
-        entry["last_alerts"] = result["alerts"]
-    return jsonify(result)
+    try:
+        if not entry:
+            # Allow ad-hoc check by passing query + rules directly
+            body = request.get_json(silent=True) or {}
+            q = (body.get("query") or "").strip()
+            if not q: return jsonify({"error": "watchlist not found"}), 404
+            rules = {**DEFAULT_RULES, **(body.get("rules") or {})}
+            baseline = body.get("baseline")
+            return jsonify(evaluate_watchlist(q, rules, baseline))
+        result = evaluate_watchlist(entry["query"], entry["rules"], entry.get("last_snapshot"))
+        with _watch_lock:
+            entry["last_checked"] = result["checked_at"]
+            entry["last_snapshot"] = result["snapshot"]
+            entry["last_alerts"] = result["alerts"]
+        return jsonify(result)
+    except Exception as e:
+        app.logger.exception("watchlist check failed for %r", wl_id)
+        return jsonify({"error": f"check failed: {str(e)[:200]}"}), 500
 
 @app.route("/api/watchlist/check-all", methods=["POST"])
 def api_watchlist_check_all():
@@ -1971,8 +2059,17 @@ def notebooklm_status():
                     "interval_min":NOTEBOOKLM_SYNC_INTERVAL//60})
 
 def _debug_auth():
+    # SECURE BY DEFAULT: /debug/* is closed unless DEBUG_TOKEN is explicitly set
+    # on Railway AND the caller sends a matching X-Debug-Token header. Previously
+    # an unset DEBUG_TOKEN meant "open to anyone" — that's what let /debug/account
+    # leak the live SerpApi key with no auth at all. Set DEBUG_TOKEN in Railway
+    # Variables to use these routes again.
     tok=os.environ.get("DEBUG_TOKEN","").strip()
-    return not tok or request.headers.get("X-Debug-Token")==tok
+    return bool(tok) and request.headers.get("X-Debug-Token")==tok
+
+def _mask_key(k: str) -> str:
+    k=(k or "").strip()
+    return f"…{k[-4:]}" if len(k)>=4 else ("(unset)" if not k else "…")
 
 @app.route("/debug/brief")
 def debug_brief():
@@ -1981,22 +2078,25 @@ def debug_brief():
     if not q: return {"error":"pass ?q="},400
     if not ANTHROPIC_API_KEY: return {"error":"ANTHROPIC_API_KEY not set"},200
     text=_claude_call(f'Write a 2-3 sentence OSINT brief on: "{q}". Bold key entities. English only.',350)
-    return {"brief":text,"key_last4":ANTHROPIC_API_KEY[-4:]},200
+    return {"brief":text,"key_last4":_mask_key(ANTHROPIC_API_KEY)},200
 
 @app.route("/debug/gdelt")
 def debug_gdelt():
+    if not _debug_auth(): return {"error":"auth required"},401
     q=(request.args.get("q") or "test").strip(); result=search_gdelt(q)
     return jsonify({"count":len(result.get("results",[])),"error":result.get("error"),
                     "sample":(result.get("results") or [None])[0]})
 
 @app.route("/debug/state_media")
 def debug_state_media():
+    if not _debug_auth(): return {"error":"auth required"},401
     q=(request.args.get("q") or "hezbollah").strip(); result=search_state_media(q)
     return jsonify({"count":len(result.get("results",[])),"error":result.get("error"),
                     "sample":(result.get("results") or [None])[0]})
 
 @app.route("/debug/academic")
 def debug_academic():
+    if not _debug_auth(): return {"error":"auth required"},401
     q=(request.args.get("q") or "information operations").strip(); result=search_academic(q)
     return jsonify({"count":len(result.get("results",[])),"error":result.get("error"),
                     "sample":(result.get("results") or [None])[0]})
@@ -2017,7 +2117,7 @@ def debug_serpapi():
             params={"engine":"google","q":f"{q} site:x.com","num":3,"api_key":SERPAPI_KEY},
             timeout=SERPAPI_TIMEOUT)
         body=r.json()
-        return {"key_last4":SERPAPI_KEY[-4:],"status":r.status_code,"results":len(body.get("organic_results",[]))},200
+        return {"key_last4":_mask_key(SERPAPI_KEY),"status":r.status_code,"results":len(body.get("organic_results",[]))},200
     except Exception as e: return {"error":str(e)[:200]},500
 
 @app.route("/debug/scrapebadger")
@@ -2026,7 +2126,9 @@ def debug_scrapebadger():
     if not SCRAPEBADGER_KEY: return {"set":False},200
     try:
         acct=requests.get(f"{SB_BASE}/account",headers={"x-api-key":SCRAPEBADGER_KEY},timeout=SERPAPI_TIMEOUT)
-        return {"key_last4":SCRAPEBADGER_KEY[-4:],"status":acct.status_code,"account":acct.json() if acct.ok else None},200
+        acct_body=acct.json() if acct.ok else None
+        if isinstance(acct_body,dict): acct_body.pop("api_key",None)
+        return {"key_last4":_mask_key(SCRAPEBADGER_KEY),"status":acct.status_code,"account":acct_body},200
     except Exception as e: return {"error":str(e)[:200]},500
 
 @app.route("/debug/account")
@@ -2035,8 +2137,19 @@ def debug_account():
     if not SERPAPI_KEY: return {"error":"SERPAPI_KEY not set"},200
     try:
         r=requests.get("https://serpapi.com/account",params={"api_key":SERPAPI_KEY},timeout=SERPAPI_TIMEOUT)
-        return r.json(),r.status_code
+        body=r.json()
+        if isinstance(body,dict): body.pop("api_key",None)
+        return body,r.status_code
     except Exception as e: return {"error":str(e)[:160]},500
+
+@app.route("/healthz")
+def healthz():
+    # Lightweight liveness/config-status endpoint (matches README; distinct from
+    # the fuller /api/status which is used by the UI's source indicators).
+    return jsonify({"ok":True,"sources_configured":{
+        "youtube":bool(YOUTUBE_API_KEY),"serpapi":bool(SERPAPI_KEY),
+        "scrapebadger":bool(SCRAPEBADGER_KEY),"reddit_official":bool(REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET),
+        "anthropic":bool(ANTHROPIC_API_KEY),"babelstreet":bool(BABELSTREET_API_KEY)}}),200
 
 if NOTEBOOKLM_AUTH_ARCHIVE and _restore_notebooklm_auth():
     threading.Thread(target=_notebooklm_sync_loop,daemon=True,name="notebooklm-sync").start()
