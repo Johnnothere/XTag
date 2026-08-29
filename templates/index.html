@@ -353,6 +353,9 @@ a{color:inherit;text-decoration:none;}
 .gt-flex{flex:1;}
 .filter-btn{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2);background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:5px 12px;cursor:pointer;transition:all .12s;}
 .filter-btn:hover{color:var(--ink);border-color:rgba(255,255,255,.16);}
+.filter-btn.active{color:var(--accent2);border-color:var(--accent);background:var(--accent-tint);}
+.tb-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--accent);color:#fff;font-size:9.5px;font-weight:700;margin-left:2px;}
+.sort-btn{white-space:nowrap;}
 .sort-btn{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--accent2);background:var(--accent-tint);border:1px solid var(--accent);border-radius:8px;padding:5px 12px;cursor:pointer;transition:all .12s;}
 .sort-btn:hover{background:var(--accent);color:#fff;}
 /* FILTER PANEL */
@@ -456,6 +459,86 @@ a{color:inherit;text-decoration:none;}
 .translated-flag{font-size:9px;color:var(--academic);font-style:italic;margin-top:3px;}
 .orig-toggle{font-size:9.5px;color:var(--ink3);cursor:pointer;text-decoration:underline;margin-top:3px;display:inline-block;}
 .orig-toggle:hover{color:var(--accent2);}
+
+
+/* ══ ENTITY / TIMELINE VIEWS ══ */
+.view-empty{text-align:center;padding:44px 20px;color:var(--ink3);}
+.view-empty i{font-size:34px;opacity:.4;display:block;margin-bottom:10px;}
+.ve-title{font-size:13.5px;font-weight:600;color:var(--ink2);margin-bottom:6px;}
+.ve-text{font-size:12px;color:var(--ink3);line-height:1.6;max-width:380px;margin:0 auto;}
+.ent-group{margin-bottom:16px;}
+.ent-group-label{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.egc{font-family:var(--mono);font-size:9.5px;color:var(--ink3);background:var(--surface2);border-radius:8px;padding:1px 6px;}
+.ent-row{margin-bottom:9px;}
+.ent-row-top{display:flex;align-items:center;gap:7px;margin-bottom:4px;}
+.ent-name{font-size:12.5px;font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ent-count{font-family:var(--mono);font-size:10.5px;color:var(--ink3);flex:none;}
+.ent-bar{height:4px;border-radius:3px;background:var(--surface3);overflow:hidden;}
+.ent-bar-fill{height:100%;border-radius:3px;background:var(--accent);transition:width .4s ease;}
+.ent-bar-fill.positive{background:var(--pos);}
+.ent-bar-fill.negative{background:var(--neg);}
+.ent-bar-fill.neutral{background:var(--neu);}
+.edge-list{display:flex;flex-direction:column;gap:5px;}
+.edge-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:var(--glass-soft-bg);border:1px solid var(--glass-soft-border);border-radius:8px;padding:6px 10px;box-shadow:var(--glass-edge);}
+.edge-node{font-size:11.5px;font-weight:600;color:var(--ink);}
+.edge-rel{font-size:10px;color:var(--accent2);background:var(--accent-tint);border-radius:8px;padding:1px 8px;}
+.tl-hist{display:flex;align-items:flex-end;gap:3px;height:92px;overflow-x:auto;padding-bottom:2px;}
+.tl-col{display:flex;flex-direction:column;align-items:center;gap:4px;flex:none;min-width:26px;}
+.tl-bar{width:14px;border-radius:3px 3px 0 0;background:linear-gradient(180deg,var(--accent2),var(--accent));}
+.tl-bar.hist{background:linear-gradient(180deg,var(--academic),#0369a1);}
+.tl-day{font-size:8.5px;color:var(--ink3);font-family:var(--mono);white-space:nowrap;}
+.tl-stream{display:flex;flex-direction:column;}
+.tl-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line2);text-decoration:none;color:inherit;}
+.tl-item:hover .tl-title{color:var(--accent2);}
+.tl-dot{width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px;}
+.tl-content{flex:1;min-width:0;}
+.tl-meta{display:flex;align-items:center;gap:7px;margin-bottom:2px;flex-wrap:wrap;}
+.tl-plat{font-size:10px;color:var(--ink3);font-weight:600;}
+.tl-time{font-size:10px;color:var(--ink3);font-family:var(--mono);}
+.tl-title{font-size:12px;color:var(--ink2);line-height:1.45;}
+.hist-change{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.chg-chip{font-size:10.5px;color:var(--ink3);background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:3px 10px;}
+.chg-chip.up{color:var(--warn);border-color:rgba(246,166,9,.3);}
+.chg-chip.down{color:var(--pos);border-color:rgba(30,203,148,.3);}
+.lc-row{display:flex;align-items:baseline;gap:8px;padding:4px 0;border-bottom:1px solid var(--line2);}
+.lc-label{font-size:11.5px;color:var(--ink);font-weight:500;flex:1;min-width:0;}
+.lc-meta{font-size:9.5px;color:var(--ink3);font-family:var(--mono);white-space:nowrap;}
+
+
+/* ══ MODAL (subscribe / alerts) ══ */
+.modal-backdrop{position:fixed;inset:0;z-index:500;background:rgba(4,4,10,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:none;align-items:center;justify-content:center;padding:20px;}
+.modal-backdrop.show{display:flex;}
+.modal{width:min(430px,100%);background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur-lg)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-lg)) saturate(var(--glass-sat));border:1px solid var(--glass-border);border-radius:var(--r-xl);box-shadow:var(--sh-lg),var(--glass-edge);overflow:hidden;}
+:root[data-theme="light"] .modal{background:rgba(255,255,255,.92);}
+.modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 20px 14px;border-bottom:1px solid var(--glass-border);}
+.modal-title{font-size:15px;font-weight:600;color:var(--ink);}
+.modal-sub{font-size:11.5px;color:var(--ink3);margin-top:3px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.modal-x{width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:7px;cursor:pointer;color:var(--ink3);transition:all .12s;}
+.modal-x:hover{background:rgba(255,255,255,.08);color:var(--ink);}
+.modal-body{padding:18px 20px;}
+.ms-label{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:7px;}
+.ms-input{width:100%;background:var(--glass-soft-bg);border:1px solid var(--glass-soft-border);border-radius:10px;padding:10px 13px;font:inherit;font-size:13.5px;color:var(--ink);outline:none;transition:border-color .15s,box-shadow .15s;box-shadow:var(--glass-edge);}
+.ms-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+.ms-input::placeholder{color:var(--ink3);}
+.cad-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
+.cad-opt{background:var(--glass-soft-bg);border:1px solid var(--glass-soft-border);border-radius:11px;padding:11px 6px;text-align:center;cursor:pointer;transition:all .15s;box-shadow:var(--glass-edge);}
+.cad-opt:hover{border-color:var(--accent);transform:translateY(-1px);}
+.cad-opt.on{background:var(--accent-tint);border-color:var(--accent);}
+.cad-n{font-size:19px;font-weight:300;color:var(--ink);line-height:1;}
+.cad-opt.on .cad-n{color:var(--accent2);}
+.cad-l{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-top:3px;}
+.ms-note{font-size:11.5px;color:var(--ink3);line-height:1.65;margin-top:14px;}
+.ms-status{font-size:12px;margin-top:12px;min-height:16px;line-height:1.55;}
+.ms-status.ok{color:var(--pos);}
+.ms-status.err{color:var(--neg);}
+.ms-status.warn{color:var(--warn);}
+.modal-foot{display:flex;gap:8px;padding:14px 20px 18px;border-top:1px solid var(--glass-border);}
+.ms-btn{flex:1;text-align:center;font-size:12.5px;font-weight:600;border-radius:9px;padding:10px;cursor:pointer;transition:all .14s;}
+.ms-btn.ghost{color:var(--ink3);background:var(--glass-soft-bg);border:1px solid var(--glass-soft-border);}
+.ms-btn.ghost:hover{color:var(--ink);}
+.ms-btn.primary{color:#fff;background:linear-gradient(180deg,var(--accent2),var(--accent));box-shadow:0 2px 10px var(--accent-glow);}
+.ms-btn.primary:hover{filter:brightness(1.08);}
+.ms-btn.busy{opacity:.6;pointer-events:none;}
 
 /* ══ WATCHLIST ══ */
 .watch-panel{position:fixed;top:0;right:0;bottom:0;width:min(420px,92vw);z-index:300;
@@ -590,7 +673,7 @@ a{color:inherit;text-decoration:none;}
         <button class="mode-tab" data-mode="timeline" onclick="setMode(this)">Timeline</button>
       </div>
       <div class="top-actions">
-        <div class="top-act" onclick="openWatch()" id="watchBtn" title="Watchlists" style="position:relative;">
+        <div class="top-act" onclick="openSubscribe()" id="watchBtn" title="Alerts &amp; email reports" style="position:relative;">
           <i class="ti ti-bell"></i>
           <span class="watch-badge hidden" id="watchBadge">0</span>
         </div>
@@ -875,8 +958,32 @@ function doSearch(){
     });
 }
 function loadQ(q){
-  if(!q){$('q').value='';$('q').focus();return;}
+  if(!q){newSearch();return;}
   $('q').value=q;doSearch();
+}
+
+// "+" = start over. Previously this only blanked the input while the previous
+// query's results stayed on screen, which read as a dead button.
+function newSearch(){
+  $('q').value='';
+  lastQ='';lastData=null;
+  filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
+  pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
+  sortMode='newest';
+  document.querySelectorAll('.sort-opt').forEach(function(e){
+    e.classList.toggle('on', e.dataset.sort==='newest');});
+  closeAll();
+  // Restore the landing state: hero back, report cleared, grid emptied.
+  var hero=$('hero');if(hero)hero.classList.remove('hidden');
+  var rep=$('report');if(rep){rep.innerHTML='';rep.classList.add('hidden');}
+  var grid=$('mediaGrid');if(grid){grid.innerHTML='';grid.classList.add('hidden');}
+  var empty=$('gridEmpty');if(empty)empty.classList.add('hidden');
+  var tb=$('gridToolbar');if(tb)tb.style.display='none';
+  var gc=$('gtCount');if(gc)gc.textContent='';
+  var gq=$('gtQuery');if(gq)gq.textContent='';
+  document.querySelectorAll('.rh-item').forEach(function(e){e.classList.remove('on');});
+  updateToolbarState();
+  $('q').focus();
 }
 
 /* ── REPORT ── */
@@ -955,6 +1062,13 @@ function renderReport(data){
         'translations shown for display only.</div>':'')+
     '</div>';
   }
+
+  // ── MODE-SPECIFIC BODY ──────────────────────────────────────────────────
+  // activeMode was previously assigned by setMode() and never read, so the
+  // Narrative / Entities / Timeline tabs did nothing at all. Each now renders
+  // its own view over the same query.
+  if(activeMode==='entities'){ html+=renderEntitiesView(data); html+=reportFooter(); $('report').innerHTML=html; wireTimeline(data); return; }
+  if(activeMode==='timeline'){ html+=renderTimelineView(data); html+=reportFooter(); $('report').innerHTML=html; wireTimeline(data); return; }
 
   // Narrative clusters — Annex style
   var narr=data.narratives||[];
@@ -1080,15 +1194,235 @@ function renderReport(data){
     '</div>';
   }
 
-  // Export row (Phase 5)
-  html+='<div class="export-row">'+
-    '<div class="export-btn primary" onclick="openReport()"><i class="ti ti-file-text"></i> Full Dossier</div>'+
-    '<div class="export-btn" onclick="downloadDossierJSON()"><i class="ti ti-download"></i> JSON</div>'+
-    '<div class="export-btn" onclick="addCurrentToWatchlist()"><i class="ti ti-bell-plus"></i> Watch</div>'+
+  html+=reportFooter();
+  $('report').innerHTML=html;
+}
+
+
+
+/* ══ SUBSCRIBE / EMAIL REPORTS ══ */
+var subCadence=7;
+function openSubscribe(){
+  var q=lastQ||($('q').value||'').trim();
+  // No blocking alert(): surface the requirement inside the modal instead, so
+  // the user sees what to do without a browser dialog interrupting them.
+  $('subQueryLabel').textContent=q||'No query yet';
+  var go=$('subGo');
+  if(go){
+    go.classList.toggle('busy',!q);
+    go.textContent=q?'Subscribe':'Run a search first';
+  }
+  $('subStatus').textContent='';$('subStatus').className='ms-status';
+  try{var saved=localStorage.getItem('xtag_email');if(saved)$('subEmail').value=saved;}catch(e){}
+  $('subBackdrop').classList.add('show');
+  setTimeout(function(){$('subEmail').focus();},50);
+}
+function closeSubscribe(ev){
+  if(ev&&ev.target&&ev.target.id!=='subBackdrop')return;
+  $('subBackdrop').classList.remove('show');
+}
+function pickCadence(c){
+  subCadence=c;
+  document.querySelectorAll('.cad-opt').forEach(function(e){
+    e.classList.toggle('on', parseInt(e.dataset.c,10)===c);});
+}
+function submitSubscribe(){
+  var email=($('subEmail').value||'').trim();
+  var q=lastQ||($('q').value||'').trim();
+  var st=$('subStatus');
+  if(!q){st.className='ms-status err';st.textContent='Run a search first, then subscribe to reports on it.';return;}
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)){
+    st.className='ms-status err';st.textContent='Enter a valid email address.';return;}
+  try{localStorage.setItem('xtag_email',email);}catch(e){}
+  var btn=$('subGo');btn.classList.add('busy');btn.textContent='Saving…';
+  st.className='ms-status';st.textContent='';
+  fetch('/api/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:email,query:q,cadence_days:subCadence})})
+   .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j};});})
+   .then(function(res){
+     btn.classList.remove('busy');btn.textContent='Subscribe';
+     if(!res.ok){st.className='ms-status err';st.textContent=res.j.error||'Could not subscribe.';return;}
+     if(res.j.note){st.className='ms-status warn';st.textContent=res.j.note;}
+     else{st.className='ms-status ok';
+          st.textContent='Subscribed. First report arrives on the next scheduled run.';}
+     setTimeout(function(){closeSubscribe();},2600);
+   })
+   .catch(function(){btn.classList.remove('busy');btn.textContent='Subscribe';
+     st.className='ms-status err';st.textContent='Network error — please try again.';});
+}
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){closeSubscribe();closeAll();}
+});
+
+/* ══ ENTITIES VIEW ══
+   Actor / network mapping: who appears, how often, in what sentiment, and how
+   they relate. Backed by /api/search -> entities {entities:[], edges:[]}. */
+function renderEntitiesView(data){
+  var ents=(data.entities||{}).entities||[];
+  var edges=(data.entities||{}).edges||[];
+  var html='';
+  if(!ents.length){
+    var ee=(data.engine_errors||{}).analysis_engine;
+    html+='<div class="view-empty"><i class="ti ti-network-off"></i>'+
+      '<div class="ve-title">No entities extracted</div>'+
+      '<div class="ve-text">'+(ee?esc(ee):'The analysis engine returned no named actors for this query. Try a broader or more specific search term.')+'</div></div>';
+    return html;
+  }
+  var byType={};
+  ents.forEach(function(e){var t=(e.type||'other').toLowerCase();(byType[t]=byType[t]||[]).push(e);});
+  var maxM=Math.max.apply(null,ents.map(function(e){return e.mentions||0;}).concat([1]));
+
+  html+='<div class="report-section"><div class="report-section-title">'+
+    '<i class="ti ti-network"></i>Entity Map · '+ents.length+' actors</div>';
+  Object.keys(byType).sort(function(a,b){return byType[b].length-byType[a].length;}).forEach(function(t){
+    html+='<div class="ent-group"><div class="ent-group-label">'+esc(t)+' <span class="egc">'+byType[t].length+'</span></div>';
+    html+=byType[t].sort(function(a,b){return (b.mentions||0)-(a.mentions||0);}).map(function(e){
+      var pct=Math.round(((e.mentions||0)/maxM)*100);
+      var s=(e.sentiment||'neutral').toLowerCase();
+      return '<div class="ent-row">'+
+        '<div class="ent-row-top">'+
+          '<span class="ent-name">'+esc(e.name||'')+'</span>'+
+          '<span class="mpill '+esc(s)+'">'+esc(s)+'</span>'+
+          '<span class="ent-count">'+(e.mentions||0)+'</span>'+
+        '</div>'+
+        '<div class="ent-bar"><div class="ent-bar-fill '+esc(s)+'" style="width:'+pct+'%"></div></div>'+
+      '</div>';
+    }).join('');
+    html+='</div>';
+  });
+  html+='</div>';
+
+  if(edges.length){
+    html+='<div class="report-section"><div class="report-section-title">'+
+      '<i class="ti ti-arrows-join"></i>Relationships · '+edges.length+'</div><div class="edge-list">'+
+      edges.slice(0,40).map(function(g){
+        return '<div class="edge-row">'+
+          '<span class="edge-node">'+esc(g.from||'')+'</span>'+
+          '<span class="edge-rel">'+esc(g.relation||'related to')+'</span>'+
+          '<span class="edge-node">'+esc(g.to||'')+'</span>'+
+        '</div>';
+      }).join('')+'</div></div>';
+  }
+  return html;
+}
+
+/* ══ TIMELINE VIEW ══
+   Two time axes: this search's own posts over time (immediate), and the
+   persisted snapshot history for the query (longitudinal, from /api/history).
+   The second is what the Supabase work exists to enable. */
+function renderTimelineView(data){
+  var items=allItems().filter(function(i){return parseTs(i.timestamp);});
+  var html='';
+
+  var vel=data.velocity||{};var w=vel.windows||{};
+  html+='<div class="report-section"><div class="report-section-title">'+
+    '<i class="ti ti-activity"></i>Velocity</div><div class="vel-grid">'+
+    '<div class="vw"><div class="vw-n">'+(w['6h']||0)+'</div><div class="vw-l">6H</div></div>'+
+    '<div class="vw"><div class="vw-n">'+(w['24h']||0)+'</div><div class="vw-l">24H</div></div>'+
+    '<div class="vw"><div class="vw-n">'+(w['7d']||0)+'</div><div class="vw-l">7D</div></div>'+
+    '</div>'+
+    (vel.acceleration?'<div class="vel-accel '+esc(vel.acceleration)+'"><i class="ti ti-trending-up"></i>'+esc(vel.acceleration)+'</div>':'')+
   '</div>';
 
-  // Follow-up
-  html+='<div class="follow-up" id="followUp" style="display:none">'+
+  // Day histogram of this result set
+  if(items.length){
+    var buckets={};
+    items.forEach(function(i){
+      var d=parseTs(i.timestamp);if(!d)return;
+      var k=d.toISOString().slice(0,10);
+      buckets[k]=(buckets[k]||0)+1;
+    });
+    var days=Object.keys(buckets).sort();
+    var maxB=Math.max.apply(null,days.map(function(k){return buckets[k];}).concat([1]));
+    html+='<div class="report-section"><div class="report-section-title">'+
+      '<i class="ti ti-chart-bar"></i>Posts per day · '+items.length+' dated</div>'+
+      '<div class="tl-hist">'+days.map(function(k){
+        var h=Math.max(3,Math.round((buckets[k]/maxB)*76));
+        return '<div class="tl-col" title="'+esc(k)+': '+buckets[k]+'">'+
+          '<div class="tl-bar" style="height:'+h+'px"></div>'+
+          '<div class="tl-day">'+esc(k.slice(5))+'</div></div>';
+      }).join('')+'</div></div>';
+  }
+
+  // Longitudinal history (persisted snapshots)
+  html+='<div class="report-section"><div class="report-section-title">'+
+    '<i class="ti ti-history"></i>Tracked history</div>'+
+    '<div id="histBody"><div class="skel w90"></div><div class="skel w60"></div></div></div>';
+
+  // Chronological stream
+  if(items.length){
+    var sorted=items.slice().sort(function(a,b){return parseTs(b.timestamp)-parseTs(a.timestamp);});
+    html+='<div class="report-section"><div class="report-section-title">'+
+      '<i class="ti ti-timeline"></i>Chronological stream</div><div class="tl-stream">'+
+      sorted.slice(0,60).map(function(i){
+        var m=pm(i._p);
+        return '<a class="tl-item" href="'+esc(i.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
+          '<div class="tl-dot" style="background:'+m.c+'"></div>'+
+          '<div class="tl-content">'+
+            '<div class="tl-meta"><span class="tl-plat">'+esc(m.n)+'</span>'+
+              '<span class="tl-time">'+esc(fmtTs(i.timestamp))+'</span>'+
+              (i.sentiment?'<span class="mpill '+esc(i.sentiment)+'">'+esc(i.sentiment)+'</span>':'')+'</div>'+
+            '<div class="tl-title">'+esc((i.title_en||i.title||i.excerpt_en||i.excerpt||'').slice(0,140))+'</div>'+
+          '</div></a>';
+      }).join('')+'</div></div>';
+  }
+  return html;
+}
+
+/* Fetch persisted history for the timeline view. Separate call because it hits
+   the DB rather than the live search payload. */
+function wireTimeline(data){
+  if(activeMode!=='timeline')return;
+  var el=$('histBody');if(!el)return;
+  fetch('/api/history?q='+encodeURIComponent(data.query||lastQ))
+    .then(function(r){return r.json();})
+    .then(function(h){
+      if(!h.persisted){
+        el.innerHTML='<div class="ve-text">History is not being recorded — persistence is not configured.</div>';return;
+      }
+      var s=h.series||[];
+      if(s.length<2){
+        el.innerHTML='<div class="ve-text">Only '+s.length+' snapshot recorded so far. Add this query to a watchlist and history builds up on each check — trends appear from the second snapshot onward.</div>';
+        return;
+      }
+      var maxM=Math.max.apply(null,s.map(function(p){return p.mentions||0;}).concat([1]));
+      var out='<div class="tl-hist">'+s.map(function(p){
+        var ht=Math.max(3,Math.round(((p.mentions||0)/maxM)*76));
+        return '<div class="tl-col" title="'+esc((p.checked_at||'').slice(0,16))+': '+(p.mentions||0)+' mentions"><div class="tl-bar hist" style="height:'+ht+'px"></div>'+
+          '<div class="tl-day">'+esc((p.checked_at||'').slice(5,10))+'</div></div>';
+      }).join('')+'</div>';
+      var c=h.change||{};
+      out+='<div class="hist-change">'+
+        chgChip('Mentions',c.mentions)+chgChip('Coordination',c.coordination_score)+chgChip('Sentiment',c.sentiment_net)+
+      '</div>';
+      var nar=h.narratives||[];
+      if(nar.length){
+        out+='<div class="ent-group-label" style="margin-top:12px">Narrative lifecycle</div>'+
+          nar.slice(0,8).map(function(n){
+            return '<div class="lc-row"><span class="lc-label">'+esc(n.label||'')+'</span>'+
+              '<span class="lc-meta">first seen '+esc((n.first_seen||'').slice(0,10))+' · '+(n.observations||0)+'x</span></div>';
+          }).join('');
+      }
+      el.innerHTML=out;
+    })
+    .catch(function(){el.innerHTML='<div class="ve-text">Could not load history.</div>';});
+}
+function chgChip(label,v){
+  if(v===null||v===undefined)return '<span class="chg-chip">'+label+' —</span>';
+  var cls=v>0?'up':v<0?'down':'flat';
+  var arrow=v>0?'▲':v<0?'▼':'•';
+  return '<span class="chg-chip '+cls+'">'+label+' '+arrow+' '+(v>0?'+':'')+v+'</span>';
+}
+function fmtTs(t){var d=parseTs(t);if(!d)return '';return d.toISOString().slice(0,16).replace('T',' ');}
+
+function reportFooter(){
+  return '<div class="export-row">'+
+    '<div class="export-btn primary" onclick="openReport()"><i class="ti ti-file-text"></i> Full Dossier</div>'+
+    '<div class="export-btn" onclick="downloadDossierJSON()"><i class="ti ti-download"></i> JSON</div>'+
+    '<div class="export-btn" onclick="openSubscribe()"><i class="ti ti-mail"></i> Email reports</div>'+
+    '<div class="export-btn" onclick="addCurrentToWatchlist()"><i class="ti ti-bell-plus"></i> Watch</div>'+
+  '</div>'+
+  '<div class="follow-up" id="followUp" style="display:none">'+
     '<div class="follow-up-text" id="followUpText"></div>'+
     '<div class="follow-up-actions">'+
       '<div class="thumbs">'+
@@ -1097,8 +1431,6 @@ function renderReport(data){
       '</div>'+
     '</div>'+
   '</div>';
-
-  $('report').innerHTML=html;
 }
 
 /* ── BRIEF ── */
@@ -1236,7 +1568,8 @@ function buildFilterPanel(){
   var plats=Object.entries(platCounts).sort(function(a,b){return b[1]-a[1];});
   var fpP=$('fpPlatforms');
   if(fpP){
-    fpP.innerHTML='<div class="fp-pill on" data-v="all" onclick="toggleFpPlatform(\'all\')">All <span class="fpn">'+items.length+'</span></div>'+
+    var allPlatOn=pendingFilter.platforms.has('all');
+    fpP.innerHTML='<div class="fp-pill'+(allPlatOn?' on':'')+'" data-v="all" onclick="toggleFpPlatform(\'all\')">All <span class="fpn">'+items.length+'</span></div>'+
       plats.map(function(kv){
         var on=pendingFilter.platforms.has(kv[0])&&!pendingFilter.platforms.has('all');
         return'<div class="fp-pill'+(on?' on':'')+'" data-v="'+kv[0]+'" onclick="toggleFpPlatform(\''+kv[0]+'\')">'+esc(pm(kv[0]).n)+' <span class="fpn">'+kv[1]+'</span></div>';
@@ -1247,9 +1580,11 @@ function buildFilterPanel(){
   items.forEach(function(it){var st=it.source_type||'social';stCounts[st]=(stCounts[st]||0)+1;});
   var fpS=$('fpSrcTypes');
   if(fpS){
-    fpS.innerHTML='<div class="fp-pill on" data-v="all" onclick="toggleFpSrcType(\'all\')">All</div>'+
+    var allSrcOn=pendingFilter.srcTypes.has('all');
+    fpS.innerHTML='<div class="fp-pill'+(allSrcOn?' on':'')+'" data-v="all" onclick="toggleFpSrcType(\'all\')">All</div>'+
       Object.entries(stCounts).map(function(kv){
-        return'<div class="fp-pill" data-v="'+kv[0]+'" onclick="toggleFpSrcType(\''+kv[0]+'\')">'+esc(SRC_LABELS[kv[0]]||kv[0])+' <span class="fpn">'+kv[1]+'</span></div>';
+        var on=pendingFilter.srcTypes.has(kv[0])&&!allSrcOn;
+        return'<div class="fp-pill'+(on?' on':'')+'" data-v="'+kv[0]+'" onclick="toggleFpSrcType(\''+kv[0]+'\')">'+esc(SRC_LABELS[kv[0]]||kv[0])+' <span class="fpn">'+kv[1]+'</span></div>';
       }).join('');
   }
   // Dates
@@ -1284,6 +1619,7 @@ function toggleFpSrcType(v){
 function setPendingDate(v){pendingFilter.dateRange=v;buildFilterPanel();}
 function resetFilters(){
   pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
+  setTimeout(updateToolbarState,0);
   buildFilterPanel();
 }
 function applyFilters(){
@@ -1292,6 +1628,30 @@ function applyFilters(){
   filterState.dateRange=pendingFilter.dateRange;
   closeAll();
   renderGrid(allItems());
+  updateToolbarState();
+}
+
+// Reflect active filter/sort on the toolbar buttons. Without this the grid
+// silently changes and nothing indicates why, which reads as "filter is broken".
+function activeFilterCount(){
+  var n=0;
+  if(!filterState.platforms.has('all'))n+=filterState.platforms.size;
+  if(!filterState.srcTypes.has('all'))n+=filterState.srcTypes.size;
+  if(filterState.dateRange!=='all')n+=1;
+  return n;
+}
+var SORT_LABELS={newest:'Newest',oldest:'Oldest',eng_desc:'Most engaged',
+                 pos:'Most positive',neg:'Most negative',platform:'By platform'};
+function updateToolbarState(){
+  var fb=document.querySelector('.filter-btn');
+  if(fb){
+    var n=activeFilterCount();
+    fb.innerHTML='<i class="ti ti-adjustments-horizontal"></i> Filter'+
+      (n?' <span class="tb-badge">'+n+'</span>':'');
+    fb.classList.toggle('active',n>0);
+  }
+  var sb=document.querySelector('.sort-btn');
+  if(sb)sb.innerHTML='<i class="ti ti-arrows-sort"></i> '+(SORT_LABELS[sortMode]||'Sort');
 }
 function toggleFilter(){
   var fp=$('filterPanel');var sp=$('sortPanel');
@@ -1319,6 +1679,7 @@ function pickSort(el){
   sortMode=el.dataset.sort;
   closeAll();
   renderGrid(allItems());
+  updateToolbarState();
 }
 
 /* ── NARRATIVE CLICK FILTER ── */
@@ -1497,6 +1858,42 @@ document.addEventListener('keydown',function(e){
   if(e.key==='Escape'){closeWatch();closeAll();}
 });
 
+/* ── EXPOSE HANDLERS ──────────────────────────────────────────────────────
+   Every interactive control in this page uses an inline onclick="fn()", which
+   the browser resolves against the GLOBAL scope. This whole script is wrapped
+   in an IIFE, so without these assignments none of those functions exist when
+   the handler fires — every click threw "ReferenceError: fn is not defined"
+   and the entire UI was inert: filter, sort, the + button, the Narrative /
+   Entities / Timeline tabs, the bell, the theme toggle, the rail.
+   Anything referenced from an onclick= attribute MUST be listed here. */
+window.addCurrentToWatchlist = addCurrentToWatchlist;
+window.addWatchlist = addWatchlist;
+window.applyFilters = applyFilters;
+window.checkAllWatchlists = checkAllWatchlists;
+window.closeSubscribe = closeSubscribe;
+window.closeWatch = closeWatch;
+window.delHist = delHist;
+window.delWatchlist = delWatchlist;
+window.doSearch = doSearch;
+window.downloadDossierJSON = downloadDossierJSON;
+window.expandRail = expandRail;
+window.filterByNarrative = filterByNarrative;
+window.loadQ = loadQ;
+window.openReport = openReport;
+window.openSubscribe = openSubscribe;
+window.openWatch = openWatch;
+window.pickCadence = pickCadence;
+window.pickSort = pickSort;
+window.resetFilters = resetFilters;
+window.setMode = setMode;
+window.setPendingDate = setPendingDate;
+window.submitSubscribe = submitSubscribe;
+window.toggleFilter = toggleFilter;
+window.toggleFpPlatform = toggleFpPlatform;
+window.toggleFpSrcType = toggleFpSrcType;
+window.toggleSort = toggleSort;
+window.toggleTheme = toggleTheme;
+
 /* ── BOOT ── */
 renderRailHist();
 updateWatchBadge();
@@ -1505,5 +1902,41 @@ if(q0){$('q').value=q0;doSearch();}else{$('q').focus();}
 
 })();
 </script>
+
+<!-- ══ SUBSCRIBE / ALERTS MODAL ══ -->
+<div class="modal-backdrop" id="subBackdrop" onclick="closeSubscribe(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title">Alerts &amp; email reports</div>
+        <div class="modal-sub" id="subQueryLabel"></div>
+      </div>
+      <div class="modal-x" onclick="closeSubscribe()"><i class="ti ti-x"></i></div>
+    </div>
+
+    <div class="modal-body">
+      <div class="ms-label">Email address</div>
+      <input class="ms-input" id="subEmail" type="email" placeholder="you@example.com" autocomplete="email"/>
+
+      <div class="ms-label" style="margin-top:16px;">How often</div>
+      <div class="cad-grid" id="cadGrid">
+        <div class="cad-opt" data-c="2" onclick="pickCadence(2)"><div class="cad-n">2</div><div class="cad-l">days</div></div>
+        <div class="cad-opt on" data-c="7" onclick="pickCadence(7)"><div class="cad-n">1</div><div class="cad-l">week</div></div>
+        <div class="cad-opt" data-c="14" onclick="pickCadence(14)"><div class="cad-n">2</div><div class="cad-l">weeks</div></div>
+        <div class="cad-opt" data-c="30" onclick="pickCadence(30)"><div class="cad-n">1</div><div class="cad-l">month</div></div>
+      </div>
+
+      <div class="ms-note">You&rsquo;ll receive a full intelligence report on this query &mdash; narrative clusters,
+        sentiment, key actors and what changed since the last report. Unsubscribe from any email.</div>
+
+      <div class="ms-status" id="subStatus"></div>
+    </div>
+
+    <div class="modal-foot">
+      <div class="ms-btn ghost" onclick="openWatch();closeSubscribe();">Watchlist instead</div>
+      <div class="ms-btn primary" id="subGo" onclick="submitSubscribe()">Subscribe</div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
