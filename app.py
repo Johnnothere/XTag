@@ -31,6 +31,8 @@ from flask import Flask, jsonify, render_template, request, make_response
 
 import db      # Supabase persistence; degrades to in-memory when unconfigured
 import mailer  # Resend email delivery; no-ops cleanly when unconfigured
+import gdelt   # GDELT collection + analytics; rate-limited and circuit-broken
+import intel   # Assessment layer: threat score, risk, audience, inauthenticity
 
 app = Flask(__name__)
 
@@ -342,7 +344,15 @@ def enrich_languages(platforms: dict) -> dict:
 
     for doc in all_docs:
         combined = ((doc.get("title") or "") + " " + (doc.get("excerpt") or "")).strip()
-        lang = detect_language(combined)
+        # Sources that did real language identification upstream (GDELT covers
+        # 100+ languages) beat the local detector, which is script-based: it
+        # cannot tell Turkish from English (both Latin) or Ukrainian from
+        # Russian (both Cyrillic), and would silently overwrite a correct label
+        # with a wrong one.
+        if doc.get("_lang_authoritative") and doc.get("language"):
+            lang = doc["language"]
+        else:
+            lang = detect_language(combined)
         doc["language"] = lang
         meta = LANG_META.get(lang, {})
         doc["language_name"] = meta.get("name", lang)
@@ -832,35 +842,56 @@ def search_telegram(q):
     for p in all_posts: p.pop("_ts_sort",None)
     return {"platform":"telegram","results":all_posts[:MAX_RESULTS_PER_SOURCE],"error":None}
 
-# ── GDELT (Phase 1) ───────────────────────────────────────────────────────────
+# ── GDELT (Phase 1 → now the primary news backbone) ───────────────────────────
+# Collection lives in gdelt.py: rate limiting, circuit breaker, time-window
+# slicing for depth past the API's 250-record ceiling, and the analytical modes
+# (tone / volume / geography / language) that feed the assessment layer.
+#
+# Three real bugs were fixed when this moved over, all of them silent:
+#   1. artlist does NOT return a `tone` field, so the old tone→framing mapping
+#      never once executed. Tone only exists in the timeline modes.
+#   2. `language` comes back as a human-readable name ("Russian"), not an ISO
+#      code, and was being written straight into doc["language"] — so every
+#      downstream LANG_META lookup missed and the multilingual pipeline saw
+#      a language it had no record of.
+#   3. `sourcecountry` is returned on every article and was thrown away. It is
+#      now the basis of the geographic intelligence layer.
+# Plus: the timespan was hardcoded to 72H with no pagination, capping GDELT at
+# 250 articles over 3 days regardless of how much coverage existed.
 def search_gdelt(q):
     plain = _query_parts(q)[2]
     if not plain: return _empty("gdelt","empty query")
     try:
-        r = requests.get("https://api.gdeltproject.org/api/v2/doc/doc",
-            params={"query":plain,"mode":"artlist","maxrecords":250,"format":"json",
-                    "sort":"DateDesc","TIMESPAN":"72H"},
-            headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT+10)
-        if r.status_code == 204: return _empty("gdelt","no results")
-        r.raise_for_status()
-        data = r.json(); articles = data.get("articles") or []; results = []
-        for art in articles:
+        arts, err = gdelt.articles(plain)
+        if err and not arts:
+            return _empty("gdelt", err)
+        results = []
+        for art in arts:
             url_str = art.get("url","")
+            country = (art.get("sourcecountry") or "").strip()
+            lang_name = (art.get("language") or "").strip()
+            code = gdelt.lang_code(lang_name)
+            flag = gdelt.country_flag(country)
+            meta_bits = [art.get("domain","")]
+            if country: meta_bits.append(f"{flag} {country}".strip())
+            if lang_name and code != "en": meta_bits.append(lang_name)
             doc = make_doc("gdelt", url_str,
                 _strip_html((art.get("title") or "")),
                 title=_strip_html(art.get("title")),
                 author=art.get("domain"), timestamp=art.get("seendate"),
-                meta=f"{art.get('domain','')} · tone:{art.get('tone','')}",
-                source_type="news", language=art.get("language","en"),
+                thumbnail=art.get("socialimage") or None,
+                meta=" · ".join(b for b in meta_bits if b),
+                source_type="news", language=code,
                 credibility=_credibility_for_url(url_str))
-            tone = art.get("tone")
-            if tone is not None:
-                try:
-                    t = float(tone)
-                    doc["framing"] = "negative" if t < -2 else "positive" if t > 2 else "neutral"
-                except: pass
+            doc["source_country"] = country or None
+            doc["country_flag"] = flag or None
+            # GDELT ran real language identification across 100+ languages to
+            # produce this. The local detector is script-based and would call
+            # Turkish "English" and Ukrainian "Russian". Mark it authoritative
+            # so enrich_languages leaves it alone.
+            doc["_lang_authoritative"] = True
             results.append(doc)
-        return {"platform":"gdelt","results":results,"error":None}
+        return {"platform":"gdelt","results":results,"error":err if not results else None}
     except Exception as e: return _empty("gdelt", str(e)[:120])
 
 # ── State media RSS (Phase 1) ─────────────────────────────────────────────────
@@ -2040,6 +2071,38 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
              "propagation":propagation,"languages":languages,
              "totals":agg["totals"],"source_mix":agg["source_mix"],"cached":False,
              "engine_errors":engine_errors}
+
+    # ── ASSESSMENT LAYER ──────────────────────────────────────────────────────
+    # Everything above answers "what is being said". This answers "how much
+    # should you care, and why". Runs last because it consumes the finished
+    # payload, and is wrapped because an assessment failure must never cost the
+    # user the collection results that were gathered successfully.
+    #
+    # The GDELT analytical snapshot is fetched here rather than inside
+    # search_gdelt because it is query-level intelligence (tone/volume/geography
+    # over time), not per-document data, and it carries its own 1h cache — the
+    # article fetch and the analytics have completely different refresh needs.
+    gdelt_snapshot={}
+    try:
+        gdelt_snapshot=gdelt.snapshot(_query_parts(q)[2] or q)
+    except Exception as e:
+        app.logger.warning("GDELT snapshot failed for q=%r: %s", q, e)
+        gdelt_snapshot={"degraded":[f"snapshot failed: {str(e)[:80]}"]}
+    payload["gdelt"]=gdelt_snapshot
+
+    try:
+        assessment=intel.assess(payload,gdelt_snapshot)
+        payload["threat"]=assessment.get("threat") or {}
+        payload["risk"]=assessment.get("risk") or {}
+        payload["audience"]=assessment.get("audience") or {}
+        payload["inauthenticity"]=assessment.get("inauthenticity") or {}
+        if assessment.get("errors"):
+            engine_errors.update({f"assess_{k}":v for k,v in assessment["errors"].items()})
+    except Exception as e:
+        app.logger.exception("assessment layer failed for q=%r", q)
+        engine_errors["assessment"]=str(e)[:160]
+        payload.setdefault("threat",{}); payload.setdefault("risk",{})
+        payload.setdefault("audience",{}); payload.setdefault("inauthenticity",{})
     _cache[cache_key]=(now,payload)
     if len(_cache)>200:
         oldest=sorted(_cache.items(),key=lambda kv:kv[1][0])[:50]
@@ -2642,7 +2705,11 @@ def healthz():
         "anthropic":bool(ANTHROPIC_API_KEY),"babelstreet":bool(BABELSTREET_API_KEY)},
         "persistence":db.health(),
         "analysis_engine":claude_health(),
-        "email":mailer.health()}),200
+        "email":mailer.health(),
+        # GDELT needs no API key, so "configured" would always be true and tell
+        # you nothing. What actually matters is whether this IP is currently
+        # being rate-limited, which is what health() reports.
+        "gdelt":{**gdelt.health(),"limiter":gdelt.stats()}}),200
 
 if NOTEBOOKLM_AUTH_ARCHIVE and _restore_notebooklm_auth():
     threading.Thread(target=_notebooklm_sync_loop,daemon=True,name="notebooklm-sync").start()

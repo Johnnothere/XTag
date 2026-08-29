@@ -171,6 +171,13 @@ a{color:inherit;text-decoration:none;}
 .top-actions{display:flex;gap:6px;flex:none;}
 .top-act{width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--glass-soft-bg);border:1px solid var(--glass-soft-border);border-radius:8px;cursor:pointer;color:var(--ink3);font-size:15px;transition:all .15s;box-shadow:var(--glass-edge);}
 .top-act:hover{color:var(--ink);background:rgba(255,255,255,.09);transform:translateY(-1px);}
+.top-act.on{color:var(--accent2);border-color:var(--accent);background:var(--accent-tint);}
+/* Results/Filter toggle — only meaningful (and only shown) once the layout narrows
+   below 860px and .grid-panel (which holds Filter/Sort) gets hidden by the media
+   query below. Without this, Filter and Sort become permanently unreachable on any
+   window narrower than 860px — which is the normal width of this app's panel in a
+   lot of contexts, not just phones. */
+.grid-toggle-btn{display:none;}
 
 /* ══ SPLIT CONTENT ══ */
 .split{flex:1;display:flex;overflow:hidden;}
@@ -584,6 +591,82 @@ a{color:inherit;text-decoration:none;}
 .wp-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:290;opacity:0;pointer-events:none;transition:opacity .2s;}
 .wp-backdrop.show{opacity:1;pointer-events:auto;}
 
+/* ══ THREAT ASSESSMENT ══ */
+/* Band colours are shared by the headline score, the risk dimension bars and
+   the driver bars so one hue always means one severity anywhere on the page. */
+.tw-critical{--tw:#ff4d4d;}
+.tw-high{--tw:#ff8a3d;}
+.tw-elevated{--tw:#ffc53d;}
+.tw-moderate{--tw:#7cc4ff;}
+.tw-low{--tw:#4ad991;}
+/* "Unknown" must never be green. A reader acts on green, and this band means
+   the assessment could not be made — not that it came back clear. Neutral grey
+   with a dashed edge reads as "incomplete", which is what it is. */
+.tw-unknown{--tw:#8a8f98;}
+.tw-unknown .tc-score{border-style:dashed;}
+
+.threat-card{position:relative;overflow:hidden;background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur-lg)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-lg)) saturate(var(--glass-sat));border:1px solid var(--glass-border);border-radius:var(--r-lg);padding:16px 16px 14px;margin-bottom:14px;box-shadow:var(--sh-lg),var(--glass-edge);}
+.threat-card::before{content:"";position:absolute;inset:0;pointer-events:none;background:var(--glass-sheen);}
+.threat-card::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--tw,var(--accent));}
+.threat-card>*{position:relative;}
+.tc-head{display:flex;align-items:flex-start;gap:14px;}
+.tc-score{flex:none;width:66px;height:66px;border-radius:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:color-mix(in srgb,var(--tw,var(--accent)) 14%,transparent);border:1px solid color-mix(in srgb,var(--tw,var(--accent)) 45%,transparent);}
+.tc-score-val{font-size:23px;font-weight:700;line-height:1;color:var(--tw,var(--accent));font-family:var(--mono);}
+.tc-score-max{font-size:9px;color:var(--ink3);margin-top:3px;letter-spacing:.06em;}
+.tc-meta{flex:1;min-width:0;}
+.tc-band{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--tw,var(--accent));}
+.tc-sub{font-size:11px;color:var(--ink3);margin-top:3px;line-height:1.5;}
+.tc-conf{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--ink2);margin-top:6px;}
+.tc-conf .cdot{width:6px;height:6px;border-radius:50%;}
+.conf-high .cdot{background:var(--pos);}
+.conf-moderate .cdot{background:var(--neu);}
+.conf-low .cdot{background:var(--neg);}
+
+.tc-drivers{margin-top:13px;padding-top:12px;border-top:1px solid var(--line);}
+.tc-lbl{font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-bottom:7px;}
+.drv-row{display:flex;align-items:center;gap:9px;margin-bottom:6px;}
+.drv-name{flex:none;width:132px;font-size:11px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.drv-track{flex:1;height:5px;border-radius:3px;background:var(--surface3);overflow:hidden;}
+.drv-fill{height:100%;border-radius:3px;background:var(--tw,var(--accent));}
+.drv-val{flex:none;width:30px;text-align:right;font-size:10px;font-family:var(--mono);color:var(--ink3);}
+
+.risk-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:13px;padding-top:12px;border-top:1px solid var(--line);}
+.risk-cell{padding:9px 10px;border-radius:10px;background:var(--surface2);border:1px solid var(--line);}
+.risk-name{font-size:10px;color:var(--ink3);letter-spacing:.04em;text-transform:uppercase;font-weight:600;}
+.risk-val{display:flex;align-items:baseline;gap:6px;margin-top:4px;}
+.risk-num{font-size:17px;font-weight:700;font-family:var(--mono);color:var(--tw,var(--accent));line-height:1;}
+.risk-band{font-size:9.5px;font-weight:600;color:var(--ink3);text-transform:uppercase;letter-spacing:.05em;}
+.risk-track{height:4px;border-radius:2px;background:var(--surface3);margin-top:7px;overflow:hidden;}
+.risk-fill{height:100%;border-radius:2px;background:var(--tw,var(--accent));}
+
+.tc-caveats{margin-top:12px;padding:9px 11px;border-radius:9px;background:color-mix(in srgb,var(--neu) 8%,transparent);border:1px solid color-mix(in srgb,var(--neu) 26%,transparent);}
+.tc-caveats .cv{font-size:10.5px;color:var(--ink2);line-height:1.6;display:flex;gap:6px;}
+.tc-caveats .cv+.cv{margin-top:4px;}
+.tc-caveats .cv i{color:var(--neu);font-size:11px;flex:none;margin-top:1px;}
+
+.unavail-note{font-size:10px;color:var(--ink3);font-style:italic;margin-top:8px;}
+
+/* ══ INAUTHENTICITY ══ */
+.ia-sig{display:flex;gap:9px;padding:9px 10px;border-radius:9px;background:var(--surface2);border:1px solid var(--line);margin-bottom:6px;}
+.ia-sev{flex:none;width:3px;border-radius:2px;}
+.ia-sev.high{background:var(--neg);}
+.ia-sev.medium{background:var(--neu);}
+.ia-sev.low{background:var(--ink3);}
+.ia-body{flex:1;min-width:0;}
+.ia-type{font-size:11px;font-weight:600;color:var(--ink);letter-spacing:.02em;}
+.ia-desc{font-size:10.5px;color:var(--ink3);margin-top:2px;line-height:1.5;}
+.method-note{font-size:10px;color:var(--ink3);line-height:1.6;margin-top:9px;padding:8px 10px;border-radius:8px;background:var(--surface2);border:1px dashed var(--line);}
+
+/* ══ GEOGRAPHY ══ */
+.geo-row{display:flex;align-items:center;gap:9px;margin-bottom:5px;}
+.geo-name{flex:none;width:124px;font-size:11px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.geo-track{flex:1;height:6px;border-radius:3px;background:var(--surface3);overflow:hidden;}
+.geo-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent2),var(--accent));}
+.geo-val{flex:none;width:42px;text-align:right;font-size:10px;font-family:var(--mono);color:var(--ink3);}
+.geo-summary{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px;}
+.geo-chip{font-size:10.5px;padding:3px 9px;border-radius:11px;background:var(--surface2);border:1px solid var(--line);color:var(--ink2);}
+.geo-chip b{color:var(--ink);font-weight:600;}
+
 /* ══ EXPORT ══ */
 .export-row{display:flex;gap:7px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);}
 .export-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;font-size:11.5px;font-weight:500;color:var(--ink2);background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:8px;cursor:pointer;transition:all .12s;}
@@ -601,6 +684,11 @@ a{color:inherit;text-decoration:none;}
   .grid-panel{display:none;}
   .report-panel.full,.report-panel{display:flex;}
   .mode-tabs{display:none;}
+  .grid-toggle-btn{display:flex;}
+  /* Toggle into results view: reveals the media grid + Filter/Sort toolbar,
+     hides the narrative report panel. toggleGridView() flips this class. */
+  .split.show-grid .report-panel{display:none;}
+  .split.show-grid .grid-panel{display:flex;}
 }
 @media(max-width:600px){
   .topbar{padding:8px 10px;}
@@ -673,6 +761,7 @@ a{color:inherit;text-decoration:none;}
         <button class="mode-tab" data-mode="timeline" onclick="setMode(this)">Timeline</button>
       </div>
       <div class="top-actions">
+        <div class="top-act grid-toggle-btn" onclick="toggleGridView()" id="gridToggleBtn" title="Results, Filter &amp; Sort"><i class="ti ti-layout-grid"></i></div>
         <div class="top-act" onclick="openSubscribe()" id="watchBtn" title="Alerts &amp; email reports" style="position:relative;">
           <i class="ti ti-bell"></i>
           <span class="watch-badge hidden" id="watchBadge">0</span>
@@ -904,6 +993,21 @@ function setMode(btn){
   if(lastData)renderReport(lastData);
 }
 
+// Below 860px the grid panel (which holds Filter/Sort and the raw results grid)
+// is hidden by CSS to make room for the narrative report at full width. This is
+// the only way back to it on a narrow window/panel — without it Filter and Sort
+// are simply unreachable, not just hidden until search.
+function toggleGridView(){
+  var split=$('split');if(!split)return;
+  var on=split.classList.toggle('show-grid');
+  var btn=$('gridToggleBtn');
+  if(btn){
+    btn.classList.toggle('on',on);
+    btn.innerHTML=on?'<i class="ti ti-notes"></i>':'<i class="ti ti-layout-grid"></i>';
+    btn.title=on?'Back to narrative report':'Results, Filter & Sort';
+  }
+}
+
 /* ── LOADER ── */
 var PLAT_LABELS=['X/Twitter','Reddit','YouTube','Telegram','TikTok','Bluesky','Mastodon',
   'Instagram','LinkedIn','Google News','GDELT','State Media','Academic','Podcasts'];
@@ -973,6 +1077,9 @@ function newSearch(){
   document.querySelectorAll('.sort-opt').forEach(function(e){
     e.classList.toggle('on', e.dataset.sort==='newest');});
   closeAll();
+  var split=$('split');if(split)split.classList.remove('show-grid');
+  var gtb=$('gridToggleBtn');
+  if(gtb){gtb.classList.remove('on');gtb.innerHTML='<i class="ti ti-layout-grid"></i>';gtb.title='Results, Filter & Sort';}
   // Restore the landing state: hero back, report cleared, grid emptied.
   var hero=$('hero');if(hero)hero.classList.remove('hidden');
   var rep=$('report');if(rep){rep.innerHTML='';rep.classList.add('hidden');}
@@ -987,6 +1094,139 @@ function newSearch(){
 }
 
 /* ── REPORT ── */
+/* ── ASSESSMENT RENDERING ───────────────────────────────────────────────────
+   The threat block is deliberately the first thing under the query. Everything
+   below it is evidence; this is the judgement, and burying a judgement under
+   three scroll-lengths of evidence is how analysts miss things.
+
+   Confidence is rendered as its own chip beside the band, never folded into
+   the score. A 78 built from 6 documents and a 78 built from 900 demand
+   different responses, and the UI has to make that difference impossible to
+   miss rather than leaving it in a tooltip. */
+var THREAT_BANDS={critical:'tw-critical',high:'tw-high',elevated:'tw-elevated',
+                  moderate:'tw-moderate',low:'tw-low',unknown:'tw-unknown'};
+function bandClass(b){return THREAT_BANDS[b]||'tw-unknown';}
+function riskLabel(k){
+  return({reputational:'Reputational',information_integrity:'Info integrity',
+          operational:'Operational',physical_security:'Physical security'})[k]||k;
+}
+
+function renderThreatBlock(data){
+  var th=data.threat||{};
+  if(th.score===undefined||th.score===null)return'';
+  var cls=bandClass(th.band);
+  var risk=(data.risk||{}).dimensions||{};
+  var h='<div class="threat-card '+cls+'">';
+
+  // When the band is 'unknown' the computed number is an artefact of whichever
+  // signals happened to be measurable, so showing it prominently would invite
+  // exactly the false confidence the band exists to prevent. Show a dash.
+  var unknown=(th.band==='unknown');
+  h+='<div class="tc-head">'+
+       '<div class="tc-score"><div class="tc-score-val">'+(unknown?'—':th.score)+'</div>'+
+       '<div class="tc-score-max">'+(unknown?'NO DATA':'/ 100')+'</div></div>'+
+       '<div class="tc-meta">'+
+         '<div class="tc-band">'+(unknown?'Insufficient signal':esc(th.band||'')+' threat')+'</div>'+
+         '<div class="tc-sub">'+(unknown
+           ?'Not enough of the evidence base was available to make an assessment. This is not an all-clear.'
+           :'Composite of '+(th.factors||[]).length+' weighted signals · '+
+            (th.signal_coverage||0)+'% of intended signals available')+'</div>'+
+         '<div class="tc-conf conf-'+esc(th.confidence_band||'low')+'">'+
+           '<span class="cdot"></span>Confidence '+th.confidence+' ('+esc(th.confidence_band||'')+')'+
+         '</div>'+
+       '</div>'+
+     '</div>';
+
+  // Top contributing factors — a score you cannot interrogate is a score you
+  // cannot defend, so the drivers ship with the number, not behind a click.
+  var drv=th.primary_drivers||[];
+  if(drv.length){
+    var maxc=Math.max.apply(null,drv.map(function(d){return d.contribution||0;}))||1;
+    h+='<div class="tc-drivers"><div class="tc-lbl">Primary drivers</div>';
+    drv.forEach(function(d){
+      var pct=Math.round(((d.contribution||0)/maxc)*100);
+      h+='<div class="drv-row"><div class="drv-name">'+esc(d.label)+'</div>'+
+         '<div class="drv-track"><div class="drv-fill" style="width:'+pct+'%"></div></div>'+
+         '<div class="drv-val">'+(d.contribution||0)+'</div></div>';
+    });
+    h+='</div>';
+  }
+
+  var rk=Object.keys(risk);
+  if(rk.length){
+    h+='<div class="risk-grid">';
+    rk.forEach(function(k){
+      var d=risk[k]||{};
+      h+='<div class="risk-cell '+bandClass(d.band)+'">'+
+           '<div class="risk-name">'+esc(riskLabel(k))+'</div>'+
+           '<div class="risk-val"><span class="risk-num">'+(d.score!==undefined?d.score:'—')+'</span>'+
+             '<span class="risk-band">'+esc(d.band||'')+'</span></div>'+
+           '<div class="risk-track"><div class="risk-fill" style="width:'+(d.score||0)+'%"></div></div>'+
+         '</div>';
+    });
+    h+='</div>';
+  }
+
+  if((th.caveats||[]).length){
+    h+='<div class="tc-caveats">';
+    th.caveats.forEach(function(c){
+      h+='<div class="cv"><i class="ti ti-alert-triangle"></i><span>'+esc(c)+'</span></div>';
+    });
+    h+='</div>';
+  }
+  h+='</div>';
+  return h;
+}
+
+function renderInauthBlock(data){
+  var ia=data.inauthenticity||{};
+  if(!ia.signals||!ia.signals.length)return'';
+  var h='<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-robot"></i>Inauthentic Amplification'+
+      ' <span class="tb-badge" style="background:var(--neg)">'+ia.signal_count+'</span></div>';
+  ia.signals.forEach(function(s){
+    h+='<div class="ia-sig"><div class="ia-sev '+esc(s.severity)+'"></div><div class="ia-body">'+
+       '<div class="ia-type">'+esc(String(s.type||'').replace(/_/g,' '))+'</div>'+
+       '<div class="ia-desc">'+esc(s.description||'')+'</div></div></div>';
+  });
+  if(ia.method_note)h+='<div class="method-note"><b>Method:</b> '+esc(ia.method_note)+'</div>';
+  h+='</div>';
+  return h;
+}
+
+function renderGeoBlock(data){
+  var a=data.audience||{};
+  var cs=a.countries||[];
+  if(!cs.length){
+    var deg=(a.degraded||[]).length;
+    if(!deg)return'';
+    return'<div class="report-section">'+
+      '<div class="report-section-title"><i class="ti ti-world"></i>Geographic Reach</div>'+
+      '<div class="unavail-note">GDELT geographic breakdown unavailable for this query '+
+      '(rate-limited or no coverage indexed). Reach and audience signals are excluded '+
+      'from the threat score rather than counted as zero.</div></div>';
+  }
+  var max=Math.max.apply(null,cs.map(function(c){return c.share||0;}))||1;
+  var h='<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-world"></i>Geographic Reach</div>'+
+    '<div class="geo-summary">'+
+      '<div class="geo-chip"><b>'+(a.country_count||0)+'</b> countries</div>'+
+      (a.geographic_concentration?'<div class="geo-chip">'+esc(a.geographic_concentration)+' spread</div>':'')+
+      (a.top3_country_share!==null&&a.top3_country_share!==undefined?
+        '<div class="geo-chip">top 3 = <b>'+a.top3_country_share+'%</b></div>':'')+
+      (a.non_english_share!==null&&a.non_english_share!==undefined?
+        '<div class="geo-chip"><b>'+a.non_english_share+'%</b> non-English</div>':'')+
+    '</div>';
+  cs.slice(0,12).forEach(function(c){
+    h+='<div class="geo-row">'+
+       '<div class="geo-name">'+(c.flag||'')+' '+esc(c.country)+'</div>'+
+       '<div class="geo-track"><div class="geo-fill" style="width:'+Math.round(((c.share||0)/max)*100)+'%"></div></div>'+
+       '<div class="geo-val">'+(c.share||0)+'%</div></div>';
+  });
+  h+='</div>';
+  return h;
+}
+
 function renderReport(data){
   var t=data.totals||{};var s=data.sentiment||{};
   var html='';
@@ -1004,6 +1244,9 @@ function renderReport(data){
       (t.academic?'<span style="color:var(--academic)">'+t.academic+' academic</span>':'')+
     '</span>'+
   '</div>';
+
+  // Threat assessment — the headline judgement, above the evidence.
+  html+=renderThreatBlock(data);
 
   // Brief placeholder (filled by /api/brief)
   html+='<div class="report-section">'+
@@ -1067,7 +1310,9 @@ function renderReport(data){
   // activeMode was previously assigned by setMode() and never read, so the
   // Narrative / Entities / Timeline tabs did nothing at all. Each now renders
   // its own view over the same query.
-  if(activeMode==='entities'){ html+=renderEntitiesView(data); html+=reportFooter(); $('report').innerHTML=html; wireTimeline(data); return; }
+  // Entities view also carries geography — "who" and "where" are the same
+  // question asked twice, and an actor map without a reach map is half a picture.
+  if(activeMode==='entities'){ html+=renderEntitiesView(data); html+=renderGeoBlock(data); html+=reportFooter(); $('report').innerHTML=html; wireTimeline(data); return; }
   if(activeMode==='timeline'){ html+=renderTimelineView(data); html+=reportFooter(); $('report').innerHTML=html; wireTimeline(data); return; }
 
   // Narrative clusters — Annex style
@@ -1194,6 +1439,8 @@ function renderReport(data){
     '</div>';
   }
 
+  html+=renderInauthBlock(data);
+  html+=renderGeoBlock(data);
   html+=reportFooter();
   $('report').innerHTML=html;
 }
@@ -1886,6 +2133,7 @@ window.pickCadence = pickCadence;
 window.pickSort = pickSort;
 window.resetFilters = resetFilters;
 window.setMode = setMode;
+window.toggleGridView = toggleGridView;
 window.setPendingDate = setPendingDate;
 window.submitSubscribe = submitSubscribe;
 window.toggleFilter = toggleFilter;
