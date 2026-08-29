@@ -69,6 +69,8 @@ SERPAPI_TIMEOUT = 25
 # everything "timed out" the moment pagination was enabled. Must stay comfortably
 # below the gunicorn --timeout in the Dockerfile or the worker is killed first.
 SEARCH_POOL_TIMEOUT = int(os.environ.get("SEARCH_POOL_TIMEOUT", "240"))
+# Per-stage budget for the Claude-backed analysis calls (narratives, entities).
+ANALYSIS_TIMEOUT = int(os.environ.get("ANALYSIS_TIMEOUT", "70"))
 CACHE_TTL   = 1800
 _cache: dict[str, tuple[float, dict]] = {}
 _bsky_session = {"jwt": None, "ts": 0.0}
@@ -1345,6 +1347,43 @@ def claude_health() -> dict:
             "reason": f"Claude calls are failing{hint}. Narratives, entities and "
                       f"sentiment will all be empty. Detail: {err.get('message')}"}
 
+def _parse_claude_json(text, context=""):
+    """Parse a JSON reply from Claude, logging failures instead of hiding them.
+
+    Truncation is the common failure: the model hits max_tokens mid-array and
+    the reply is valid JSON right up to the cut. Rather than discard the whole
+    response (which previously produced a silent empty result), salvage the
+    complete elements by trimming back to the last balanced position.
+    """
+    if not text: return None
+    cleaned = re.sub(r"```json|```", "", text).strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        salvaged = _salvage_truncated_json(cleaned)
+        if salvaged is not None:
+            app.logger.warning("%s: JSON truncated (%s) — salvaged %d items",
+                               context, e, len(salvaged) if isinstance(salvaged, list) else 1)
+            return salvaged
+        app.logger.error("%s: unparseable JSON from Claude (%s). First 200 chars: %r",
+                         context, e, cleaned[:200])
+        return None
+
+
+def _salvage_truncated_json(s):
+    """Recover the complete leading elements of a truncated JSON array/object."""
+    for closer in ("]", "}"):
+        start = s.find("[" if closer == "]" else "{")
+        if start < 0: continue
+        for cut in range(len(s), start, -1):
+            frag = s[start:cut].rstrip().rstrip(",")
+            try:
+                return json.loads(frag + closer)
+            except Exception:
+                continue
+    return None
+
+
 def extract_narratives_v2(platforms, q, max_posts=160):
     docs = _top_docs(platforms, max_posts)
     if len(docs) < 6: return []
@@ -1357,10 +1396,10 @@ def extract_narratives_v2(platforms, q, max_posts=160):
         "For each: label (max 7 words), count, framing (fear|anger|hope|pride|grief|threat|disinformation|neutral), "
         "platforms (list), key_claim (one sentence), actors (list), velocity (accelerating|stable|declining).\n"
         "ONLY JSON array. No prose.\n\n" + numbered)
-    text = _claude_call(prompt, 1400)
-    if not text: return []
+    text = _claude_call(prompt, 1800)
+    arr = _parse_claude_json(text, "extract_narratives_v2")
+    if not isinstance(arr, list): return []
     try:
-        arr = json.loads(re.sub(r"```json|```","",text).strip())
         out = []
         for o in arr:
             if not isinstance(o,dict) or not o.get("label"): continue
@@ -1382,10 +1421,13 @@ def extract_entities(platforms, q, max_docs=120):
         "Extract entities (people, orgs, countries, locations, weapons, events) and their relationships.\n"
         'ONLY JSON: {"entities":[{"name":"...","type":"person|org|country|location|weapon|event","mentions":N,"sentiment":"positive|negative|neutral"}],'
         '"edges":[{"from":"...","to":"...","relation":"..."}]}. Max 20 entities, 15 edges. No prose.\n\n' + text_blob)
-    text = _claude_call(prompt, 900)
-    if not text: return {}
-    try: return json.loads(re.sub(r"```json|```","",text).strip())
-    except: return {}
+    # 20 entities + 15 edges of JSON does not fit in 900 tokens — the reply was
+    # truncated mid-structure, json.loads threw, and the bare except returned {}
+    # silently. That is why entities were always empty while narratives worked.
+    text = _claude_call(prompt, 2600)
+    parsed = _parse_claude_json(text, "extract_entities")
+    if not isinstance(parsed, dict): return {}
+    return parsed
 
 def compute_velocity(platforms):
     all_docs = _top_docs(platforms, 500)
@@ -1538,9 +1580,9 @@ def _sentiment_claude(texts, lang="en"):
         + lang_instruction +
         'ONLY JSON array: [{"s":"...","f":"..."},...] one per post. No prose.\n\n' + numbered)
     text = _claude_call(prompt, 2400)
-    if not text: return None, None
+    arr = _parse_claude_json(text, "_sentiment_claude")
+    if not isinstance(arr, list): return None, None
     try:
-        arr = json.loads(re.sub(r"```json|```","",text).strip())
         sentiments = [_norm_label(v.get("s")) for v in arr]
         framings   = [str(v.get("f","neutral")).lower() for v in arr]
         while len(sentiments) < len(texts): sentiments.append("neutral")
@@ -1958,9 +2000,14 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
         f_vel=ex.submit(compute_velocity,out)
         f_coord=ex.submit(detect_coordination,out)
         f_prop=ex.submit(trace_propagation,out)
-        for key,fut,tmo in (("narratives",f_narr,25),("entities",f_ents,20),
-                             ("velocity",f_vel,5),("coordination",f_coord,10),
-                             ("propagation",f_prop,5)):
+        # Timeouts raised with result depth: the analysis prompts now carry
+        # 160/120 documents instead of 80/50, so the old 25s/20s caps were
+        # cutting off calls that were still legitimately working. There is
+        # headroom — SEARCH_POOL_TIMEOUT is 240s and gunicorn allows 300s.
+        for key,fut,tmo in (("narratives",f_narr,ANALYSIS_TIMEOUT),
+                             ("entities",f_ents,ANALYSIS_TIMEOUT),
+                             ("velocity",f_vel,10),("coordination",f_coord,20),
+                             ("propagation",f_prop,10)):
             try:
                 result=fut.result(timeout=tmo)
                 if key=="narratives": narratives=result
@@ -1973,6 +2020,14 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
                 engine_errors[key]=str(e)[:160]
     # A silent Claude failure makes narratives/entities/sentiment all empty,
     # which is indistinguishable from "nothing worth reporting". Label it.
+    # Entities empty while other stages worked is the signature of a truncated
+    # or timed-out entity call. Say so rather than leaving a silent blank.
+    if not ((entities or {}).get("entities")) and not engine_errors.get("entities"):
+        engine_errors["entities"] = (
+            "Entity extraction returned no actors. If this persists with a healthy "
+            "analysis_engine, the call is likely being truncated or timing out — "
+            "check the logs for 'extract_entities'.")
+
     if not narratives and not entities and _claude_last_error.get("message"):
         engine_errors["analysis_engine"] = (
             f"Claude API unavailable (status {_claude_last_error.get('status')}): "
