@@ -1203,16 +1203,64 @@ def _top_docs(platforms, n=80):
     flat.sort(key=lambda d: d.get("engagement",0), reverse=True)
     return flat[:n]
 
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001").strip()
+
+# Last failure seen from the Anthropic API, for diagnostics. Every narrative,
+# entity, sentiment and brief call goes through _claude_call, so when the key
+# is invalid/rate-limited/out of credit, ALL of them return empty — and used to
+# do so silently, which is indistinguishable from "the search found nothing
+# worth analysing". That ambiguity is fatal for an intelligence tool: an empty
+# report must never be able to mean "broken" and "nothing there" at once.
+_claude_last_error: dict = {"at": None, "status": None, "message": None}
+
+
 def _claude_call(prompt, max_tokens=900):
-    if not ANTHROPIC_API_KEY: return None
+    if not ANTHROPIC_API_KEY:
+        _claude_last_error.update({"at": datetime.now(timezone.utc).isoformat(),
+                                   "status": None, "message": "ANTHROPIC_API_KEY not set"})
+        return None
     try:
         r = requests.post("https://api.anthropic.com/v1/messages",
             headers={"x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
-            json={"model":"claude-haiku-4-5-20251001","max_tokens":max_tokens,
+            json={"model":CLAUDE_MODEL,"max_tokens":max_tokens,
                   "messages":[{"role":"user","content":prompt}]}, timeout=SERPAPI_TIMEOUT)
-        if r.status_code >= 400: return None
+        if r.status_code >= 400:
+            msg = r.text[:300]
+            app.logger.error("Anthropic API %s: %s", r.status_code, msg)
+            _claude_last_error.update({"at": datetime.now(timezone.utc).isoformat(),
+                                       "status": r.status_code, "message": msg})
+            return None
+        _claude_last_error.update({"at": None, "status": None, "message": None})
         return "".join(b.get("text","") for b in r.json().get("content",[]) if b.get("type")=="text")
-    except: return None
+    except Exception as e:
+        app.logger.error("Anthropic API call failed: %s", e)
+        _claude_last_error.update({"at": datetime.now(timezone.utc).isoformat(),
+                                   "status": None, "message": str(e)[:300]})
+        return None
+
+
+def claude_health() -> dict:
+    """Probe whether Claude actually WORKS, not merely whether a key is set.
+
+    'anthropic: true' from a bool(key) check is worthless — it stays true with
+    an expired key, an exhausted balance, or a bad model ID, while every
+    narrative/entity/sentiment call silently returns nothing. Exactly the
+    failure that made a 163-document search yield zero analysis.
+    """
+    if not ANTHROPIC_API_KEY:
+        return {"configured": False, "working": False, "reason": "ANTHROPIC_API_KEY not set"}
+    text = _claude_call("Reply with the single word: ok", 16)
+    if text:
+        return {"configured": True, "working": True, "model": CLAUDE_MODEL, "reason": None}
+    err = _claude_last_error
+    hint = ""
+    if err.get("status") == 401: hint = " — key rejected (invalid or revoked)"
+    elif err.get("status") == 400: hint = f" — bad request, often an unknown model ID ({CLAUDE_MODEL})"
+    elif err.get("status") == 429: hint = " — rate limited or out of credit"
+    return {"configured": True, "working": False, "model": CLAUDE_MODEL,
+            "status": err.get("status"),
+            "reason": f"Claude calls are failing{hint}. Narratives, entities and "
+                      f"sentiment will all be empty. Detail: {err.get('message')}"}
 
 def extract_narratives_v2(platforms, q, max_posts=80):
     docs = _top_docs(platforms, max_posts)
@@ -1840,6 +1888,14 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
             except Exception as e:
                 app.logger.warning("narrative engine stage %r failed for q=%r: %s", key, q, e)
                 engine_errors[key]=str(e)[:160]
+    # A silent Claude failure makes narratives/entities/sentiment all empty,
+    # which is indistinguishable from "nothing worth reporting". Label it.
+    if not narratives and not entities and _claude_last_error.get("message"):
+        engine_errors["analysis_engine"] = (
+            f"Claude API unavailable (status {_claude_last_error.get('status')}): "
+            f"{_claude_last_error.get('message')}. Narratives, entities and sentiment "
+            f"are empty because of this, NOT because nothing was found.")
+
     agg=_build_aggregates(out)
     payload={"query":q,"platforms":out,"sentiment":sentiment,"narratives":narratives,
              "entities":entities,"velocity":velocity,"coordination":coordination,
@@ -2277,7 +2333,8 @@ def healthz():
         "youtube":bool(YOUTUBE_API_KEY),"serpapi":bool(SERPAPI_KEY),
         "scrapebadger":bool(SCRAPEBADGER_KEY),"reddit_official":bool(REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET),
         "anthropic":bool(ANTHROPIC_API_KEY),"babelstreet":bool(BABELSTREET_API_KEY)},
-        "persistence":db.health()}),200
+        "persistence":db.health(),
+        "analysis_engine":claude_health()}),200
 
 if NOTEBOOKLM_AUTH_ARCHIVE and _restore_notebooklm_auth():
     threading.Thread(target=_notebooklm_sync_loop,daemon=True,name="notebooklm-sync").start()
