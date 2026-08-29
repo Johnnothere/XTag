@@ -9,21 +9,41 @@ centre of gravity, not one source among fifteen. Using it properly means several
 different API modes, a shared rate limiter, a circuit breaker and its own cache —
 none of which belongs inline in app.py.
 
-HARD-WON OPERATIONAL FACT — READ BEFORE CHANGING ANYTHING HERE
-GDELT rate-limits by IP and does NOT tell you politely. It does not return 429.
-It resets the TCP connection mid-handshake (requests raises ConnectionError /
-SSLError; curl reports HTTP 000 "connection reset by peer"). During development
-roughly 15 requests in a couple of minutes was enough to get an entire container
-IP blocked for several minutes, including for endpoints that had just worked.
+HARD-WON OPERATIONAL FACTS — READ BEFORE CHANGING ANYTHING HERE
+These were established empirically against the live API. An earlier version of
+this file asserted that GDELT "rate-limits by IP and does not return 429". That
+was WRONG, and the wrong diagnosis produced a wrong design. What is actually true:
+
+1. GDELT DOES return HTTP 429, and those 429s are STOCHASTIC AND RETRYABLE.
+   The identical request, same User-Agent, seconds apart, returns 429 then 200.
+   Measured: 4/4 analytical modes failed intermittently without retry and
+   succeeded 4/4 with at most one retry. Retrying a 429 is therefore the single
+   most important behaviour in this module — far more important than throttling.
+   A circuit breaker that gives up for minutes on a 429 turns a 3-second hiccup
+   into a total outage, which is exactly what the previous version did.
+
+2. "Connection reset" is NOT GDELT rate-limiting. It is a TRANSPORT problem.
+   In a sandboxed environment whose egress proxy intercepts TLS, HTTPS to
+   api.gdeltproject.org is reset at handshake time while the very same request
+   over HTTP returns 200 with correct data. Verified: openssl showed a
+   MITM-issued certificate for *.gdeltproject.org, http:// worked, https:// did
+   not, and data.gdeltproject.org over HTTPS worked fine. Treating that as a
+   rate limit is a misdiagnosis that makes the module back off from a problem
+   backing off cannot fix. Hence the HTTP fallback below.
+
+3. The GEO 2.0 API is dead upstream. GDELT's own documented example
+   (api/v2/geo/geo?query=trump) returns 404, as does every documented parameter
+   combination. It is not called from here any more; it was removed rather than
+   left in to fail on every search.
 
 The consequences shape this whole module:
-  * every outbound call goes through _throttle() — a process-wide minimum gap
-  * consecutive connection failures trip a circuit breaker, because continuing
-    to hammer a blocked endpoint extends the block instead of recovering from it
+  * 429 is retried with backoff and NEVER trips the breaker — it is transient
+  * connection-level failure falls back from HTTPS to HTTP, then trips the
+    breaker only if both transports fail repeatedly
   * every public function degrades to an empty result and never raises, so a
-    throttled GDELT slows the intelligence picture down but never 500s a search
+    struggling GDELT thins the intelligence picture but never 500s a search
   * analytical modes are cached hard — they are hourly-resolution data, so
-    re-fetching them per search would burn the rate limit for no new information
+    re-fetching them per search would spend request budget for no new information
 
 Gunicorn runs --workers 1 --threads 8, so a module-level threading.Lock really
 does serialise every GDELT call this deployment makes. If the worker count ever
@@ -36,7 +56,6 @@ API MODES USED
   doc?mode=timelinevolraw       raw article volume over time
   doc?mode=timelinesourcecountry  volume per source country  -> geographic intel
   doc?mode=timelinelang         volume per language          -> audience intel
-  geo/geo?mode=PointData        geolocated mentions          -> OSINT geography
 
 NOTE ON artlist FIELDS: artlist does NOT return a tone field. Tone only comes
 from the timeline/tonechart modes. Any code that reads article["tone"] is dead.
@@ -55,36 +74,65 @@ import requests
 
 log = logging.getLogger(__name__)
 
-DOC_API = "https://api.gdeltproject.org/api/v2/doc/doc"
-GEO_API = "https://api.gdeltproject.org/api/v2/geo/geo"
+# Paths are scheme-less on purpose: the working transport is chosen at runtime
+# by _request(), which falls back HTTPS -> HTTP when TLS is intercepted.
+DOC_PATH = "api.gdeltproject.org/api/v2/doc/doc"
 
 USER_AGENT = "web:xtag:2.0 (narrative-intelligence)"
 
 # ── Tunables ──────────────────────────────────────────────────────────────────
-# MIN_INTERVAL is the single most important number in this file. GDELT publishes
-# no formal rate limit and the observed tolerance is low: during development this
-# container was blocked for >15 minutes after roughly 20 requests, some of them
-# issued back-to-back with no gap. 2.0s with 3 article windows means a fresh
-# search costs ~7 GDELT calls / ~14s of throttle, which stayed safe in testing.
-#
-# Both are env-tunable. Raising ARTICLE_WINDOWS buys depth (250 more articles per
-# window) at a directly proportional increase in block risk — if GDELT starts
-# reporting rate-limited in /healthz, lower this first.
+# RETRY_ATTEMPTS is the single most important number in this file. GDELT's 429s
+# are stochastic: measured against the live API, 2 of 4 analytical modes returned
+# 429 on the first try and 200 on the second, with no change to the request. One
+# retry recovered 4/4. Throttling alone does NOT avoid these — the same request
+# spaced 8s apart still drew a 429 — so retry is the mechanism that matters and
+# MIN_INTERVAL is only politeness.
+# 4, not 3: the timelinesourcecountry response is by far the heaviest (~400KB)
+# and is throttled the most often. At 3 attempts it still lost the geography
+# stage on a warm run, and geography is the costliest stage to lose — it feeds
+# both the audience panel and the geographic_breadth threat factor.
+RETRY_ATTEMPTS    = int(os.environ.get("GDELT_RETRY_ATTEMPTS", "4"))
+RETRY_BACKOFF     = float(os.environ.get("GDELT_RETRY_BACKOFF", "3.0"))  # seconds, linear
+
+# HTTPS is always tried first. Some environments (notably sandboxes whose egress
+# proxy intercepts TLS) get the connection reset at handshake time for this host
+# while plain HTTP works and returns identical data. Set GDELT_ALLOW_HTTP=0 to
+# forbid the downgrade if your threat model requires it — GDELT is public,
+# unauthenticated, read-only data and carries no credentials, but responses over
+# HTTP are tamperable in principle, which for an intelligence platform is a real
+# (if remote) concern. Default is on, because no GDELT at all is the worse
+# failure for this application.
+ALLOW_HTTP        = os.environ.get("GDELT_ALLOW_HTTP", "1").lower() not in ("0", "false", "no")
+
 MIN_INTERVAL      = float(os.environ.get("GDELT_MIN_INTERVAL", "2.0"))
 TIMESPAN_HOURS    = int(os.environ.get("GDELT_TIMESPAN_HOURS", "168"))   # 7d (was hardcoded 72h)
 ARTICLE_WINDOWS   = int(os.environ.get("GDELT_ARTICLE_WINDOWS", "3"))    # time-slices for depth
 MAX_RECORDS       = 250          # hard API cap per call — not configurable upstream
-REQ_TIMEOUT       = int(os.environ.get("GDELT_TIMEOUT", "20"))
+# 20s was far too generous and turned a flaky transport into a budget killer:
+# a slow HTTPS attempt that eventually 429s costs 20s, and three of those exceed
+# the whole analytics budget before a single usable stage completes. Healthy
+# GDELT answers in ~5s over HTTP, so 12s is generous while capping the damage.
+REQ_TIMEOUT       = int(os.environ.get("GDELT_TIMEOUT", "12"))
 ANALYTICS_TTL     = int(os.environ.get("GDELT_ANALYTICS_TTL", "3600"))   # 1h — hourly data
 BREAKER_THRESHOLD = int(os.environ.get("GDELT_BREAKER_THRESHOLD", "3"))
 BREAKER_COOLDOWN  = int(os.environ.get("GDELT_BREAKER_COOLDOWN", "180"))
-ANALYTICS_BUDGET  = int(os.environ.get("GDELT_ANALYTICS_BUDGET", "45"))  # wall-clock seconds
+# The FIRST call in a process may pay one-off transport discovery (a slow HTTPS
+# attempt, a reset, then the HTTP retry — measured at ~39s in a TLS-intercepting
+# sandbox). At 45s that single discovery starved the remaining three stages and
+# geography/audience never ran at all. 110s absorbs discovery and still leaves
+# room for four ~5s stages; once the transport is known-good a full snapshot is
+# ~20s. Search pool allows 240s and gunicorn 300s, so this stays well inside.
+ANALYTICS_BUDGET  = int(os.environ.get("GDELT_ANALYTICS_BUDGET", "110"))  # wall-clock seconds
 
 # ── Rate limiter + circuit breaker state ──────────────────────────────────────
 _lock = threading.Lock()
 _last_call_at = 0.0
 _consecutive_failures = 0
 _breaker_open_until = 0.0
+# Learned at runtime: "https" until a connection-level failure proves otherwise,
+# then "http" for the rest of the process. Sticky so we pay the failed-TLS
+# penalty once rather than on every single call.
+_scheme = "https"
 
 _cache: dict[str, tuple[float, object]] = {}
 _cache_lock = threading.Lock()
@@ -106,10 +154,11 @@ def _breaker_is_open() -> bool:
 
 def _record_failure(is_connection_error: bool) -> None:
     """
-    Only connection-level failures trip the breaker. A 204 "no results" or a
-    malformed-JSON response means GDELT is answering us fine and the query is
-    simply empty — tripping the breaker on those would disable GDELT for every
-    other query because one search found nothing.
+    Only connection-level failures trip the breaker. A 204 "no results", a
+    malformed-JSON response or an HTTP 429 all mean GDELT is answering us fine —
+    tripping the breaker on those would disable GDELT for every other query
+    because one query found nothing or hit a transient throttle. 429 in
+    particular is handled by retry in _get() and must never reach here.
     """
     global _consecutive_failures, _breaker_open_until
     if not is_connection_error:
@@ -120,7 +169,7 @@ def _record_failure(is_connection_error: bool) -> None:
             _breaker_open_until = time.time() + BREAKER_COOLDOWN
             log.warning(
                 "GDELT circuit breaker OPEN for %ss after %d consecutive connection "
-                "failures — almost certainly IP rate-limiting, backing off",
+                "failures on both transports — GDELT unreachable, backing off",
                 BREAKER_COOLDOWN, _consecutive_failures)
 
 
@@ -149,49 +198,107 @@ def _cache_set(key: str, val) -> None:
                 _cache.pop(k, None)
 
 
-def _get(url: str, params: dict) -> tuple[object | None, str | None]:
+def _record_transport_failure() -> None:
+    """
+    A connection-level failure on HTTPS is very often TLS interception rather
+    than anything wrong at GDELT. Flip to HTTP once and stay there — verified
+    that the identical request succeeds over HTTP in exactly that situation.
+    """
+    global _scheme
+    if _scheme == "https" and ALLOW_HTTP:
+        with _lock:
+            if _scheme == "https":
+                _scheme = "http"
+                log.warning(
+                    "GDELT: HTTPS failed at connection level; falling back to HTTP "
+                    "for the rest of this process. This usually means an egress "
+                    "proxy is intercepting TLS to api.gdeltproject.org.")
+        return True
+    return False
+
+
+def _get(path: str, params: dict) -> tuple[object | None, str | None]:
     """
     Single choke point for every GDELT request. Returns (data, error).
-    Never raises. A blocked or throttled GDELT yields (None, reason).
+    Never raises.
+
+    Two failure modes are handled, and telling them apart is the whole point:
+
+      429  -> TRANSIENT AND RETRYABLE. Retried up to RETRY_ATTEMPTS with a
+              linear backoff. Never trips the breaker. Measured against the live
+              API, one retry took the analytical modes from 2/4 to 4/4.
+
+      connection reset / SSL error -> TRANSPORT problem, not a rate limit.
+              Falls back HTTPS -> HTTP once (see _record_transport_failure) and
+              retries immediately on the new transport. Only if that also fails
+              does it count toward the breaker.
     """
     if _breaker_is_open():
-        return None, "rate-limited (backing off)"
-    _throttle()
-    try:
-        r = requests.get(url, params=params,
-                         headers={"User-Agent": USER_AGENT}, timeout=REQ_TIMEOUT)
-    except (requests.exceptions.ConnectionError, requests.exceptions.SSLError) as e:
-        # This is what GDELT rate-limiting actually looks like from the client.
-        _record_failure(True)
-        return None, f"connection reset (rate limit?): {str(e)[:80]}"
-    except requests.exceptions.Timeout:
-        _record_failure(True)
-        return None, "timed out"
-    except Exception as e:
-        _record_failure(False)
-        return None, str(e)[:110]
+        return None, "backing off after repeated connection failures"
 
-    if r.status_code == 204:
+    last_err = None
+    conn_failed = False
+    for attempt in range(max(1, RETRY_ATTEMPTS)):
+        _throttle()
+        url = f"{_scheme}://{path}"
+        try:
+            r = requests.get(url, params=params,
+                             headers={"User-Agent": USER_AGENT}, timeout=REQ_TIMEOUT)
+        except (requests.exceptions.ConnectionError, requests.exceptions.SSLError) as e:
+            last_err = f"connection failed ({_scheme}): {str(e)[:70]}"
+            conn_failed = True
+            _record_transport_failure()   # flips https -> http on the first one
+            continue
+        except requests.exceptions.Timeout:
+            last_err = "timed out"
+            conn_failed = True
+            # A timeout on HTTPS is the same signal as a reset: the transport is
+            # not working. Fall back rather than spending every retry on it.
+            _record_transport_failure()
+            continue
+        except Exception as e:
+            _record_failure(False)
+            return None, str(e)[:110]
+
+        if r.status_code == 429:
+            # Stochastic and retryable — explicitly NOT a breaker condition.
+            last_err = "rate limited (429)"
+            retry_after = r.headers.get("Retry-After")
+            try:
+                wait = min(float(retry_after), 30.0) if retry_after else RETRY_BACKOFF * (attempt + 1)
+            except (TypeError, ValueError):
+                wait = RETRY_BACKOFF * (attempt + 1)
+            if attempt < RETRY_ATTEMPTS - 1:
+                time.sleep(wait)
+            continue
+
+        if r.status_code == 204:
+            _record_success()
+            return None, None                  # legitimately zero results
+        if r.status_code >= 400:
+            _record_failure(False)
+            return None, f"http {r.status_code}"
+
         _record_success()
-        return None, None                      # legitimately zero results
-    if r.status_code == 429:
-        _record_failure(True)
-        return None, "rate limited (429)"
-    if r.status_code >= 400:
-        _record_failure(False)
-        return None, f"http {r.status_code}"
+        body = (r.text or "").strip()
+        if not body:
+            return None, None
+        try:
+            return r.json(), None
+        except Exception:
+            # GDELT occasionally returns an HTML error page with a 200. Treat as
+            # empty, not a connection failure — the endpoint is up, this query
+            # just failed.
+            snippet = body[:60].replace("\n", " ")
+            return None, f"non-JSON response: {snippet}"
 
-    _record_success()
-    body = (r.text or "").strip()
-    if not body:
-        return None, None
-    try:
-        return r.json(), None
-    except Exception:
-        # GDELT occasionally returns an HTML error page with a 200. Treat as empty,
-        # not as a connection failure — the endpoint is up, this query just failed.
-        snippet = body[:60].replace("\n", " ")
-        return None, f"non-JSON response: {snippet}"
+    # Breaker accounting happens ONCE per call, not once per attempt. Counting
+    # per attempt let a single _get with 4 retries trip a 3-strike breaker by
+    # itself, which then cascaded and skipped every later query — a self-inflicted
+    # outage far worse than the transient fault it was reacting to.
+    if conn_failed:
+        _record_failure(True)
+    return None, last_err or "request failed"
 
 
 # ── Query handling ────────────────────────────────────────────────────────────
@@ -378,7 +485,7 @@ def articles(q: str, timespan_hours: int | None = None,
             "format": "json", "sort": "datedesc",
             "startdatetime": _stamp(w_start), "enddatetime": _stamp(w_end),
         }
-        data, err = _get(DOC_API, params)
+        data, err = _get(DOC_PATH, params)
         if err:
             errors.append(err)
             # A tripped breaker means every later window will fail too — stop
@@ -411,7 +518,7 @@ def _timeline(mode: str, q: str, timespan_hours: int | None = None) -> tuple[lis
     hours = timespan_hours or TIMESPAN_HOURS
     params = {"query": query, "mode": mode, "format": "json",
               "timespan": _timespan_str(hours)}
-    data, err = _get(DOC_API, params)
+    data, err = _get(DOC_PATH, params)
     if err or not isinstance(data, dict):
         return [], err
     return (data.get("timeline") or []), None
@@ -569,43 +676,6 @@ def language_breakdown(q: str, timespan_hours: int | None = None) -> dict:
             "non_english_share": non_en, "error": None}
 
 
-def geo_points(q: str, timespan_hours: int | None = None, limit: int = 300) -> dict:
-    """
-    Geolocated mentions from the GEO 2.0 API — where in the world this narrative
-    is physically being talked about, as mappable coordinates.
-    """
-    query = _build_query(q)
-    if not query:
-        return {"points": [], "error": "empty query"}
-    hours = timespan_hours or TIMESPAN_HOURS
-    params = {"query": query, "mode": "PointData", "format": "geojson",
-              "timespan": _timespan_str(hours)}
-    data, err = _get(GEO_API, params)
-    if err or not isinstance(data, dict):
-        return {"points": [], "error": err}
-    pts = []
-    for feat in (data.get("features") or [])[:limit]:
-        geom = feat.get("geometry") or {}
-        props = feat.get("properties") or {}
-        coords = geom.get("coordinates") or []
-        if len(coords) < 2:
-            continue
-        try:
-            lon, lat = float(coords[0]), float(coords[1])
-        except Exception:
-            continue
-        count = props.get("count")
-        try:
-            count = int(count)
-        except Exception:
-            count = 1
-        pts.append({"lat": lat, "lon": lon,
-                    "name": str(props.get("name") or "").strip(),
-                    "count": count})
-    pts.sort(key=lambda p: p["count"], reverse=True)
-    return {"points": pts, "total": len(pts), "error": None}
-
-
 # ── Combined analytical snapshot ──────────────────────────────────────────────
 
 def snapshot(q: str, timespan_hours: int | None = None,
@@ -647,10 +717,14 @@ def snapshot(q: str, timespan_hours: int | None = None,
             out["degraded"].append(f"{name}: {str(e)[:80]}")
             return {}
 
+    # Order is by value-if-lost, not by cost. Geography feeds both the audience
+    # layer and the geographic_breadth threat factor, so it runs before volume:
+    # if the budget runs out, losing volume costs one factor, losing geography
+    # costs a factor AND the whole geographic intelligence panel.
     out["tone"] = _stage("tone", lambda: tone_timeline(q, hours))
-    out["volume"] = _stage("volume", lambda: volume_timeline(q, hours))
     out["geography"] = _stage("geography", lambda: country_breakdown(q, hours))
     out["audience"] = _stage("audience", lambda: language_breakdown(q, hours))
+    out["volume"] = _stage("volume", lambda: volume_timeline(q, hours))
 
     # Only cache a result that actually carries signal. Caching a fully degraded
     # snapshot would pin the "GDELT is blocked" state in place for an hour after
@@ -680,7 +754,7 @@ def health() -> dict:
     if cached is not None:
         return cached
 
-    data, err = _get(DOC_API, {"query": "news", "mode": "artlist",
+    data, err = _get(DOC_PATH, {"query": "news", "mode": "artlist",
                                "maxrecords": 1, "format": "json", "timespan": "24h"})
     if err:
         res = {"reachable": False, "working": False, "reason": err,
@@ -698,6 +772,9 @@ def health() -> dict:
 def stats() -> dict:
     """Introspection for /healthz — what the limiter is currently doing."""
     return {
+        "transport": _scheme,
+        "http_fallback_allowed": ALLOW_HTTP,
+        "retry_attempts": RETRY_ATTEMPTS,
         "min_interval_s": MIN_INTERVAL,
         "timespan_hours": TIMESPAN_HOURS,
         "article_windows": ARTICLE_WINDOWS,
