@@ -29,6 +29,8 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request, make_response
 
+import db  # Supabase persistence; degrades to in-memory when unconfigured
+
 app = Flask(__name__)
 
 # ── API keys ──────────────────────────────────────────────────────────────────
@@ -1603,6 +1605,9 @@ def evaluate_watchlist(query: str, rules: dict, baseline: dict | None = None) ->
             "narratives": [{"label": n.get("label"), "framing": n.get("framing"),
                             "count": n.get("count")} for n in narratives],
         },
+        # Carried so _persist_check can record sentiment into the time series;
+        # stripped from the JSON response below to keep the payload lean.
+        "_payload": {"sentiment": payload.get("sentiment") or {}},
     }
 
 
@@ -1748,9 +1753,16 @@ def index():
 def _run_full_search(q: str, use_cache: bool = True) -> dict:
     """Core search + analysis pipeline. Used by /api/search and watchlist checks."""
     cache_key=q.lower(); now=time.time()
-    if use_cache and cache_key in _cache:
-        ts,cached=_cache[cache_key]
-        if now-ts<CACHE_TTL: return {**cached,"cached":True}
+    if use_cache:
+        # In-process cache first (free), then the DB cache (survives redeploys,
+        # so a restart no longer means re-paying for every upstream API call).
+        if cache_key in _cache:
+            ts,cached=_cache[cache_key]
+            if now-ts<CACHE_TTL: return {**cached,"cached":True}
+        db_cached=db.cache_get(cache_key)
+        if db_cached:
+            _cache[cache_key]=(now,db_cached)   # warm the local copy too
+            return {**db_cached,"cached":True,"cache_source":"db"}
     direct_out={}; cse_out={}
     with ThreadPoolExecutor(max_workers=len(API_PLATFORMS)+1) as ex:
         futures={ex.submit(fn,q):name for name,fn in API_PLATFORMS.items()}
@@ -1838,6 +1850,7 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
     if len(_cache)>200:
         oldest=sorted(_cache.items(),key=lambda kv:kv[1][0])[:50]
         for k,_ in oldest: _cache.pop(k,None)
+    db.cache_set(cache_key,q,payload,CACHE_TTL)
     return payload
 
 
@@ -1854,10 +1867,26 @@ def api_search():
 
 
 # ── Watchlist endpoints ───────────────────────────────────────────────────────
+
+def _persist_check(query: str, result: dict, wl_id: str | None) -> None:
+    """Record one check as permanent history: a time-series snapshot plus any
+    alerts it fired. This is what turns a point-in-time search into narrative
+    intelligence — without it there is no 'over time' to analyse."""
+    try:
+        sentiment = (result.pop("_payload", None) or {}).get("sentiment") or {}
+        db.snapshot_record(query, result, wl_id, sentiment)
+        db.alerts_record(query, result.get("alerts") or [], wl_id, result.get("checked_at"))
+    except Exception as e:
+        app.logger.warning("history write failed for %r: %s", query, e)
+
+
 @app.route("/api/watchlist", methods=["GET"])
 def api_watchlist_list():
+    rows = db.watchlists_list()
+    if rows is not None:
+        return jsonify({"watchlists": rows, "persisted": True})
     with _watch_lock:
-        return jsonify({"watchlists": list(_watchlists.values())})
+        return jsonify({"watchlists": list(_watchlists.values()), "persisted": False})
 
 @app.route("/api/watchlist", methods=["POST"])
 def api_watchlist_add():
@@ -1873,32 +1902,44 @@ def api_watchlist_add():
     }
     with _watch_lock:
         _watchlists[wl_id] = entry
-    return jsonify(entry)
+    saved = db.watchlist_upsert(entry)
+    return jsonify({**(saved or entry), "persisted": saved is not None})
 
 @app.route("/api/watchlist/<wl_id>", methods=["DELETE"])
 def api_watchlist_delete(wl_id):
     with _watch_lock:
         _watchlists.pop(wl_id, None)
+    db.watchlist_delete(wl_id)
     return jsonify({"deleted": wl_id})
 
 @app.route("/api/watchlist/<wl_id>/check", methods=["POST"])
 def api_watchlist_check(wl_id):
-    with _watch_lock:
-        entry = _watchlists.get(wl_id)
+    # Prefer the DB copy — it survives redeploys, unlike _watchlists.
+    entry = db.watchlist_get(wl_id)
+    if not entry:
+        with _watch_lock:
+            entry = _watchlists.get(wl_id)
     try:
         if not entry:
-            # Allow ad-hoc check by passing query + rules directly
+            # Allow ad-hoc check by passing query + rules directly. Still
+            # recorded to history: observing something is worth keeping
+            # whether or not a watchlist was ever saved for it.
             body = request.get_json(silent=True) or {}
             q = (body.get("query") or "").strip()
             if not q: return jsonify({"error": "watchlist not found"}), 404
             rules = {**DEFAULT_RULES, **(body.get("rules") or {})}
             baseline = body.get("baseline")
-            return jsonify(evaluate_watchlist(q, rules, baseline))
+            result = evaluate_watchlist(q, rules, baseline)
+            _persist_check(q, result, None)
+            return jsonify(result)
         result = evaluate_watchlist(entry["query"], entry["rules"], entry.get("last_snapshot"))
         with _watch_lock:
-            entry["last_checked"] = result["checked_at"]
-            entry["last_snapshot"] = result["snapshot"]
-            entry["last_alerts"] = result["alerts"]
+            if wl_id in _watchlists:
+                _watchlists[wl_id]["last_checked"] = result["checked_at"]
+                _watchlists[wl_id]["last_snapshot"] = result["snapshot"]
+                _watchlists[wl_id]["last_alerts"] = result["alerts"]
+        db.watchlist_touch(wl_id, result["checked_at"], result["snapshot"], result["alerts"])
+        _persist_check(entry["query"], result, wl_id)
         return jsonify(result)
     except Exception as e:
         app.logger.exception("watchlist check failed for %r", wl_id)
@@ -1928,6 +1969,7 @@ def api_watchlist_check_all():
             try:
                 r = fut.result()
                 r["watchlist_id"] = t.get("id")
+                _persist_check(t["query"], r, t.get("id"))
                 results.append(r)
             except Exception as e:
                 results.append({"watchlist_id": t.get("id"), "query": t["query"],
@@ -1936,6 +1978,90 @@ def api_watchlist_check_all():
     return jsonify({"results": results, "total_alerts": total_alerts,
                     "checked": len(results),
                     "checked_at": datetime.now(timezone.utc).isoformat()})
+
+
+# ── History / trend endpoints ─────────────────────────────────────────────────
+# The reason snapshots are persisted at all: narrative intelligence is about
+# change over time, not a single point-in-time search.
+
+@app.route("/api/history")
+def api_history():
+    """Time series for a query: mentions, coordination, sentiment, narratives.
+
+    ?q=<query>  (required)
+    ?days=N     (optional window; default all history)
+    ?limit=N    (default 200)
+    """
+    q = (request.args.get("q") or "").strip()
+    if not q: return jsonify({"error": "missing q"}), 400
+    days = request.args.get("days", type=int)
+    limit = request.args.get("limit", type=int) or 200
+    rows = db.snapshots_history(q, limit=min(limit, 1000), days=days)
+    if rows is None:
+        return jsonify({"error": "history unavailable — persistence not configured",
+                        "persisted": False, "series": []}), 200
+
+    series = [{
+        "checked_at": r.get("checked_at"),
+        "mentions": r.get("mentions"),
+        "coordination_score": r.get("coordination_score"),
+        "acceleration": r.get("acceleration"),
+        "state_media": r.get("state_media"),
+        "sentiment_net": r.get("sentiment_net"),
+        "alert_count": r.get("alert_count"),
+        "narrative_count": len(r.get("narratives") or []),
+    } for r in rows]
+
+    # Narrative lifecycle: when each distinct narrative label was first and
+    # last seen, and how its volume moved. This is the "narrative emergence"
+    # signal — it only exists because history is kept.
+    lifecycle = {}
+    for r in rows:
+        ts = r.get("checked_at")
+        for n in (r.get("narratives") or []):
+            label = (n.get("label") or "").strip()
+            if not label: continue
+            e = lifecycle.setdefault(label, {
+                "label": label, "framing": n.get("framing"),
+                "first_seen": ts, "last_seen": ts,
+                "first_count": n.get("count"), "last_count": n.get("count"),
+                "observations": 0,
+            })
+            e["last_seen"] = ts
+            e["last_count"] = n.get("count")
+            e["observations"] += 1
+
+    emerging = sorted(lifecycle.values(), key=lambda e: e["first_seen"] or "", reverse=True)
+
+    first = series[0] if series else {}
+    last = series[-1] if series else {}
+    def _delta(k):
+        a, b = first.get(k), last.get(k)
+        return (b - a) if isinstance(a, (int, float)) and isinstance(b, (int, float)) else None
+
+    return jsonify({
+        "query": q, "persisted": True, "points": len(series),
+        "window_days": days,
+        "first_seen": first.get("checked_at"), "last_seen": last.get("checked_at"),
+        "series": series,
+        "narratives": emerging,
+        "change": {"mentions": _delta("mentions"),
+                   "coordination_score": _delta("coordination_score"),
+                   "sentiment_net": _delta("sentiment_net")},
+    })
+
+
+@app.route("/api/alerts")
+def api_alerts():
+    """Alert history across all watchlists. ?days=N &limit=N &unack=1"""
+    days = request.args.get("days", type=int)
+    limit = request.args.get("limit", type=int) or 50
+    unack = request.args.get("unack") in ("1", "true", "yes")
+    rows = db.alerts_recent(limit=min(limit, 500), days=days, unacknowledged_only=unack)
+    if rows is None:
+        return jsonify({"error": "alert history unavailable — persistence not configured",
+                        "persisted": False, "alerts": []}), 200
+    return jsonify({"persisted": True, "count": len(rows), "alerts": rows})
 
 
 # ── Report / dossier endpoints ────────────────────────────────────────────────
@@ -2006,7 +2132,8 @@ def api_status():
                                "podcast_index":bool(PODCAST_INDEX_KEY and PODCAST_INDEX_SECRET),
                                "gdelt":True,"state_media":True,"academic":True,
                                "telegram":bool(TELEGRAM_CHANNELS),"notebooklm":bool(NOTEBOOKLM_AUTH_ARCHIVE)},
-                    "narrative_engine":"active","version":"2.0",
+                    "narrative_engine":"active","version":"2.1",
+                    "persistence":db.health(),
                     "telegram_channels":len(TELEGRAM_CHANNELS),
                     "state_media_feeds":len(ADVERSARY_RSS_FEEDS),
                     "podcast_watchlist":len(PODCAST_WATCHLIST)})
@@ -2149,7 +2276,8 @@ def healthz():
     return jsonify({"ok":True,"sources_configured":{
         "youtube":bool(YOUTUBE_API_KEY),"serpapi":bool(SERPAPI_KEY),
         "scrapebadger":bool(SCRAPEBADGER_KEY),"reddit_official":bool(REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET),
-        "anthropic":bool(ANTHROPIC_API_KEY),"babelstreet":bool(BABELSTREET_API_KEY)}}),200
+        "anthropic":bool(ANTHROPIC_API_KEY),"babelstreet":bool(BABELSTREET_API_KEY)},
+        "persistence":db.health()}),200
 
 if NOTEBOOKLM_AUTH_ARCHIVE and _restore_notebooklm_auth():
     threading.Thread(target=_notebooklm_sync_loop,daemon=True,name="notebooklm-sync").start()

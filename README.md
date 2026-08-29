@@ -39,6 +39,7 @@ Each result is scored positive / neutral / negative:
 - `TELEGRAM_CHANNELS` — comma-separated public channel names
 - `DEBUG_TOKEN` — **required** to use any `/debug/*` route. Unset = those routes return
   401 for everyone. Set this and send it back as the `X-Debug-Token` header.
+- `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — persistence (see below); optional
 - `MISE_PYTHON_GITHUB_ATTESTATIONS=false` — Railway builder workaround
 
 ## Design
@@ -50,14 +51,40 @@ layered-gradient approximation instead so scroll performance doesn't degrade wit
 result set. Sentiment breakdown bar, filter chips (all/positive/neutral/negative). Light +
 dark mode automatic.
 
+## Persistence (Supabase / Postgres)
+
+Watchlists, alert history, the search cache, and — most importantly — a permanent
+time series of every watchlist check are stored in Supabase. This is what makes
+"track narratives over time" real: without stored history there is no *over time*.
+
+Set two variables and it activates automatically:
+
+- `SUPABASE_URL` — e.g. `https://<ref>.supabase.co`
+- `SUPABASE_SERVICE_KEY` — the **service_role** key (Supabase → Project Settings →
+  API Keys). `SUPABASE_SERVICE_ROLE_KEY` also works.
+
+**It must be the service_role key, not the anon/publishable one.** All tables are
+RLS deny-all, so the anon key connects fine but silently writes nothing. `/healthz`
+performs a real write probe and will tell you explicitly if the wrong key is set —
+check `persistence.writable` there after deploying.
+
+If both variables are unset, XTag runs exactly as before on in-memory state. Nothing
+breaks; you just don't get history. Persistence is an upgrade, never a dependency —
+every DB call fails soft and falls back.
+
+### Tables
+| table | purpose |
+|---|---|
+| `watchlists` | saved queries + alert thresholds; survives redeploys |
+| `watchlist_snapshots` | **the time series** — one permanent row per check |
+| `alerts` | every triggered alert, indexed for fast history queries |
+| `search_cache` | cache that survives restarts, so a redeploy no longer re-pays for upstream API calls |
+
+Schema lives in `supabase/migrations/`.
+
 ## Known limitations
-- **No persistent storage.** The search cache, watchlists, and NotebookLM auth all live in
-  process memory only. Every Railway redeploy wipes watchlists entirely, and running more
-  than one gunicorn worker means requests can silently hit a worker that never saw a given
-  watchlist. `--workers 1` (see Procfile/Dockerfile) fixes the second problem; the first
-  means "continuous monitoring" and "narrative emergence over time" — both stated project
-  goals — don't yet survive a restart. A real datastore (Postgres/Supabase, or a Railway
-  volume + SQLite) is the natural next step and isn't in place yet.
+- **NotebookLM auth is still in-memory**, so the Knowledge Bank re-syncs from scratch
+  after a redeploy. Lower impact than the watchlist problem since it rebuilds itself.
 - **Knowledge Bank chat (`/api/kb/chat`) has no UI.** The backend endpoint is fully
   implemented (Claude Q&A over ingested NotebookLM notebooks) but nothing in
   `templates/index.html` calls it — it's dead code from the UI rebuild. Either wire it up
@@ -68,6 +95,10 @@ dark mode automatic.
 - `GET /api/search?q=Q` — unified JSON incl. sentiment, narratives, entities, velocity,
   coordination, propagation
 - `GET /healthz` — lightweight liveness + which sources are configured
-- `GET /api/status` — fuller config/source status used by the UI
+- `GET /api/status` — fuller config/source status used by the UI, incl. `persistence`
+- `GET /api/history?q=Q[&days=N][&limit=N]` — time series for a query: mentions,
+  coordination, sentiment drift, plus per-narrative first/last-seen lifecycle
+  (the narrative-emergence signal)
+- `GET /api/alerts[?days=N][&limit=N][&unack=1]` — alert history across all watchlists
 - `GET /debug/scrapebadger` · `/debug/serpapi` · `/debug/account` · others — all require
   `DEBUG_TOKEN` (see above); never echo full raw keys, only masked last-4
