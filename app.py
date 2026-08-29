@@ -1262,6 +1262,44 @@ def claude_health() -> dict:
             "reason": f"Claude calls are failing{hint}. Narratives, entities and "
                       f"sentiment will all be empty. Detail: {err.get('message')}"}
 
+def _parse_claude_json(text, context=""):
+    """Parse a JSON reply from Claude, logging failures instead of hiding them.
+
+    Truncation is the common failure: the model hits max_tokens mid-array and
+    the reply is valid JSON right up to the cut. Rather than discard the whole
+    response (which previously produced a silent empty result), salvage the
+    complete elements by trimming back to the last balanced position.
+    """
+    if not text: return None
+    cleaned = re.sub(r"```json|```", "", text).strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        salvaged = _salvage_truncated_json(cleaned)
+        if salvaged is not None:
+            app.logger.warning("%s: JSON truncated (%s) — salvaged %d items",
+                               context, e, len(salvaged) if isinstance(salvaged, list) else 1)
+            return salvaged
+        app.logger.error("%s: unparseable JSON from Claude (%s). First 200 chars: %r",
+                         context, e, cleaned[:200])
+        return None
+
+
+def _salvage_truncated_json(s):
+    """Recover the complete leading elements of a truncated JSON array/object."""
+    for closer in ("]", "}"):
+        start = s.find("[" if closer == "]" else "{")
+        if start < 0: continue
+        # Walk back from the end to the last plausible element boundary.
+        for cut in range(len(s), start, -1):
+            frag = s[start:cut].rstrip().rstrip(",")
+            try:
+                return json.loads(frag + closer)
+            except Exception:
+                continue
+    return None
+
+
 def extract_narratives_v2(platforms, q, max_posts=80):
     docs = _top_docs(platforms, max_posts)
     if len(docs) < 6: return []
@@ -1274,10 +1312,10 @@ def extract_narratives_v2(platforms, q, max_posts=80):
         "For each: label (max 7 words), count, framing (fear|anger|hope|pride|grief|threat|disinformation|neutral), "
         "platforms (list), key_claim (one sentence), actors (list), velocity (accelerating|stable|declining).\n"
         "ONLY JSON array. No prose.\n\n" + numbered)
-    text = _claude_call(prompt, 1400)
-    if not text: return []
+    text = _claude_call(prompt, 1800)
+    arr = _parse_claude_json(text, "extract_narratives_v2")
+    if not isinstance(arr, list): return []
     try:
-        arr = json.loads(re.sub(r"```json|```","",text).strip())
         out = []
         for o in arr:
             if not isinstance(o,dict) or not o.get("label"): continue
@@ -1299,10 +1337,14 @@ def extract_entities(platforms, q, max_docs=50):
         "Extract entities (people, orgs, countries, locations, weapons, events) and their relationships.\n"
         'ONLY JSON: {"entities":[{"name":"...","type":"person|org|country|location|weapon|event","mentions":N,"sentiment":"positive|negative|neutral"}],'
         '"edges":[{"from":"...","to":"...","relation":"..."}]}. Max 20 entities, 15 edges. No prose.\n\n' + text_blob)
-    text = _claude_call(prompt, 900)
-    if not text: return {}
-    try: return json.loads(re.sub(r"```json|```","",text).strip())
-    except: return {}
+    # 20 entities + 15 edges of JSON does not fit in 900 tokens — the reply was
+    # being truncated mid-structure, json.loads threw, and the bare except
+    # returned {} silently. That is why entities were always empty while
+    # narratives (1400 tokens for less output) worked fine.
+    text = _claude_call(prompt, 2600)
+    parsed = _parse_claude_json(text, "extract_entities")
+    if not isinstance(parsed, dict): return {}
+    return parsed
 
 def compute_velocity(platforms):
     all_docs = _top_docs(platforms, 500)
@@ -1455,9 +1497,9 @@ def _sentiment_claude(texts, lang="en"):
         + lang_instruction +
         'ONLY JSON array: [{"s":"...","f":"..."},...] one per post. No prose.\n\n' + numbered)
     text = _claude_call(prompt, 2400)
-    if not text: return None, None
+    arr = _parse_claude_json(text, "_sentiment_claude")
+    if not isinstance(arr, list): return None, None
     try:
-        arr = json.loads(re.sub(r"```json|```","",text).strip())
         sentiments = [_norm_label(v.get("s")) for v in arr]
         framings   = [str(v.get("f","neutral")).lower() for v in arr]
         while len(sentiments) < len(texts): sentiments.append("neutral")
