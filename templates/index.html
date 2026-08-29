@@ -352,6 +352,12 @@ a{color:inherit;text-decoration:none;}
   display:flex;align-items:center;gap:8px;padding:10px 14px;flex:none;position:relative;
   background:var(--glass-bg);backdrop-filter:blur(var(--glass-blur-lg)) saturate(var(--glass-sat));-webkit-backdrop-filter:blur(var(--glass-blur-lg)) saturate(var(--glass-sat));
   border-bottom:1px solid var(--glass-border);flex-wrap:wrap;box-shadow:var(--glass-edge);
+  /* z-index is REQUIRED, not cosmetic. The toolbar is position:relative with no
+     z-index, and every .mc result card is ALSO position:relative and comes later
+     in the DOM — so by CSS painting order the cards painted on top of Filter and
+     Sort and swallowed the clicks. 50 sits above the cards (auto/0) and below the
+     filter/sort panels (200), the rail (60) and every modal. */
+  z-index:50;
 }
 .grid-toolbar::before{content:"";position:absolute;inset:0;pointer-events:none;background:var(--glass-sheen);}
 .grid-toolbar>*{position:relative;}
@@ -394,7 +400,10 @@ a{color:inherit;text-decoration:none;}
 .sort-opt.on .sradio::after{content:"";width:5px;height:5px;border-radius:50%;background:#fff;}
 
 /* MEDIA GRID */
-.media-scroll{flex:1;overflow-y:auto;padding:12px;}
+/* isolation:isolate keeps every positioned card inside this container's own
+   stacking context, so a card can never paint over the toolbar again regardless
+   of DOM order or hover transforms. */
+.media-scroll{flex:1;overflow-y:auto;padding:12px;position:relative;z-index:0;isolation:isolate;}
 .media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;}
 .mc{
   border-radius:var(--r);overflow:hidden;cursor:pointer;display:flex;flex-direction:column;
