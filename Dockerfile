@@ -27,4 +27,4 @@ COPY . .
 # doesn't exist to a request another worker handles. --threads gives real
 # concurrency for I/O-bound platform calls without that split-brain problem.
 # See README "Known limitations" — this is a stopgap until state moves to a DB.
-CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
+CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 300
