@@ -171,6 +171,13 @@ a{color:inherit;text-decoration:none;}
 .top-actions{display:flex;gap:6px;flex:none;}
 .top-act{width:32px;height:32px;display:flex;align-items:center;justify-content:center;background:var(--glass-soft-bg);border:1px solid var(--glass-soft-border);border-radius:8px;cursor:pointer;color:var(--ink3);font-size:15px;transition:all .15s;box-shadow:var(--glass-edge);}
 .top-act:hover{color:var(--ink);background:rgba(255,255,255,.09);transform:translateY(-1px);}
+.top-act.on{color:var(--accent2);border-color:var(--accent);background:var(--accent-tint);}
+/* Results/Filter toggle — only meaningful (and only shown) once the layout narrows
+   below 860px and .grid-panel (which holds Filter/Sort) gets hidden by the media
+   query below. Without this, Filter and Sort become permanently unreachable on any
+   window narrower than 860px — which is the normal width of this app's panel in a
+   lot of contexts, not just phones. */
+.grid-toggle-btn{display:none;}
 
 /* ══ SPLIT CONTENT ══ */
 .split{flex:1;display:flex;overflow:hidden;}
@@ -601,6 +608,11 @@ a{color:inherit;text-decoration:none;}
   .grid-panel{display:none;}
   .report-panel.full,.report-panel{display:flex;}
   .mode-tabs{display:none;}
+  .grid-toggle-btn{display:flex;}
+  /* Toggle into results view: reveals the media grid + Filter/Sort toolbar,
+     hides the narrative report panel. toggleGridView() flips this class. */
+  .split.show-grid .report-panel{display:none;}
+  .split.show-grid .grid-panel{display:flex;}
 }
 @media(max-width:600px){
   .topbar{padding:8px 10px;}
@@ -673,6 +685,7 @@ a{color:inherit;text-decoration:none;}
         <button class="mode-tab" data-mode="timeline" onclick="setMode(this)">Timeline</button>
       </div>
       <div class="top-actions">
+        <div class="top-act grid-toggle-btn" onclick="toggleGridView()" id="gridToggleBtn" title="Results, Filter &amp; Sort"><i class="ti ti-layout-grid"></i></div>
         <div class="top-act" onclick="openSubscribe()" id="watchBtn" title="Alerts &amp; email reports" style="position:relative;">
           <i class="ti ti-bell"></i>
           <span class="watch-badge hidden" id="watchBadge">0</span>
@@ -904,6 +917,21 @@ function setMode(btn){
   if(lastData)renderReport(lastData);
 }
 
+// Below 860px the grid panel (which holds Filter/Sort and the raw results grid)
+// is hidden by CSS to make room for the narrative report at full width. This is
+// the only way back to it on a narrow window/panel — without it Filter and Sort
+// are simply unreachable, not just hidden until search.
+function toggleGridView(){
+  var split=$('split');if(!split)return;
+  var on=split.classList.toggle('show-grid');
+  var btn=$('gridToggleBtn');
+  if(btn){
+    btn.classList.toggle('on',on);
+    btn.innerHTML=on?'<i class="ti ti-notes"></i>':'<i class="ti ti-layout-grid"></i>';
+    btn.title=on?'Back to narrative report':'Results, Filter & Sort';
+  }
+}
+
 /* ── LOADER ── */
 var PLAT_LABELS=['X/Twitter','Reddit','YouTube','Telegram','TikTok','Bluesky','Mastodon',
   'Instagram','LinkedIn','Google News','GDELT','State Media','Academic','Podcasts'];
@@ -973,6 +1001,9 @@ function newSearch(){
   document.querySelectorAll('.sort-opt').forEach(function(e){
     e.classList.toggle('on', e.dataset.sort==='newest');});
   closeAll();
+  var split=$('split');if(split)split.classList.remove('show-grid');
+  var gtb=$('gridToggleBtn');
+  if(gtb){gtb.classList.remove('on');gtb.innerHTML='<i class="ti ti-layout-grid"></i>';gtb.title='Results, Filter & Sort';}
   // Restore the landing state: hero back, report cleared, grid emptied.
   var hero=$('hero');if(hero)hero.classList.remove('hidden');
   var rep=$('report');if(rep){rep.innerHTML='';rep.classList.add('hidden');}
@@ -1886,6 +1917,7 @@ window.pickCadence = pickCadence;
 window.pickSort = pickSort;
 window.resetFilters = resetFilters;
 window.setMode = setMode;
+window.toggleGridView = toggleGridView;
 window.setPendingDate = setPendingDate;
 window.submitSubscribe = submitSubscribe;
 window.toggleFilter = toggleFilter;
