@@ -257,3 +257,71 @@ def cache_prune() -> None:
     now = datetime.now(timezone.utc).isoformat()
     _req("DELETE", f"search_cache?expires_at=lt.{now}",
          extra_headers={"Prefer": "return=minimal"})
+
+
+# ── Report subscriptions ──────────────────────────────────────────────────────
+
+def subscription_upsert(email: str, query: str, cadence_days: int) -> dict | None:
+    """Create or update a subscription. Unique on (email, query), so changing
+    the cadence for an existing subscription updates it rather than duplicating."""
+    from datetime import datetime as _dt
+    rows = _req(
+        "POST", "report_subscriptions",
+        json={"email": email, "query": query, "cadence_days": cadence_days,
+              "active": True, "next_run_at": _dt.now(timezone.utc).isoformat()},
+        extra_headers={"Prefer": "resolution=merge-duplicates,return=representation"},
+    )
+    return rows[0] if rows else None
+
+
+def subscriptions_for_email(email: str) -> list[dict] | None:
+    return _req("GET", f"report_subscriptions?email=eq.{requests.utils.quote(email)}"
+                       f"&select=*&order=created_at.desc")
+
+
+def subscriptions_due(limit: int = 25) -> list[dict] | None:
+    now = datetime.now(timezone.utc).isoformat()
+    return _req("GET", f"report_subscriptions?active=eq.true&next_run_at=lte.{now}"
+                       f"&select=*&order=next_run_at.asc&limit={int(limit)}")
+
+
+def subscription_mark_sent(sub_id: str, cadence_days: int, status: str,
+                           error: str | None = None) -> None:
+    now = datetime.now(timezone.utc)
+    payload = {"last_sent_at": now.isoformat(), "last_status": status,
+               "last_error": error,
+               "next_run_at": (now + timedelta(days=cadence_days)).isoformat()}
+    _req("PATCH", f"report_subscriptions?id=eq.{sub_id}", json=payload,
+         extra_headers={"Prefer": "return=minimal"})
+    # send_count increments separately; a failed send still reschedules so one
+    # bad run doesn't silently kill a subscription forever.
+    if status == "sent":
+        cur = _req("GET", f"report_subscriptions?id=eq.{sub_id}&select=send_count")
+        if cur:
+            _req("PATCH", f"report_subscriptions?id=eq.{sub_id}",
+                 json={"send_count": (cur[0].get("send_count") or 0) + 1},
+                 extra_headers={"Prefer": "return=minimal"})
+
+
+def subscription_by_token(token: str) -> dict | None:
+    rows = _req("GET", f"report_subscriptions?unsubscribe_token=eq."
+                       f"{requests.utils.quote(token)}&select=*&limit=1")
+    return rows[0] if rows else None
+
+
+def subscription_deactivate(sub_id: str) -> bool:
+    return _req("PATCH", f"report_subscriptions?id=eq.{sub_id}",
+                json={"active": False},
+                extra_headers={"Prefer": "return=minimal"}) is not None
+
+
+def delivery_record(sub_id: str | None, email: str, query: str, status: str,
+                    provider_id: str | None = None, error: str | None = None,
+                    mentions: int | None = None, narrative_count: int | None = None,
+                    alert_count: int | None = None) -> None:
+    _req("POST", "report_deliveries",
+         json={"subscription_id": sub_id, "email": email, "query": query,
+               "status": status, "provider_id": provider_id, "error": error,
+               "mentions": mentions, "narrative_count": narrative_count,
+               "alert_count": alert_count},
+         extra_headers={"Prefer": "return=minimal"})

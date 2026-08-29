@@ -29,7 +29,8 @@ import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request, make_response
 
-import db  # Supabase persistence; degrades to in-memory when unconfigured
+import db      # Supabase persistence; degrades to in-memory when unconfigured
+import mailer  # Resend email delivery; no-ops cleanly when unconfigured
 
 app = Flask(__name__)
 
@@ -48,12 +49,26 @@ PODCAST_INDEX_SECRET = os.environ.get("PODCAST_INDEX_SECRET", "").strip()
 OPENALEX_MAILTO      = os.environ.get("OPENALEX_MAILTO", "").strip() or "osint@xtag.app"
 
 SB_BASE = "https://scrapebadger.com/v1"
+
+# ── Result depth ──────────────────────────────────────────────────────────────
+# "Pull everything available." Each source paginates until exhausted or until
+# it hits MAX_PAGES / MAX_RESULTS_PER_SOURCE, whichever comes first. Those caps
+# are guardrails against a runaway query, not a target — raise them freely.
+# Note the cost: SerpApi bills per page, so deep pagination consumes the monthly
+# search quota several times faster than a single-page fetch.
+MAX_RESULTS_PER_SOURCE = int(os.environ.get("MAX_RESULTS_PER_SOURCE", "500"))
+MAX_PAGES              = int(os.environ.get("MAX_PAGES", "10"))
 SENTIMENT_ENABLED = bool(ANTHROPIC_API_KEY or BABELSTREET_API_KEY)
 USER_AGENT  = "web:xtag:2.0 (narrative-intelligence)"
 BROWSER_UA  = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
-TIMEOUT     = 6
-SERPAPI_TIMEOUT = 20
+TIMEOUT     = 12          # per-request for fast sources (was 6 — GDELT kept timing out)
+SERPAPI_TIMEOUT = 25
+# Whole-search deadline. Deep pagination means a single source can legitimately
+# take minutes, so the old SERPAPI_TIMEOUT+10 (30s) would have marked nearly
+# everything "timed out" the moment pagination was enabled. Must stay comfortably
+# below the gunicorn --timeout in the Dockerfile or the worker is killed first.
+SEARCH_POOL_TIMEOUT = int(os.environ.get("SEARCH_POOL_TIMEOUT", "240"))
 CACHE_TTL   = 1800
 _cache: dict[str, tuple[float, dict]] = {}
 _bsky_session = {"jwt": None, "ts": 0.0}
@@ -427,23 +442,71 @@ DOMAIN_MAP = {
 # SOURCE FETCHERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _youtube_stats(video_ids):
+    """Fetch view/like/comment counts for videos.
+
+    search.list does NOT return statistics, so every YouTube result previously
+    had engagement 0 — which silently broke the "Most engaged" sort for the
+    whole grid whenever YouTube was one of the few live sources. videos.list
+    takes 50 ids per call and costs 1 quota unit, vs 100 for a search.
+    """
+    stats = {}
+    for i in range(0, len(video_ids), 50):
+        chunk = video_ids[i:i+50]
+        try:
+            r = requests.get("https://www.googleapis.com/youtube/v3/videos",
+                params={"part":"statistics","id":",".join(chunk),"key":YOUTUBE_API_KEY},
+                timeout=TIMEOUT)
+            if r.status_code >= 400: continue
+            for item in r.json().get("items", []):
+                s = item.get("statistics", {}) or {}
+                stats[item.get("id")] = {
+                    "views": int(s.get("viewCount") or 0),
+                    "likes": int(s.get("likeCount") or 0),
+                    "comments": int(s.get("commentCount") or 0),
+                }
+        except Exception:
+            continue
+    return stats
+
+
 def search_youtube(q):
     if not YOUTUBE_API_KEY: return _empty("youtube", "YOUTUBE_API_KEY not set")
     try:
-        r = requests.get("https://www.googleapis.com/youtube/v3/search",
-            params={"part":"snippet","q":_query_parts(q)[2],"type":"video","maxResults":50,"key":YOUTUBE_API_KEY},
-            timeout=TIMEOUT)
-        r.raise_for_status()
+        raw, page_token, pages = [], None, 0
+        while pages < MAX_PAGES and len(raw) < MAX_RESULTS_PER_SOURCE:
+            params = {"part":"snippet","q":_query_parts(q)[2],"type":"video",
+                      "maxResults":50,"key":YOUTUBE_API_KEY}
+            if page_token: params["pageToken"] = page_token
+            r = requests.get("https://www.googleapis.com/youtube/v3/search",
+                             params=params, timeout=TIMEOUT)
+            if r.status_code >= 400:
+                if not raw: return _empty("youtube", f"HTTP {r.status_code}")
+                break
+            body = r.json()
+            items = body.get("items", [])
+            if not items: break
+            raw.extend(items)
+            page_token = body.get("nextPageToken")
+            pages += 1
+            if not page_token: break
+
+        ids = [it.get("id",{}).get("videoId") for it in raw if it.get("id",{}).get("videoId")]
+        stats = _youtube_stats(ids) if ids else {}
+
         results = []
-        for item in r.json().get("items",[]):
+        for item in raw:
             vid = item.get("id",{}).get("videoId"); sn = item.get("snippet",{})
             if not vid: continue
+            st = stats.get(vid) or {}
+            meta = (f"\u25b6 {st.get('views',0)} \u00b7 \u2665 {st.get('likes',0)} "
+                    f"\u00b7 \U0001f4ac {st.get('comments',0)}") if st else None
             results.append(make_doc("youtube", f"https://www.youtube.com/watch?v={vid}",
                 _strip_html(sn.get("description")), title=_strip_html(sn.get("title")),
                 author=sn.get("channelTitle"),
                 author_url=f"https://www.youtube.com/channel/{sn.get('channelId','')}",
                 thumbnail=sn.get("thumbnails",{}).get("medium",{}).get("url"),
-                timestamp=sn.get("publishedAt"), source_type="social"))
+                timestamp=sn.get("publishedAt"), meta=meta, source_type="social"))
         return {"platform":"youtube","results":results,"error":None}
     except Exception as e: return _empty("youtube", str(e)[:120])
 
@@ -473,7 +536,7 @@ def _search_reddit_official(keyword):
     if not token: return None  # signal: fall through to ScrapeBadger
     try:
         r = requests.get("https://oauth.reddit.com/search",
-            params={"q":keyword,"sort":"relevance","t":"year","limit":100,"raw_json":1},
+            params={"q":keyword,"sort":"relevance","t":"year","limit":min(100,MAX_RESULTS_PER_SOURCE),"raw_json":1},
             headers={"Authorization":f"bearer {token}","User-Agent":USER_AGENT}, timeout=TIMEOUT)
     except Exception as e: return _empty("reddit", str(e)[:120])
     if r.status_code >= 400: return None  # token/app issue — fall through rather than fail the platform
@@ -538,7 +601,7 @@ def search_sb_twitter(q):
     if not SCRAPEBADGER_KEY: return _empty("x","SCRAPEBADGER_KEY not set")
     try:
         r = requests.get(f"{SB_BASE}/twitter/tweets/advanced_search",
-            params={"query":keyword,"query_type":"Top","count":100},
+            params={"query":keyword,"query_type":"Top","count":min(100,MAX_RESULTS_PER_SOURCE)},
             headers={"x-api-key":SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
     except Exception as e: return _empty("x", str(e)[:120])
     if r.status_code >= 400: return _empty("x", f"HTTP {r.status_code}")
@@ -567,7 +630,7 @@ def search_sb_tiktok(q):
     if not SCRAPEBADGER_KEY: return _empty("tiktok","SCRAPEBADGER_KEY not set")
     try:
         r = requests.get(f"{SB_BASE}/tiktok/search/videos",
-            params={"query":keyword,"region":"US","count":50},
+            params={"query":keyword,"region":"US","count":min(100,MAX_RESULTS_PER_SOURCE)},
             headers={"x-api-key":SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
     except Exception as e: return _empty("tiktok", str(e)[:120])
     if r.status_code >= 400: return _empty("tiktok", f"HTTP {r.status_code}")
@@ -703,7 +766,7 @@ def search_gnews(q):
         r = requests.get(url, headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT)
         r.raise_for_status()
         feed = feedparser.parse(r.content); results = []
-        for entry in feed.entries[:60]:
+        for entry in feed.entries[:MAX_RESULTS_PER_SOURCE]:
             source = ""
             if hasattr(entry,"source") and entry.source:
                 source = entry.source.get("title","") if isinstance(entry.source,dict) else str(entry.source)
@@ -765,7 +828,7 @@ def search_telegram(q):
         except: pass
     all_posts.sort(key=lambda p: p.get("_ts_sort",""), reverse=True)
     for p in all_posts: p.pop("_ts_sort",None)
-    return {"platform":"telegram","results":all_posts[:50],"error":None}
+    return {"platform":"telegram","results":all_posts[:MAX_RESULTS_PER_SOURCE],"error":None}
 
 # ── GDELT (Phase 1) ───────────────────────────────────────────────────────────
 def search_gdelt(q):
@@ -773,7 +836,7 @@ def search_gdelt(q):
     if not plain: return _empty("gdelt","empty query")
     try:
         r = requests.get("https://api.gdeltproject.org/api/v2/doc/doc",
-            params={"query":plain,"mode":"artlist","maxrecords":75,"format":"json",
+            params={"query":plain,"mode":"artlist","maxrecords":250,"format":"json",
                     "sort":"DateDesc","TIMESPAN":"72H"},
             headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT+10)
         if r.status_code == 204: return _empty("gdelt","no results")
@@ -926,7 +989,7 @@ def search_state_media(q):
     err = None
     if not all_results:
         err = f"no matches across {len(ADVERSARY_RSS_FEEDS)} state media feeds"
-    return {"platform":"state_media","results":all_results[:80],"error":err,
+    return {"platform":"state_media","results":all_results[:MAX_RESULTS_PER_SOURCE],"error":err,
             "expansion":{k:v for k,v in expansion.items() if k!="en"}}
 
 # ── Academic (Phase 1) ────────────────────────────────────────────────────────
@@ -1061,17 +1124,37 @@ def search_serpapi(q):
     out = {p:{"platform":p,"results":[],"error":None} for p in all_platforms}
     query = f'"{tag}"' if is_tag else plain
     query += f" {SERPAPI_SITE_FILTER}"
-    try:
-        r = requests.get("https://serpapi.com/search",
-            params={"engine":"google","q":query,"num":60,"api_key":SERPAPI_KEY,"safe":"off"},
-            timeout=SERPAPI_TIMEOUT)
-    except Exception as e: return {p:_empty(p,str(e)[:120]) for p in all_platforms}
-    if r.status_code >= 400: return {p:_empty(p,f"SerpApi HTTP {r.status_code}") for p in all_platforms}
-    try: data = r.json()
-    except: return {p:_empty(p,"bad JSON") for p in all_platforms}
-    if isinstance(data,dict) and data.get("error"):
-        return {p:_empty(p,str(data["error"])[:120]) for p in all_platforms}
-    for item in (data.get("organic_results") or []):
+    # Paginate. NOTE: SerpApi bills per page — deep pagination burns the monthly
+    # search quota proportionally faster. MAX_PAGES bounds the damage.
+    organic = []
+    first_error = None
+    for page in range(MAX_PAGES):
+        if len(organic) >= MAX_RESULTS_PER_SOURCE: break
+        try:
+            r = requests.get("https://serpapi.com/search",
+                params={"engine":"google","q":query,"num":100,"start":page*100,
+                        "api_key":SERPAPI_KEY,"safe":"off"},
+                timeout=SERPAPI_TIMEOUT)
+        except Exception as e:
+            first_error = first_error or str(e)[:120]; break
+        if r.status_code >= 400:
+            first_error = first_error or f"SerpApi HTTP {r.status_code}"; break
+        try: data = r.json()
+        except Exception:
+            first_error = first_error or "bad JSON"; break
+        if isinstance(data,dict) and data.get("error"):
+            # SerpApi returns an "error" once results are exhausted; that's a
+            # normal end-of-pagination signal, not a failure, if we have results.
+            if not organic: first_error = str(data["error"])[:120]
+            break
+        batch = data.get("organic_results") or []
+        if not batch: break
+        organic.extend(batch)
+
+    if not organic and first_error:
+        return {p:_empty(p,first_error) for p in all_platforms}
+
+    for item in organic:
         url_str = item.get("link","")
         platform = _detect_platform_from_url(url_str)
         if not platform or platform not in out: continue
@@ -1262,45 +1345,7 @@ def claude_health() -> dict:
             "reason": f"Claude calls are failing{hint}. Narratives, entities and "
                       f"sentiment will all be empty. Detail: {err.get('message')}"}
 
-def _parse_claude_json(text, context=""):
-    """Parse a JSON reply from Claude, logging failures instead of hiding them.
-
-    Truncation is the common failure: the model hits max_tokens mid-array and
-    the reply is valid JSON right up to the cut. Rather than discard the whole
-    response (which previously produced a silent empty result), salvage the
-    complete elements by trimming back to the last balanced position.
-    """
-    if not text: return None
-    cleaned = re.sub(r"```json|```", "", text).strip()
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        salvaged = _salvage_truncated_json(cleaned)
-        if salvaged is not None:
-            app.logger.warning("%s: JSON truncated (%s) — salvaged %d items",
-                               context, e, len(salvaged) if isinstance(salvaged, list) else 1)
-            return salvaged
-        app.logger.error("%s: unparseable JSON from Claude (%s). First 200 chars: %r",
-                         context, e, cleaned[:200])
-        return None
-
-
-def _salvage_truncated_json(s):
-    """Recover the complete leading elements of a truncated JSON array/object."""
-    for closer in ("]", "}"):
-        start = s.find("[" if closer == "]" else "{")
-        if start < 0: continue
-        # Walk back from the end to the last plausible element boundary.
-        for cut in range(len(s), start, -1):
-            frag = s[start:cut].rstrip().rstrip(",")
-            try:
-                return json.loads(frag + closer)
-            except Exception:
-                continue
-    return None
-
-
-def extract_narratives_v2(platforms, q, max_posts=80):
+def extract_narratives_v2(platforms, q, max_posts=160):
     docs = _top_docs(platforms, max_posts)
     if len(docs) < 6: return []
     numbered = "\n".join(
@@ -1312,10 +1357,10 @@ def extract_narratives_v2(platforms, q, max_posts=80):
         "For each: label (max 7 words), count, framing (fear|anger|hope|pride|grief|threat|disinformation|neutral), "
         "platforms (list), key_claim (one sentence), actors (list), velocity (accelerating|stable|declining).\n"
         "ONLY JSON array. No prose.\n\n" + numbered)
-    text = _claude_call(prompt, 1800)
-    arr = _parse_claude_json(text, "extract_narratives_v2")
-    if not isinstance(arr, list): return []
+    text = _claude_call(prompt, 1400)
+    if not text: return []
     try:
+        arr = json.loads(re.sub(r"```json|```","",text).strip())
         out = []
         for o in arr:
             if not isinstance(o,dict) or not o.get("label"): continue
@@ -1326,7 +1371,7 @@ def extract_narratives_v2(platforms, q, max_posts=80):
         return sorted(out, key=lambda x:x["count"], reverse=True)[:8]
     except: return []
 
-def extract_entities(platforms, q, max_docs=50):
+def extract_entities(platforms, q, max_docs=120):
     docs = _top_docs(platforms, max_docs)
     if len(docs) < 5: return {}
     text_blob = "\n".join(
@@ -1337,14 +1382,10 @@ def extract_entities(platforms, q, max_docs=50):
         "Extract entities (people, orgs, countries, locations, weapons, events) and their relationships.\n"
         'ONLY JSON: {"entities":[{"name":"...","type":"person|org|country|location|weapon|event","mentions":N,"sentiment":"positive|negative|neutral"}],'
         '"edges":[{"from":"...","to":"...","relation":"..."}]}. Max 20 entities, 15 edges. No prose.\n\n' + text_blob)
-    # 20 entities + 15 edges of JSON does not fit in 900 tokens — the reply was
-    # being truncated mid-structure, json.loads threw, and the bare except
-    # returned {} silently. That is why entities were always empty while
-    # narratives (1400 tokens for less output) worked fine.
-    text = _claude_call(prompt, 2600)
-    parsed = _parse_claude_json(text, "extract_entities")
-    if not isinstance(parsed, dict): return {}
-    return parsed
+    text = _claude_call(prompt, 900)
+    if not text: return {}
+    try: return json.loads(re.sub(r"```json|```","",text).strip())
+    except: return {}
 
 def compute_velocity(platforms):
     all_docs = _top_docs(platforms, 500)
@@ -1497,9 +1538,9 @@ def _sentiment_claude(texts, lang="en"):
         + lang_instruction +
         'ONLY JSON array: [{"s":"...","f":"..."},...] one per post. No prose.\n\n' + numbered)
     text = _claude_call(prompt, 2400)
-    arr = _parse_claude_json(text, "_sentiment_claude")
-    if not isinstance(arr, list): return None, None
+    if not text: return None, None
     try:
+        arr = json.loads(re.sub(r"```json|```","",text).strip())
         sentiments = [_norm_label(v.get("s")) for v in arr]
         framings   = [str(v.get("f","neutral")).lower() for v in arr]
         while len(sentiments) < len(texts): sentiments.append("neutral")
@@ -1859,7 +1900,7 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
         cse_future=ex.submit(search_serpapi,q)
         all_futures=list(futures.keys())+[cse_future]
         try:
-            done_iter=as_completed(all_futures,timeout=SERPAPI_TIMEOUT+10)
+            done_iter=as_completed(all_futures,timeout=SEARCH_POOL_TIMEOUT)
             for fut in done_iter:
                 if fut is cse_future:
                     try: cse_out=fut.result()
@@ -2162,6 +2203,175 @@ def api_alerts():
     return jsonify({"persisted": True, "count": len(rows), "alerts": rows})
 
 
+
+# ── Scheduled email reports ───────────────────────────────────────────────────
+# A subscription is "email me an intelligence report on this query every N days".
+# Delivery is driven by /api/reports/run, which an external scheduler pokes.
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
+CADENCE_CHOICES = {2: "Every 2 days", 7: "Weekly", 14: "Every 2 weeks", 30: "Monthly"}
+
+
+@app.route("/api/subscribe", methods=["POST"])
+def api_subscribe():
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip().lower()
+    query = (body.get("query") or "").strip()
+    try: cadence = int(body.get("cadence_days") or 7)
+    except (TypeError, ValueError): cadence = 7
+
+    if not EMAIL_RE.match(email): return jsonify({"error": "invalid email address"}), 400
+    if not query: return jsonify({"error": "missing query"}), 400
+    if cadence not in CADENCE_CHOICES:
+        return jsonify({"error": f"cadence must be one of {sorted(CADENCE_CHOICES)}"}), 400
+    if not db.DB_ENABLED:
+        return jsonify({"error": "subscriptions need persistence — SUPABASE_URL/KEY not set"}), 503
+
+    sub = db.subscription_upsert(email, query, cadence)
+    if not sub: return jsonify({"error": "could not save subscription"}), 500
+    return jsonify({"ok": True, "subscription": {
+        "id": sub.get("id"), "email": sub.get("email"), "query": sub.get("query"),
+        "cadence_days": sub.get("cadence_days"), "next_run_at": sub.get("next_run_at")},
+        "email_configured": mailer.MAIL_ENABLED,
+        "note": None if mailer.MAIL_ENABLED else
+                "Saved, but no email will send until RESEND_API_KEY is set."})
+
+
+@app.route("/api/subscriptions")
+def api_subscriptions():
+    email = (request.args.get("email") or "").strip().lower()
+    if not EMAIL_RE.match(email): return jsonify({"error": "invalid email"}), 400
+    rows = db.subscriptions_for_email(email)
+    if rows is None: return jsonify({"subscriptions": [], "persisted": False}), 200
+    return jsonify({"subscriptions": rows, "persisted": True})
+
+
+@app.route("/api/subscribe/<sub_id>", methods=["DELETE"])
+def api_unsubscribe_by_id(sub_id):
+    return jsonify({"ok": bool(db.subscription_deactivate(sub_id))})
+
+
+@app.route("/unsubscribe")
+def unsubscribe_page():
+    """One-click unsubscribe from an email link — no login required."""
+    token = (request.args.get("token") or "").strip()
+    sub = db.subscription_by_token(token) if token else None
+    if sub: db.subscription_deactivate(sub["id"])
+    msg = ("You have been unsubscribed from reports on "
+           f"\u201c{html.escape(sub['query'])}\u201d." if sub
+           else "That unsubscribe link is not valid or has already been used.")
+    return make_response(f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XTag \u2014 Unsubscribe</title></head>
+<body style="margin:0;background:#f0efe9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+<div style="max-width:520px;margin:80px auto;background:#fff;border-radius:14px;padding:34px;">
+<div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#c23d0c;font-weight:700;">XTag</div>
+<h1 style="font-size:21px;color:#18181f;margin:12px 0 10px;">{'Unsubscribed' if sub else 'Link not valid'}</h1>
+<p style="font-size:14px;color:#4a4a60;line-height:1.7;margin:0;">{msg}</p>
+<a href="/" style="display:inline-block;margin-top:22px;background:#c23d0c;color:#fff;text-decoration:none;
+   font-size:13px;font-weight:600;border-radius:9px;padding:11px 20px;">Back to XTag</a>
+</div></body></html>""", 200)
+
+
+def _run_one_subscription(sub: dict) -> dict:
+    """Generate and send one report. Never raises — a single bad subscription
+    must not abort the whole scheduled run."""
+    email = sub.get("email"); query = sub.get("query")
+    cadence = int(sub.get("cadence_days") or 7)
+    try:
+        payload = _run_full_search(query)
+        brief = None
+        try:
+            snippets = _top_docs(payload.get("platforms") or {}, 40)
+            brief = generate_brief(query, snippets, payload.get("narratives") or [],
+                                   payload.get("entities") or {},
+                                   payload.get("coordination") or {})
+        except Exception as e:
+            app.logger.warning("brief failed for %r: %s", query, e)
+
+        history = None
+        try:
+            rows = db.snapshots_history(query, limit=400)
+            if rows and len(rows) >= 2:
+                first, last = rows[0], rows[-1]
+                def d(k):
+                    a, b = first.get(k), last.get(k)
+                    try: return round(float(b) - float(a), 2)
+                    except (TypeError, ValueError): return None
+                history = {"points": len(rows),
+                           "change": {"mentions": d("mentions"),
+                                      "coordination_score": d("coordination_score"),
+                                      "sentiment_net": d("sentiment_net")}}
+        except Exception:
+            pass
+
+        html_body = mailer.render_report(query, payload, brief, history,
+                                         sub.get("unsubscribe_token"), cadence)
+        totals = payload.get("totals") or {}
+        subject = f"XTag: {query} \u2014 {totals.get('mentions', 0)} mentions, {len(payload.get('narratives') or [])} narratives"
+
+        ok, provider_id, err = mailer.send(email, subject, html_body)
+        db.subscription_mark_sent(sub["id"], cadence, "sent" if ok else "failed", err)
+        db.delivery_record(sub["id"], email, query, "sent" if ok else "failed",
+                           provider_id, err, totals.get("mentions"),
+                           len(payload.get("narratives") or []), 0)
+        return {"query": query, "email": email, "sent": ok, "error": err}
+    except Exception as e:
+        app.logger.exception("subscription run failed for %r", query)
+        db.subscription_mark_sent(sub["id"], cadence, "failed", str(e)[:300])
+        db.delivery_record(sub.get("id"), email, query, "failed", None, str(e)[:300])
+        return {"query": query, "email": email, "sent": False, "error": str(e)[:200]}
+
+
+@app.route("/api/reports/run", methods=["POST", "GET"])
+def api_reports_run():
+    """Send every report that is due. Poked by an external scheduler.
+
+    Protected by REPORTS_CRON_TOKEN (X-Cron-Token header or ?token=). Without
+    that set the endpoint refuses to run: it is expensive (a full search per
+    subscription) and would otherwise be an open invitation to burn API quota.
+    """
+    token = os.environ.get("REPORTS_CRON_TOKEN", "").strip()
+    supplied = request.headers.get("X-Cron-Token") or request.args.get("token") or ""
+    if not token or supplied != token:
+        return jsonify({"error": "auth required — set REPORTS_CRON_TOKEN and supply it"}), 401
+    if not db.DB_ENABLED:
+        return jsonify({"error": "persistence not configured"}), 503
+
+    due = db.subscriptions_due(limit=int(request.args.get("limit") or 25))
+    if due is None: return jsonify({"error": "could not read subscriptions"}), 500
+    if not due: return jsonify({"ran": 0, "results": [], "note": "nothing due"})
+
+    results = [_run_one_subscription(s) for s in due]
+    return jsonify({"ran": len(results),
+                    "sent": sum(1 for r in results if r["sent"]),
+                    "failed": sum(1 for r in results if not r["sent"]),
+                    "email_configured": mailer.MAIL_ENABLED,
+                    "results": results})
+
+
+@app.route("/api/reports/test", methods=["POST"])
+def api_reports_test():
+    """Send one report immediately, to verify delivery without waiting for a
+    schedule. Same token as the cron endpoint."""
+    token = os.environ.get("REPORTS_CRON_TOKEN", "").strip()
+    supplied = request.headers.get("X-Cron-Token") or request.args.get("token") or ""
+    if not token or supplied != token:
+        return jsonify({"error": "auth required"}), 401
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip().lower()
+    query = (body.get("query") or "").strip()
+    if not EMAIL_RE.match(email) or not query:
+        return jsonify({"error": "need valid email and query"}), 400
+    fake = {"id": None, "email": email, "query": query, "cadence_days": 7,
+            "unsubscribe_token": None}
+    payload = _run_full_search(query)
+    html_body = mailer.render_report(query, payload, None, None, None, 7)
+    ok, pid, err = mailer.send(email, f"XTag test report: {query}", html_body)
+    db.delivery_record(None, email, query, "sent" if ok else "failed", pid, err)
+    return jsonify({"sent": ok, "provider_id": pid, "error": err})
+
+
 # ── Report / dossier endpoints ────────────────────────────────────────────────
 @app.route("/api/dossier", methods=["POST"])
 def api_dossier():
@@ -2376,7 +2586,8 @@ def healthz():
         "scrapebadger":bool(SCRAPEBADGER_KEY),"reddit_official":bool(REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET),
         "anthropic":bool(ANTHROPIC_API_KEY),"babelstreet":bool(BABELSTREET_API_KEY)},
         "persistence":db.health(),
-        "analysis_engine":claude_health()}),200
+        "analysis_engine":claude_health(),
+        "email":mailer.health()}),200
 
 if NOTEBOOKLM_AUTH_ARCHIVE and _restore_notebooklm_auth():
     threading.Thread(target=_notebooklm_sync_loop,daemon=True,name="notebooklm-sync").start()
