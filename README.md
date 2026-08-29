@@ -47,12 +47,19 @@ Each result is scored positive / neutral / negative:
 - `MISE_PYTHON_GITHUB_ATTESTATIONS=false` — Railway builder workaround
 
 GDELT needs **no key**. Its tunables (all optional, sane defaults):
-- `GDELT_MIN_INTERVAL` (2.0) — seconds between GDELT calls. Lower at your own risk.
-- `GDELT_ARTICLE_WINDOWS` (3) — time-slices per search; each buys up to 250 more
-  articles and proportionally more block risk. **Lower this first if rate-limited.**
+- `GDELT_RETRY_ATTEMPTS` (4) — retries on a 429. **The most important setting
+  here.** GDELT's 429s are transient; lowering this loses analytical stages.
+- `GDELT_RETRY_BACKOFF` (3.0) — seconds, linear, overridden by `Retry-After`
+- `GDELT_ALLOW_HTTP` (1) — permit the HTTPS→HTTP fallback when TLS is intercepted
+- `GDELT_ANALYTICS_BUDGET` (110) — wall-clock seconds for the 4 analytical stages.
+  Must absorb one-off transport discovery (~39s worst case) or later stages starve.
+- `GDELT_TIMEOUT` (12) — per-request seconds; higher turns a flaky transport into
+  a budget killer
+- `GDELT_MIN_INTERVAL` (2.0) — politeness gap between calls
+- `GDELT_ARTICLE_WINDOWS` (3) — time-slices per search; each buys up to 250 more articles
 - `GDELT_TIMESPAN_HOURS` (168) — lookback window, 7 days
-- `GDELT_BREAKER_COOLDOWN` (180) — backoff after the circuit breaker trips
-- `GDELT_ANALYTICS_TTL` (3600) — cache for tone/volume/geography/language series
+- `GDELT_BREAKER_COOLDOWN` (180) — backoff after repeated connection failures
+- `GDELT_ANALYTICS_TTL` (3600) — cache for tone/geography/audience/volume series
 
 ## Design
 Instrument Serif display + Inter body, editorial intelligence-terminal aesthetic with a
@@ -76,7 +83,6 @@ intelligence layers. It needs no API key and costs nothing per request.
 | `timelinevolraw` | hourly article volume → surge detection (peak expressed in σ above baseline) |
 | `timelinesourcecountry` | which countries' media carry the narrative → **geographic intelligence** |
 | `timelinelang` | which languages it runs in → **audience intelligence** |
-| `geo/PointData` | geolocated mentions as mappable coordinates |
 
 **Depth.** The DOC 2.0 API caps `maxrecords` at 250 and has no offset or cursor —
 there is no conventional pagination. The only way past 250 is to slice the time
@@ -84,27 +90,53 @@ range into consecutive windows and query each. `GDELT_ARTICLE_WINDOWS` (default 
 controls this, so the default ceiling is ~750 articles over 7 days rather than the
 250-over-3-days the old hardcoded implementation was stuck at.
 
-**⚠️ Rate limiting — the thing to know before touching this.**
-GDELT rate-limits by IP and does not return 429. It **resets the TCP connection**,
-which surfaces as `ConnectionError` / `Connection reset by peer` (curl shows HTTP 000).
-During development, roughly 20 requests over a couple of minutes got a container IP
-blocked for **more than 15 minutes**, including endpoints that had just worked.
+**⚠️ Failure modes — the thing to know before touching this.**
 
-`gdelt.py` is built around that fact:
-- every call passes through a process-wide throttle (`GDELT_MIN_INTERVAL`, default 2.0s)
-- 3 consecutive connection failures trip a **circuit breaker** that stops calling
-  entirely for `GDELT_BREAKER_COOLDOWN` (180s) — continuing to hammer a blocked
-  endpoint extends the block rather than recovering from it
-- analytical modes are cached for an hour and fetched **sequentially, never in
-  parallel** — parallel requests are the fastest way to get blocked
-- every function degrades to empty and never raises: a throttled GDELT thins the
-  intelligence picture, it never fails a search
-- a fully degraded snapshot is deliberately **not** cached, so recovery is immediate
-  once a block lifts
+An earlier version of this README claimed GDELT "rate-limits by IP and does not
+return 429". **That was wrong**, and the wrong diagnosis produced a wrong design.
+What is actually true, established against the live API:
 
-Check `gdelt` in `/healthz` — it reports live reachability and current limiter state,
-not whether a key is set (there is no key). If it reports rate-limited, lower
-`GDELT_ARTICLE_WINDOWS` first.
+1. **GDELT returns real HTTP 429s, and they are stochastic and retryable.** The
+   identical request, same User-Agent, seconds apart, returns 429 then 200.
+   Measured: 2 of 4 analytical modes 429'd on first attempt and succeeded on the
+   second; with retry, 4/4 succeeded. Spacing requests further apart does *not*
+   avoid them — an 8-second gap still drew a 429. **Retry is the mechanism that
+   matters; throttling is only politeness.**
+2. **"Connection reset" is a transport problem, not a rate limit.** Where an
+   egress proxy intercepts TLS, HTTPS to `api.gdeltproject.org` resets at
+   handshake while the identical request over HTTP returns 200 with correct data
+   (confirmed by an MITM-issued certificate in the handshake, and by
+   `data.gdeltproject.org` working fine over HTTPS). The client therefore falls
+   back HTTPS → HTTP once per process and stays there.
+3. **The GEO 2.0 API is dead upstream.** GDELT's own documented example
+   (`api/v2/geo/geo?query=trump`) returns 404, as does every documented parameter
+   combination. It was removed rather than left to fail on every search.
+
+How `gdelt.py` is built around that:
+- **429 → retried** (`GDELT_RETRY_ATTEMPTS`, default 4) with linear backoff that
+  honours `Retry-After`. A 429 **never** trips the circuit breaker.
+- **Connection failure → transport fallback**, then the breaker only if both
+  transports keep failing.
+- **Breaker counts failed *calls*, not failed *attempts*.** Counting per attempt
+  let one call with 4 retries trip a 3-strike breaker by itself, cascading into a
+  self-inflicted outage worse than the fault it reacted to.
+- **Analytics stages run in value-if-lost order** — tone, geography, audience,
+  volume. Losing geography costs both a threat factor and the whole geographic
+  panel, so it never runs last.
+- Results cached 1h; a fully degraded snapshot is deliberately **not** cached, so
+  recovery is immediate.
+
+Measured after the fix: 3/3 distinct queries returned complete snapshots
+(60/109/139 countries; 25/44/60 languages), ~25s cold, ~18s warm, instant cached.
+
+**Plaintext fallback.** `GDELT_ALLOW_HTTP=0` forbids the HTTPS→HTTP downgrade.
+GDELT is public, unauthenticated, read-only data and no credentials cross the
+wire, but HTTP responses are tamperable in principle — a real if remote concern
+for an intelligence platform. Default is on, because no GDELT at all is the worse
+failure here.
+
+Check `gdelt` in `/healthz` — it reports live reachability, the transport in use,
+and breaker state.
 
 **Bugs this replaced**, all silent, all in the previous inline implementation:
 1. `artlist` returns **no `tone` field** — tone only exists in the timeline modes.
