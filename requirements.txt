@@ -4,4 +4,10 @@ requests==2.32.3
 feedparser==6.0.11
 beautifulsoup4==4.12.3
 lxml==5.2.2
-notebooklm-py[browser]
+# C5: pinned like everything else here. Unpinned, `pip install` in the Docker
+# build resolved to whatever was newest that day, so two builds of the same
+# commit could ship different NotebookLM client code — and the [browser] extra
+# drags in Playwright, whose version must match the Chromium binary baked in by
+# `playwright install chromium` in the Dockerfile. A silent minor bump there
+# breaks the NotebookLM sync thread at runtime, not at build time.
+notebooklm-py[browser]==0.8.1

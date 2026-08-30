@@ -194,14 +194,50 @@ def snapshot_record(query: str, result: dict, watchlist_id: str | None = None,
     }, extra_headers={"Prefer": "return=minimal"})
 
 
+def _like_literal(value: str) -> str:
+    """Escape a value so a PostgREST `like`/`ilike` filter matches it literally.
+
+    A4: `query` was interpolated straight into an `ilike.` filter. `%` and `_`
+    are SQL LIKE wildcards and requests.utils.quote does not neutralise them —
+    it is a URL encoder, not a LIKE escaper — so a query of "%" read back every
+    snapshot in the table for every query, and "a_c" silently matched "abc".
+    Backslash is Postgres' default LIKE escape character, so escaping `\`, `%`
+    and `_` with it makes the pattern literal.
+
+    `ilike` is kept rather than switching to `eq.` because the callers depend on
+    the case-insensitivity: /api/history passes whatever the user typed, while
+    the rows were written with the casing used at collection time, so "Hezbollah"
+    and "hezbollah" must return one series, not two.
+    """
+    return (str(value or "")
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_"))
+
+
 def snapshots_history(query: str, limit: int = 200, days: int | None = None) -> list[dict] | None:
     """Chronological history for a query — oldest first, ready to plot."""
-    q = f"watchlist_snapshots?query=ilike.{requests.utils.quote(query)}"
+    # PostgREST additionally aliases `*` to `%` inside like/ilike patterns, and
+    # that substitution happens before the SQL escape character is consulted, so
+    # there is no way to escape it. A query containing `*` therefore uses an
+    # exact (case-sensitive) match instead — narrower than intended, but it can
+    # never widen into "every row in the table".
+    if "*" in (query or ""):
+        q = f"watchlist_snapshots?query=eq.{requests.utils.quote(query)}"
+    else:
+        q = f"watchlist_snapshots?query=ilike.{requests.utils.quote(_like_literal(query))}"
     if days:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         q += f"&checked_at=gte.{since}"
-    q += f"&select=*&order=checked_at.asc&limit={int(limit)}"
-    return _req("GET", q)
+    # A3: this ordered ASC with the limit applied, which truncates the RECENT
+    # end — once a query had more snapshots than `limit`, history froze at the
+    # oldest N rows and every new snapshot was invisible forever. Take the most
+    # recent N, then reverse so callers still get oldest-first for plotting.
+    q += f"&select=*&order=checked_at.desc&limit={int(limit)}"
+    rows = _req("GET", q)
+    if rows is None:
+        return None
+    return list(reversed(rows))
 
 
 # ── Alerts ────────────────────────────────────────────────────────────────────

@@ -67,6 +67,7 @@ import os
 import re
 import time
 import threading
+import copy
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -138,6 +139,32 @@ _cache: dict[str, tuple[float, object]] = {}
 _cache_lock = threading.Lock()
 
 
+class GdeltError(str):
+    """An error message that also carries a machine-readable `kind`.
+
+    A13: articles() decided whether to abort its remaining windows by substring-
+    matching "rate" or "reset" in the message. The breaker's own message is
+    "backing off after repeated connection failures", which contains neither, so
+    a tripped breaker never actually stopped the loop and every remaining window
+    was spent hammering a known-dead endpoint. Subclassing str keeps every
+    existing consumer — logging, f-strings, JSON serialisation, truthiness —
+    working unchanged, while giving callers something reliable to branch on.
+
+    Kinds: breaker | rate_limit | transport | timeout | http | bad_response |
+           partial | other
+    """
+
+    def __new__(cls, message: str, kind: str = "other"):
+        obj = super().__new__(cls, message)
+        obj.kind = kind
+        return obj
+
+
+def error_kind(err) -> str:
+    """Kind of an error returned by this module; "other" for a plain string."""
+    return getattr(err, "kind", "other") if err else ""
+
+
 def _throttle() -> None:
     """Serialise GDELT calls process-wide with a minimum gap between them."""
     global _last_call_at
@@ -198,11 +225,22 @@ def _cache_set(key: str, val) -> None:
                 _cache.pop(k, None)
 
 
-def _record_transport_failure() -> None:
+def _record_transport_failure() -> bool:
     """
+    Flip the process-wide scheme from HTTPS to HTTP, once. Returns True if this
+    call is the one that switched it.
+
     A connection-level failure on HTTPS is very often TLS interception rather
     than anything wrong at GDELT. Flip to HTTP once and stay there — verified
     that the identical request succeeds over HTTP in exactly that situation.
+
+    A12: this must only be called on EVIDENCE of interception — a connection
+    reset or an SSL error. It used to be called on a plain read timeout too,
+    which meant one slow GDELT response permanently downgraded every request for
+    the life of the process, sending all subsequent traffic in clear text for no
+    reason. A timeout says the server is slow; it says nothing about the
+    transport. The return value used to be annotated `-> None` while the body
+    returned bool, and no caller looked at it.
     """
     global _scheme
     if _scheme == "https" and ALLOW_HTTP:
@@ -234,7 +272,8 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
               does it count toward the breaker.
     """
     if _breaker_is_open():
-        return None, "backing off after repeated connection failures"
+        return None, GdeltError("backing off after repeated connection failures",
+                                "breaker")
 
     last_err = None
     conn_failed = False
@@ -245,24 +284,29 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
             r = requests.get(url, params=params,
                              headers={"User-Agent": USER_AGENT}, timeout=REQ_TIMEOUT)
         except (requests.exceptions.ConnectionError, requests.exceptions.SSLError) as e:
-            last_err = f"connection failed ({_scheme}): {str(e)[:70]}"
+            last_err = GdeltError(f"connection failed ({_scheme}): {str(e)[:70]}",
+                                  "transport")
             conn_failed = True
-            _record_transport_failure()   # flips https -> http on the first one
+            # Reset / SSL error IS evidence of interception — flip transport and
+            # retry immediately on the new one.
+            if _record_transport_failure():
+                log.info("GDELT: retrying immediately over %s", _scheme)
             continue
         except requests.exceptions.Timeout:
-            last_err = "timed out"
+            # A12: deliberately NOT a transport downgrade. A read timeout means
+            # GDELT was slow, not that TLS is being intercepted; downgrading on
+            # it sent the whole process to plaintext for the rest of its life
+            # after a single slow response. Retry on the transport we have.
+            last_err = GdeltError(f"timed out after {REQ_TIMEOUT}s", "timeout")
             conn_failed = True
-            # A timeout on HTTPS is the same signal as a reset: the transport is
-            # not working. Fall back rather than spending every retry on it.
-            _record_transport_failure()
             continue
         except Exception as e:
             _record_failure(False)
-            return None, str(e)[:110]
+            return None, GdeltError(str(e)[:110], "other")
 
         if r.status_code == 429:
             # Stochastic and retryable — explicitly NOT a breaker condition.
-            last_err = "rate limited (429)"
+            last_err = GdeltError("rate limited (429)", "rate_limit")
             retry_after = r.headers.get("Retry-After")
             try:
                 wait = min(float(retry_after), 30.0) if retry_after else RETRY_BACKOFF * (attempt + 1)
@@ -277,7 +321,7 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
             return None, None                  # legitimately zero results
         if r.status_code >= 400:
             _record_failure(False)
-            return None, f"http {r.status_code}"
+            return None, GdeltError(f"http {r.status_code}", "http")
 
         _record_success()
         body = (r.text or "").strip()
@@ -290,7 +334,7 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
             # empty, not a connection failure — the endpoint is up, this query
             # just failed.
             snippet = body[:60].replace("\n", " ")
-            return None, f"non-JSON response: {snippet}"
+            return None, GdeltError(f"non-JSON response: {snippet}", "bad_response")
 
     # Breaker accounting happens ONCE per call, not once per attempt. Counting
     # per attempt let a single _get with 4 retries trip a 3-strike breaker by
@@ -298,7 +342,7 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
     # outage far worse than the transient fault it was reacting to.
     if conn_failed:
         _record_failure(True)
-    return None, last_err or "request failed"
+    return None, last_err or GdeltError("request failed", "other")
 
 
 # ── Query handling ────────────────────────────────────────────────────────────
@@ -475,7 +519,8 @@ def articles(q: str, timespan_hours: int | None = None,
 
     seen_urls: set[str] = set()
     out: list = []
-    errors: list[str] = []
+    errors: list = []
+    truncated_windows = 0
 
     for i in range(n_windows):
         w_start = start_all + step * i
@@ -488,23 +533,48 @@ def articles(q: str, timespan_hours: int | None = None,
         data, err = _get(DOC_PATH, params)
         if err:
             errors.append(err)
-            # A tripped breaker means every later window will fail too — stop
-            # rather than burning the remaining windows against a blocked IP.
-            if "rate" in err.lower() or "reset" in err.lower():
+            # A13: a tripped breaker or an exhausted rate limit means every later
+            # window will fail too — stop rather than burning the remaining
+            # windows against a blocked IP. This used to substring-match the
+            # message and silently never fire; it now tests the error's kind.
+            if error_kind(err) in ("breaker", "rate_limit"):
                 break
             continue
         if not isinstance(data, dict):
             continue
-        for art in (data.get("articles") or []):
+        window_arts = data.get("articles") or []
+        # A11: MAX_RECORDS is the API's hard per-call ceiling with no cursor to
+        # page past it. A window that comes back exactly full almost certainly
+        # had more behind it, so the corpus for that slice is truncated and the
+        # caller needs to know before treating counts as complete.
+        if len(window_arts) >= MAX_RECORDS:
+            truncated_windows += 1
+        for art in window_arts:
             url = (art.get("url") or "").strip()
             if not url or url in seen_urls:
                 continue
             seen_urls.add(url)
             out.append(art)
 
+    # A11: this used to report err=None whenever ANY articles came back, so a
+    # run where 2 of 3 windows failed was indistinguishable from a complete one
+    # and downstream code scored a partial corpus as the whole picture. Partial
+    # failure and API-cap truncation are now always reported; the caller decides
+    # what to do with a partial result, but it is never told the corpus is whole
+    # when it is not.
+    notes = []
+    if errors:
+        notes.append(f"{len(errors)} of {n_windows} time window(s) failed "
+                     f"({errors[0]})")
+    if truncated_windows:
+        notes.append(f"{truncated_windows} window(s) hit the {MAX_RECORDS}-record "
+                     f"API cap — those slices are truncated")
     err = None
-    if not out and errors:
-        err = errors[0]
+    if notes:
+        err = GdeltError("; ".join(notes), "partial" if out else "failed")
+        err.windows_total = n_windows
+        err.windows_failed = len(errors)
+        err.windows_truncated = truncated_windows
     return out, err
 
 
@@ -694,11 +764,20 @@ def snapshot(q: str, timespan_hours: int | None = None,
     key = f"snap:{(q or '').lower()}:{hours}"
     cached = _cache_get(key, ANALYTICS_TTL)
     if cached is not None:
-        return {**cached, "cached": True}
+        # E6: {**cached} is a SHALLOW copy — every nested list and dict is still
+        # the cache's own object, so a caller that sorts, truncates or annotates
+        # snapshot["geography"]["countries"] corrupts the entry for the next hour
+        # of requests. Hand out a private copy.
+        out = copy.deepcopy(cached)
+        out["cached"] = True
+        return out
 
     deadline = time.time() + (budget or ANALYTICS_BUDGET)
+    # timespan_hours is echoed so consumers can fingerprint what a score was
+    # computed over (intel.E5) without having to guess this module's defaults.
     out: dict = {"tone": {}, "volume": {}, "geography": {},
-                 "audience": {}, "cached": False, "degraded": []}
+                 "audience": {}, "cached": False, "degraded": [],
+                 "timespan_hours": hours}
 
     def _stage(name: str, fn):
         if time.time() > deadline:
