@@ -11,6 +11,8 @@ Backend: Flask + Gunicorn on Railway.
 from __future__ import annotations
 
 import base64
+import functools
+import hmac
 import html
 import json
 import hashlib
@@ -73,9 +75,166 @@ SERPAPI_TIMEOUT = 25
 SEARCH_POOL_TIMEOUT = int(os.environ.get("SEARCH_POOL_TIMEOUT", "240"))
 # Per-stage budget for the Claude-backed analysis calls (narratives, entities).
 ANALYSIS_TIMEOUT = int(os.environ.get("ANALYSIS_TIMEOUT", "70"))
+# C1: _claude_call used to hardcode SERPAPI_TIMEOUT (25s) on the Anthropic POST,
+# which made ANALYSIS_TIMEOUT dead config — the future waited 70s for an HTTP
+# call that had already given up at 25s. The two largest analysis prompts
+# (narratives at 160 docs, entities at 120) legitimately need longer than that,
+# so they were failing on the transport every time.
+CLAUDE_HTTP_TIMEOUT = int(os.environ.get("CLAUDE_HTTP_TIMEOUT", "45"))
 CACHE_TTL   = 1800
+
+# ── Search cache (C4) ─────────────────────────────────────────────────────────
+# This dict was read and written from request threads AND from the watchlist
+# check-all pool with no lock at all, and the eviction path sorted it while
+# other threads were inserting — "dictionary changed size during iteration",
+# intermittently, only under concurrency. It also counted ENTRIES, not bytes,
+# so 200 full search payloads (each carrying every document from every platform)
+# could hold hundreds of megabytes on a single-worker dyno. Both are fixed here:
+# one lock around every mutation, and a rough serialised-size budget alongside
+# the entry cap. All access goes through _cache_get / _cache_put.
 _cache: dict[str, tuple[float, dict]] = {}
+_cache_bytes: dict[str, int] = {}
+_cache_lock = threading.Lock()
+CACHE_MAX_ENTRIES = int(os.environ.get("CACHE_MAX_ENTRIES", "200"))
+CACHE_MAX_BYTES   = int(os.environ.get("CACHE_MAX_BYTES", str(48 * 1024 * 1024)))
+
+
+def _rough_bytes(value) -> int:
+    """Serialised size of a cache value. Approximate on purpose — this is a
+    memory budget, not an accounting ledger, and the payload is about to be
+    JSON-encoded for the response anyway."""
+    try:
+        return len(json.dumps(value, default=str))
+    except Exception:
+        return 250_000
+
+
+def _cache_get(key: str, ttl: int = CACHE_TTL):
+    with _cache_lock:
+        hit = _cache.get(key)
+    if not hit:
+        return None
+    ts, value = hit
+    if time.time() - ts >= ttl:
+        return None
+    return value
+
+
+def _cache_put(key: str, value) -> None:
+    size = _rough_bytes(value)
+    with _cache_lock:
+        _cache[key] = (time.time(), value)
+        _cache_bytes[key] = size
+        total = sum(_cache_bytes.values())
+        while _cache and (len(_cache) > CACHE_MAX_ENTRIES or total > CACHE_MAX_BYTES):
+            oldest = min(_cache, key=lambda k: _cache[k][0])
+            _cache.pop(oldest, None)
+            total -= _cache_bytes.pop(oldest, 0)
+
+
 _bsky_session = {"jwt": None, "ts": 0.0}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ABUSE CONTROL (B2)
+# ══════════════════════════════════════════════════════════════════════════════
+# Every expensive route here was anonymous and unthrottled: /api/search fans out
+# to a dozen paid APIs and several Claude calls, /report and /api/dossier add a
+# brief on top, /api/watchlist/check-all runs up to ten full searches per
+# request. A single loop against any of them drains the SerpApi quota and the
+# Anthropic balance in minutes, and nothing in the app noticed.
+#
+# Two mechanisms, both dependency-free and both deliberately small:
+#
+#   1. A fixed-window counter per (route, client). In-process, lock-guarded and
+#      memory-bounded. Single-worker gunicorn (see the Dockerfile) means one
+#      process sees every request, so a process-local limiter is a real limit
+#      here rather than a decoration. It is NOT a security boundary — an
+#      attacker with many source addresses walks past it — it is a cost brake.
+#
+#   2. An OPTIONAL shared secret. If XTAG_API_KEY is set in the environment,
+#      the money-spending routes require it in an X-XTag-Key header. If it is
+#      unset the routes stay open exactly as they are today, so dev and the
+#      existing single-page UI keep working unchanged. Opt-in, not a breaking
+#      default.
+XTAG_API_KEY = os.environ.get("XTAG_API_KEY", "").strip()
+
+_rl_lock = threading.Lock()
+_rl_buckets: dict[tuple, tuple] = {}     # (scope, client) -> (window_start, count)
+RL_MAX_BUCKETS = int(os.environ.get("RL_MAX_BUCKETS", "20000"))
+RL_BUCKET_TTL = 3600
+
+
+def _client_key() -> str:
+    """Identify the caller. Railway terminates TLS upstream, so remote_addr is
+    the proxy for every request and X-Forwarded-For carries the real client;
+    the first entry is the one the edge saw. Spoofable, like every header — see
+    the note above about this being a cost brake, not an authorisation check."""
+    fwd = (request.headers.get("X-Forwarded-For") or "").strip()
+    if fwd:
+        return fwd.split(",")[0].strip()[:64]
+    return (request.remote_addr or "unknown")[:64]
+
+
+def _rl_evict_locked(now: float) -> None:
+    """Keep the bucket table bounded. Called with _rl_lock held."""
+    if len(_rl_buckets) <= RL_MAX_BUCKETS:
+        return
+    for k in [k for k, v in _rl_buckets.items() if now - v[0] > RL_BUCKET_TTL]:
+        _rl_buckets.pop(k, None)
+    if len(_rl_buckets) > RL_MAX_BUCKETS:
+        # Still over after expiry — drop the oldest half rather than grow.
+        for k in sorted(_rl_buckets, key=lambda k: _rl_buckets[k][0])[:len(_rl_buckets) // 2]:
+            _rl_buckets.pop(k, None)
+
+
+def rate_limit(n: int, per_seconds: int, scope: str | None = None):
+    """Allow at most `n` requests per `per_seconds` per client, per route."""
+    def deco(fn):
+        bucket_scope = scope or fn.__name__
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            now = time.time()
+            key = (bucket_scope, _client_key())
+            with _rl_lock:
+                start, count = _rl_buckets.get(key, (now, 0))
+                if now - start >= per_seconds:
+                    start, count = now, 0
+                count += 1
+                _rl_buckets[key] = (start, count)
+                _rl_evict_locked(now)
+                over = count > n
+                retry_after = max(1, int(per_seconds - (now - start)) + 1)
+            if over:
+                resp = jsonify({
+                    "error": "rate limited",
+                    "detail": f"at most {n} request(s) per {per_seconds}s for this endpoint",
+                    "retry_after": retry_after,
+                })
+                resp.status_code = 429
+                resp.headers["Retry-After"] = str(retry_after)
+                return resp
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+
+def require_api_key(fn):
+    """Gate a route behind XTAG_API_KEY *when that variable is set*.
+
+    Unset (the default, and how every existing deployment is configured) means
+    the route behaves exactly as before. This is what makes the fix safe to ship
+    without coordinating a client change.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not XTAG_API_KEY:
+            return fn(*args, **kwargs)
+        supplied = request.headers.get("X-XTag-Key") or ""
+        if not hmac.compare_digest(supplied, XTAG_API_KEY):
+            return jsonify({"error": "auth required — send the X-XTag-Key header"}), 401
+        return fn(*args, **kwargs)
+    return wrapper
 
 # ── Phase 0: Unified Document Schema ─────────────────────────────────────────
 SOURCE_CREDIBILITY: dict[str, str] = {
@@ -95,7 +254,15 @@ SOURCE_CREDIBILITY: dict[str, str] = {
 def _credibility_for_url(url: str) -> str:
     try:
         host = urlparse(url).hostname or ""
-        host = host.lower().lstrip("www.")
+        host = host.lower()
+        # A5: this was lstrip("www."), which strips a character SET, not a
+        # prefix — every leading w, ., or n is eaten. "wsj.com" became "sj.com"
+        # and "nytimes.com" became "ytimes.com", so two of the highest-
+        # credibility outlets in the table silently scored "unknown" and fed the
+        # credibility threat factor as unattributed sources. Strip the prefix,
+        # the way _detect_platform_from_url already does.
+        if host.startswith("www."):
+            host = host[4:]
         return SOURCE_CREDIBILITY.get(host, "unknown")
     except:
         return "unknown"
@@ -322,8 +489,13 @@ def translate_batch(texts: list, source_lang: str) -> list | None:
     try:
         arr = json.loads(re.sub(r"```json|```", "", text).strip())
         out = [str(x) for x in arr]
+        # A2: pad with None, not "". A padded slot means "this text was never
+        # sent to the model" (the batch is capped at 40) or "the model returned
+        # fewer lines than it was given" — not "the translation is empty". The
+        # caller already skips falsy entries, so nothing downstream changes,
+        # but the two states are no longer conflated.
         while len(out) < len(texts):
-            out.append("")
+            out.append(None)
         return out[:len(texts)]
     except Exception:
         return None
@@ -864,7 +1036,7 @@ def search_gdelt(q):
     try:
         arts, err = gdelt.articles(plain)
         if err and not arts:
-            return _empty("gdelt", err)
+            return _empty("gdelt", str(err))
         results = []
         for art in arts:
             url_str = art.get("url","")
@@ -891,7 +1063,19 @@ def search_gdelt(q):
             # so enrich_languages leaves it alone.
             doc["_lang_authoritative"] = True
             results.append(doc)
-        return {"platform":"gdelt","results":results,"error":err if not results else None}
+        # A11: gdelt.articles() now reports partial-window failure and MAX_RECORDS
+        # truncation even when it DID return articles. This used to be discarded
+        # (`err if not results else None`), so a corpus assembled from 1 of 3
+        # windows was handed downstream looking complete, and every count,
+        # share and density computed from it was quietly wrong. Report it.
+        out = {"platform":"gdelt","results":results,
+               "error":str(err) if err else None}
+        if err is not None:
+            out["partial"] = bool(results)
+            out["windows_total"] = getattr(err, "windows_total", None)
+            out["windows_failed"] = getattr(err, "windows_failed", None)
+            out["windows_truncated"] = getattr(err, "windows_truncated", None)
+        return out
     except Exception as e: return _empty("gdelt", str(e)[:120])
 
 # ── State media RSS (Phase 1) ─────────────────────────────────────────────────
@@ -926,7 +1110,12 @@ QUERY_LEXICON: dict[str, dict[str, list]] = {
     "palestine":   {"ar": ["فلسطين"], "fa": ["فلسطین"], "he": ["פלסטין"]},
 }
 
+# C4: uncapped and unlocked. expand_query is called from the search fan-out, so
+# several threads wrote it concurrently, and nothing ever removed an entry — one
+# dict entry per distinct query for the life of the process.
 _query_expansion_cache: dict[str, dict] = {}
+_qx_lock = threading.Lock()
+QX_CACHE_MAX = int(os.environ.get("QUERY_EXPANSION_CACHE_MAX", "1000"))
 
 def expand_query(q: str, target_langs: tuple = ("ar", "fa", "he")) -> dict:
     """
@@ -935,8 +1124,10 @@ def expand_query(q: str, target_langs: tuple = ("ar", "fa", "he")) -> dict:
     Returns {lang: [terms]} including the original under 'en'.
     """
     key = q.lower().strip()
-    if key in _query_expansion_cache:
-        return _query_expansion_cache[key]
+    with _qx_lock:
+        hit = _query_expansion_cache.get(key)
+    if hit is not None:
+        return hit
 
     out: dict[str, list] = {"en": [key]}
     # Lexicon lookup — handles multi-word queries by checking each known term
@@ -970,7 +1161,11 @@ def expand_query(q: str, target_langs: tuple = ("ar", "fa", "he")) -> dict:
     # Dedupe
     for lang in out:
         out[lang] = list(dict.fromkeys(out[lang]))
-    _query_expansion_cache[key] = out
+    with _qx_lock:
+        _query_expansion_cache[key] = out
+        # dicts preserve insertion order, so the oldest keys are simply first.
+        while len(_query_expansion_cache) > QX_CACHE_MAX:
+            _query_expansion_cache.pop(next(iter(_query_expansion_cache)), None)
     return out
 
 
@@ -1269,10 +1464,18 @@ async def _sync_notebooks_async():
 
 def _notebooklm_sync_loop():
     import asyncio
+    global _notebook_store
     while True:
         try:
             synced = asyncio.run(_sync_notebooks_async())
-            _notebook_store.clear(); _notebook_store.update(synced)
+            # C3: this was `_notebook_store.clear(); _notebook_store.update(...)`
+            # — two mutations on a dict that /api/kb/chat and search_notebooklm
+            # iterate from request threads. A request landing between them saw
+            # an empty knowledge bank, and one landing *during* update() raised
+            # "dictionary changed size during iteration" and 500'd. Building the
+            # replacement first and rebinding the name is a single atomic
+            # assignment: readers hold the old dict until they are done with it.
+            _notebook_store = synced
             _notebooklm_status.update({"last_sync":datetime.now(timezone.utc).isoformat(),
                                        "notebooks":len(synced),"error":None})
         except Exception as exc: _notebooklm_status["error"] = str(exc)[:200]
@@ -1330,7 +1533,9 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5-20251001").strip
 _claude_last_error: dict = {"at": None, "status": None, "message": None}
 
 
-def _claude_call(prompt, max_tokens=900):
+def _claude_call(prompt, max_tokens=900, timeout=None):
+    """`timeout` is the HTTP budget for this one call; defaults to
+    CLAUDE_HTTP_TIMEOUT. Long analysis prompts pass ANALYSIS_TIMEOUT (C1)."""
     if not ANTHROPIC_API_KEY:
         _claude_last_error.update({"at": datetime.now(timezone.utc).isoformat(),
                                    "status": None, "message": "ANTHROPIC_API_KEY not set"})
@@ -1339,7 +1544,8 @@ def _claude_call(prompt, max_tokens=900):
         r = requests.post("https://api.anthropic.com/v1/messages",
             headers={"x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
             json={"model":CLAUDE_MODEL,"max_tokens":max_tokens,
-                  "messages":[{"role":"user","content":prompt}]}, timeout=SERPAPI_TIMEOUT)
+                  "messages":[{"role":"user","content":prompt}]},
+            timeout=timeout or CLAUDE_HTTP_TIMEOUT)
         if r.status_code >= 400:
             msg = r.text[:300]
             app.logger.error("Anthropic API %s: %s", r.status_code, msg)
@@ -1427,7 +1633,9 @@ def extract_narratives_v2(platforms, q, max_posts=160):
         "For each: label (max 7 words), count, framing (fear|anger|hope|pride|grief|threat|disinformation|neutral), "
         "platforms (list), key_claim (one sentence), actors (list), velocity (accelerating|stable|declining).\n"
         "ONLY JSON array. No prose.\n\n" + numbered)
-    text = _claude_call(prompt, 1800)
+    # C1: the biggest prompt in the app — give it the analysis budget, not the
+    # 25s SerpApi budget it was silently inheriting.
+    text = _claude_call(prompt, 1800, timeout=ANALYSIS_TIMEOUT)
     arr = _parse_claude_json(text, "extract_narratives_v2")
     if not isinstance(arr, list): return []
     try:
@@ -1455,31 +1663,64 @@ def extract_entities(platforms, q, max_docs=120):
     # 20 entities + 15 edges of JSON does not fit in 900 tokens — the reply was
     # truncated mid-structure, json.loads threw, and the bare except returned {}
     # silently. That is why entities were always empty while narratives worked.
-    text = _claude_call(prompt, 2600)
+    text = _claude_call(prompt, 2600, timeout=ANALYSIS_TIMEOUT)   # C1
     parsed = _parse_claude_json(text, "extract_entities")
     if not isinstance(parsed, dict): return {}
     return parsed
+
+# A6: publisher clocks drift and some feeds stamp a scheduled publication time,
+# so a small negative age is normal noise and is clamped to "now". Anything
+# further into the future is a bad timestamp, not a fast news cycle.
+FUTURE_SKEW_TOLERANCE_H = float(os.environ.get("FUTURE_SKEW_TOLERANCE_H", "2"))
+# A6: minimum documents in the 24h comparison window before an "accelerating"
+# verdict is allowed. Ratio tests are meaningless at tiny volumes — 1 vs 0 is a
+# ratio of infinity — and this verdict fires alerts and sends email.
+VELOCITY_MIN_DOCS = int(os.environ.get("VELOCITY_MIN_DOCS", "5"))
 
 def compute_velocity(platforms):
     all_docs = _top_docs(platforms, 500)
     now = datetime.now(timezone.utc)
     windows = {"1h":0,"6h":0,"24h":0,"48h":0,"72h":0,"7d":0}
     hourly = defaultdict(int)
+    future_dated = 0
     for doc in all_docs:
         dt = _parse_dt(doc.get("timestamp"))
         if not dt: continue
         diff = now - dt; hours = diff.total_seconds() / 3600
+        # A6: a future-dated post has a NEGATIVE age, and `hours <= h` is true
+        # for EVERY window at once, so one mis-stamped article was counted into
+        # 1h, 6h, 24h, 48h, 72h and 7d simultaneously. With prior == 0 and
+        # recent == 1 that satisfied `recent > prior*1.3`, declared the
+        # narrative "accelerating", fired a watchlist alert and sent an email —
+        # off a single bad timestamp.
+        if hours < -FUTURE_SKEW_TOLERANCE_H:
+            future_dated += 1
+            continue
+        hours = max(0.0, hours)
         bucket = int(hours)
         if 0 <= bucket < 168: hourly[bucket] += 1
         for w,h in [("1h",1),("6h",6),("24h",24),("48h",48),("72h",72),("7d",168)]:
             if hours <= h: windows[w] += 1
     recent = windows["6h"]; prior = windows["24h"] - windows["6h"]
-    acceleration = "accelerating" if recent > prior*1.3 else "declining" if recent < prior*0.5 else "stable"
+    low_volume = (recent + prior) < VELOCITY_MIN_DOCS
+    if low_volume:
+        # Not enough traffic in the comparison window to call a trend. "stable"
+        # is what the old ratio test returned at zero volume anyway, so this
+        # only suppresses the unearned "accelerating" verdict.
+        acceleration = "stable"
+    else:
+        acceleration = "accelerating" if recent > prior*1.3 else "declining" if recent < prior*0.5 else "stable"
     platform_first_seen = {}
     for doc in sorted(all_docs, key=lambda d: d.get("timestamp") or ""):
         p = doc.get("platform","")
         if p and p not in platform_first_seen: platform_first_seen[p] = doc.get("timestamp") or ""
     return {"windows":windows,"acceleration":acceleration,
+            # Why the verdict is what it is — an "accelerating" claim that
+            # cannot be traced back to counts is not actionable (A6).
+            "acceleration_basis":{"recent_6h":recent,"prior_18h":prior,
+                                  "min_docs":VELOCITY_MIN_DOCS,
+                                  "low_volume":low_volume},
+            "future_dated_docs":future_dated,
             "hourly_distribution":dict(sorted(hourly.items())[:24]),
             "platform_first_seen":platform_first_seen,"total_docs":len(all_docs)}
 
@@ -1552,6 +1793,10 @@ def trace_propagation(platforms):
 
 # ── Sentiment + framing ───────────────────────────────────────────────────────
 BABEL_CAP=24; BABEL_WORKERS=12; BABEL_BUDGET=12; BABEL_TIMEOUT=10
+# How many texts one Claude sentiment call carries. Anything beyond this in a
+# language group is not scored at all, and must be reported as unscored rather
+# than filled in (A2).
+CLAUDE_SENTIMENT_BATCH = 120
 _SCORE={"positive":1.0,"neutral":0.0,"negative":-1.0}
 
 def _norm_label(raw):
@@ -1591,7 +1836,9 @@ def _sentiment_claude(texts, lang="en"):
     so the model is instructed to reason natively in the source language.
     """
     if not ANTHROPIC_API_KEY or not texts: return None, None
-    batch = texts[:120]
+    # Only the first CLAUDE_SENTIMENT_BATCH texts are sent. Everything past that
+    # is UNSCORED — see the None padding below.
+    batch = texts[:CLAUDE_SENTIMENT_BATCH]
     numbered = "\n".join(f"{i+1}. {t[:240]}" for i,t in enumerate(batch))
     meta = LANG_META.get(lang, {})
     lang_name = meta.get("name", "English")
@@ -1616,8 +1863,17 @@ def _sentiment_claude(texts, lang="en"):
     try:
         sentiments = [_norm_label(v.get("s")) for v in arr]
         framings   = [str(v.get("f","neutral")).lower() for v in arr]
-        while len(sentiments) < len(texts): sentiments.append("neutral")
-        while len(framings) < len(texts): framings.append("neutral")
+        # A2: this used to pad the tail with "neutral" up to len(texts). Those
+        # were FABRICATED readings — texts 121..N were never sent to the model
+        # and neither were the ones a truncated reply dropped — and
+        # attach_sentiment could not tell them from real ones, so it counted
+        # them in `counts`, `net_sum` and `scored`. XTag persists those numbers
+        # as a time series, so the invention compounded: a 400-document corpus
+        # reported 400 scored documents with 280 invented neutrals dragging
+        # `net` toward zero forever. None means "not scored"; the caller skips
+        # it and reports the shortfall as `unscored`.
+        while len(sentiments) < len(texts): sentiments.append(None)
+        while len(framings) < len(texts): framings.append(None)
         return sentiments[:len(texts)], framings[:len(texts)]
     except: return None, None
 
@@ -1632,9 +1888,9 @@ def attach_sentiment(platforms):
             txt = ((r.get("title") or "")+" "+(r.get("excerpt") or "")).strip()
             if txt: flat.append((r,txt))
     if not flat:
-        return {"scored":0,"positive":0,"neutral":0,"negative":0,"net":None,
-                "engines":[],"agreement":None,"babel_scored":0,"framing_counts":{},
-                "by_language":{}}
+        return {"scored":0,"unscored":0,"positive":0,"neutral":0,"negative":0,
+                "net":None,"engines":[],"agreement":None,"babel_scored":0,
+                "framing_counts":{},"by_language":{}}
 
     # Group indices by language
     lang_groups: dict[str, list] = defaultdict(list)
@@ -1651,6 +1907,8 @@ def attach_sentiment(platforms):
         s, f = _sentiment_claude(sub_texts, lang)
         if not s: return
         for local_i, global_i in enumerate(indices):
+            # s[local_i] may be None — a slot past the batch cap, or one a
+            # truncated reply never covered. Leave the doc unscored (A2).
             if local_i < len(s): claude_s[global_i] = s[local_i]
             if f and local_i < len(f): claude_f[global_i] = f[local_i]
 
@@ -1670,7 +1928,7 @@ def attach_sentiment(platforms):
 
     counts={"positive":0,"neutral":0,"negative":0}; framing_counts=defaultdict(int)
     by_language: dict[str, dict] = defaultdict(lambda: {"positive":0,"neutral":0,"negative":0,"scored":0})
-    net_sum=0.0; scored=agree_n=agree_d=0
+    net_sum=0.0; scored=unscored=agree_n=agree_d=0
     for i,(r,_) in enumerate(flat):
         c = claude_s[i]; f = claude_f[i]; b = babel.get(i)
         if c and b:
@@ -1680,14 +1938,27 @@ def attach_sentiment(platforms):
             r["s_claude"]=c; r["s_babel"]=b
         elif c: score,final=_SCORE[c],c; r["s_claude"]=c
         elif b: score,final=_SCORE[b],b; r["s_babel"]=b
-        else: continue
+        else:
+            # A2: neither engine produced a reading for this document. Mark it
+            # explicitly rather than leaving `sentiment` at its None default,
+            # so a consumer can tell "not scored" from "scored and neutral",
+            # and count it so the shortfall is visible instead of invented.
+            r["sentiment"]="unscored"
+            unscored+=1
+            continue
         r["sentiment"]=final
         if f: r["framing"]=f; framing_counts[f]+=1
         counts[final]+=1; net_sum+=score; scored+=1
         lg = r.get("language","en")
         by_language[lg][final]+=1; by_language[lg]["scored"]+=1
 
-    return {**counts,"scored":scored,"net":round(net_sum/scored,2) if scored else None,
+    return {**counts,"scored":scored,
+            # A2: `unscored` + `scored` == the documents that had text at all.
+            # Without it a corpus of 400 documents where only 120 reached the
+            # model reported "scored: 120" with no indication that 280 were
+            # simply never looked at.
+            "unscored":unscored,"eligible":len(flat),
+            "net":round(net_sum/scored,2) if scored else None,
             "engines":engines,"agreement":round(agree_n/agree_d,2) if agree_d else None,
             "babel_scored":len(babel),"framing_counts":dict(framing_counts),
             "by_language":{k:dict(v) for k,v in by_language.items()}}
@@ -1888,6 +2159,18 @@ def build_dossier(payload: dict, brief_text: str | None = None) -> dict:
         "entities": entities[:25],
         "entity_edges": edges[:20],
         "coordination": coord,
+        # D1: the assessment layer (threat score with its factor breakdown, the
+        # risk dimensions, the inauthenticity signals and the audience/geography
+        # block) was computed on every search and then dropped on the floor here,
+        # so neither /api/dossier nor the printable report could show any of it —
+        # the interpretive half of the product was invisible in its own report.
+        # Additive: nothing that read this dict before is affected.
+        "threat": payload.get("threat") or {},
+        "risk": payload.get("risk") or {},
+        "inauthenticity": payload.get("inauthenticity") or {},
+        "audience": payload.get("audience") or {},
+        "engine_errors": payload.get("engine_errors") or {},
+        "gdelt_degraded": (payload.get("gdelt") or {}).get("degraded") or [],
         "velocity": vel,
         "propagation": prop,
         "source_mix": source_mix,
@@ -1960,15 +2243,24 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
     if use_cache:
         # In-process cache first (free), then the DB cache (survives redeploys,
         # so a restart no longer means re-paying for every upstream API call).
-        if cache_key in _cache:
-            ts,cached=_cache[cache_key]
-            if now-ts<CACHE_TTL: return {**cached,"cached":True}
+        cached=_cache_get(cache_key)
+        if cached is not None: return {**cached,"cached":True}
         db_cached=db.cache_get(cache_key)
         if db_cached:
-            _cache[cache_key]=(now,db_cached)   # warm the local copy too
+            _cache_put(cache_key,db_cached)     # warm the local copy too
             return {**db_cached,"cached":True,"cache_source":"db"}
     direct_out={}; cse_out={}
-    with ThreadPoolExecutor(max_workers=len(API_PLATFORMS)+1) as ex:
+    # C2: this used `with ThreadPoolExecutor(...)`, whose __exit__ calls
+    # shutdown(wait=True). So SEARCH_POOL_TIMEOUT bounded nothing: the deadline
+    # fired, the handler carefully marked the slow sources "timed out", and then
+    # the block exited and sat there blocking on those very sources anyway. The
+    # request still took as long as the slowest platform. Explicit
+    # shutdown(wait=False, cancel_futures=True) is what actually returns on
+    # time. Tasks already running still run to completion in the background —
+    # Python cannot interrupt a thread mid-call — but they no longer hold up the
+    # response, and their results are simply discarded.
+    ex=ThreadPoolExecutor(max_workers=len(API_PLATFORMS)+1)
+    try:
         futures={ex.submit(fn,q):name for name,fn in API_PLATFORMS.items()}
         cse_future=ex.submit(search_serpapi,q)
         all_futures=list(futures.keys())+[cse_future]
@@ -1993,6 +2285,8 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
                     direct_out[name]=_empty(name,"timed out")
             if not cse_out:
                 cse_out={p:_empty(p,"timed out") for p in SERPAPI_PLATFORM_DOMAINS}
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     out={}
     for pid in set(direct_out.keys())|set(cse_out.keys()):
         direct=direct_out.get(pid); cse=cse_out.get(pid)
@@ -2012,7 +2306,8 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
     try: languages=enrich_languages(out)
     except Exception as e: app.logger.warning("language enrichment failed: %s",e)
 
-    sentiment={"scored":0,"positive":0,"neutral":0,"negative":0,"net":None,"engines":[],
+    sentiment={"scored":0,"unscored":0,"eligible":0,"positive":0,"neutral":0,
+               "negative":0,"net":None,"engines":[],
                "agreement":None,"babel_scored":0,"framing_counts":{},"by_language":{}}
     if SENTIMENT_ENABLED:
         try: sentiment=attach_sentiment(out)
@@ -2025,7 +2320,11 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
     # them apart. Now failures are logged and surfaced to the UI as errors.
     narratives=[]; entities={}; velocity={}; coordination={}; propagation={}
     engine_errors={}
-    with ThreadPoolExecutor(max_workers=5) as ex:
+    # C2 (same defect as the collection pool above): each future has its own
+    # timeout, but __exit__ then blocked on whichever stage was still running,
+    # so the per-stage budgets bounded nothing either.
+    ex=ThreadPoolExecutor(max_workers=5)
+    try:
         f_narr=ex.submit(extract_narratives_v2,out,q)
         f_ents=ex.submit(extract_entities,out,q)
         f_vel=ex.submit(compute_velocity,out)
@@ -2049,6 +2348,8 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
             except Exception as e:
                 app.logger.warning("narrative engine stage %r failed for q=%r: %s", key, q, e)
                 engine_errors[key]=str(e)[:160]
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     # A silent Claude failure makes narratives/entities/sentiment all empty,
     # which is indistinguishable from "nothing worth reporting". Label it.
     # Entities empty while other stages worked is the signature of a truncated
@@ -2103,15 +2404,14 @@ def _run_full_search(q: str, use_cache: bool = True) -> dict:
         engine_errors["assessment"]=str(e)[:160]
         payload.setdefault("threat",{}); payload.setdefault("risk",{})
         payload.setdefault("audience",{}); payload.setdefault("inauthenticity",{})
-    _cache[cache_key]=(now,payload)
-    if len(_cache)>200:
-        oldest=sorted(_cache.items(),key=lambda kv:kv[1][0])[:50]
-        for k,_ in oldest: _cache.pop(k,None)
+    _cache_put(cache_key,payload)   # C4: locked + byte-budgeted
     db.cache_set(cache_key,q,payload,CACHE_TTL)
     return payload
 
 
 @app.route("/api/search")
+@rate_limit(6, 60)          # B2: fans out to a dozen paid APIs + several Claude calls
+@require_api_key
 def api_search():
     q=(request.args.get("q") or "").strip()
     if not q: return jsonify({"error":"missing q"}),400
@@ -2163,6 +2463,8 @@ def api_watchlist_add():
     return jsonify({**(saved or entry), "persisted": saved is not None})
 
 @app.route("/api/watchlist/<wl_id>", methods=["DELETE"])
+@rate_limit(30, 60)
+@require_api_key            # B5: wl_id is a sha256 prefix of the query — guessable
 def api_watchlist_delete(wl_id):
     with _watch_lock:
         _watchlists.pop(wl_id, None)
@@ -2170,6 +2472,7 @@ def api_watchlist_delete(wl_id):
     return jsonify({"deleted": wl_id})
 
 @app.route("/api/watchlist/<wl_id>/check", methods=["POST"])
+@rate_limit(6, 60)          # B2: this is a full _run_full_search, priced the same as /api/search
 def api_watchlist_check(wl_id):
     # Prefer the DB copy — it survives redeploys, unlike _watchlists.
     entry = db.watchlist_get(wl_id)
@@ -2202,7 +2505,17 @@ def api_watchlist_check(wl_id):
         app.logger.exception("watchlist check failed for %r", wl_id)
         return jsonify({"error": f"check failed: {str(e)[:200]}"}), 500
 
+# B3: a single item here is a full _run_full_search, whose own deadline
+# (SEARCH_POOL_TIMEOUT, 240s) already exceeded the old 120s pool timeout — so on
+# the NORMAL path as_completed raised, nothing caught it, and Flask returned a
+# 500 that threw away every check that had already finished and been persisted.
+CHECK_ALL_TIMEOUT = int(os.environ.get("CHECK_ALL_TIMEOUT", "240"))
+CHECK_ALL_MAX     = int(os.environ.get("CHECK_ALL_MAX", "10"))
+
+
 @app.route("/api/watchlist/check-all", methods=["POST"])
+@rate_limit(2, 3600)        # B2: up to CHECK_ALL_MAX full searches per request
+@require_api_key
 def api_watchlist_check_all():
     """Evaluate every watchlist. Returns only those with triggered alerts."""
     body = request.get_json(silent=True) or {}
@@ -2217,23 +2530,50 @@ def api_watchlist_check_all():
             targets.append({"id": cw.get("id"), "query": cw["query"],
                             "rules": {**DEFAULT_RULES, **(cw.get("rules") or {})},
                             "last_snapshot": cw.get("last_snapshot")})
+    # B3: cap the work one request can commission. Without this, a client could
+    # post a hundred client-side watchlists and buy a hundred full searches.
+    requested = len(targets)
+    targets = targets[:CHECK_ALL_MAX]
     results = []
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    timed_out = 0
+    ex = ThreadPoolExecutor(max_workers=3)
+    try:
         futs = {ex.submit(evaluate_watchlist, t["query"], t["rules"], t.get("last_snapshot")): t
-                for t in targets[:10]}
-        for fut in as_completed(futs, timeout=120):
-            t = futs[fut]
-            try:
-                r = fut.result()
-                r["watchlist_id"] = t.get("id")
-                _persist_check(t["query"], r, t.get("id"))
-                results.append(r)
-            except Exception as e:
-                results.append({"watchlist_id": t.get("id"), "query": t["query"],
-                                "error": str(e)[:120], "alerts": [], "alert_count": 0})
+                for t in targets}
+        handled = set()
+        try:
+            for fut in as_completed(futs, timeout=CHECK_ALL_TIMEOUT):
+                handled.add(fut)
+                t = futs[fut]
+                try:
+                    r = fut.result()
+                    r["watchlist_id"] = t.get("id")
+                    _persist_check(t["query"], r, t.get("id"))
+                    results.append(r)
+                except Exception as e:
+                    results.append({"watchlist_id": t.get("id"), "query": t["query"],
+                                    "error": str(e)[:120], "alerts": [], "alert_count": 0})
+        except Exception as e:
+            # B3: the deadline (or anything else in the iterator) must not
+            # discard work that already completed and was already persisted.
+            # Report what finished, and name the rest as timed out.
+            app.logger.warning("check-all deadline hit after %ds: %s", CHECK_ALL_TIMEOUT, e)
+        for fut, t in futs.items():
+            if fut in handled:
+                continue
+            timed_out += 1
+            results.append({"watchlist_id": t.get("id"), "query": t["query"],
+                            "error": f"timed out after {CHECK_ALL_TIMEOUT}s",
+                            "alerts": [], "alert_count": 0})
+    finally:
+        # Same reasoning as _run_full_search (C2): do not block the response on
+        # checks that are still running.
+        ex.shutdown(wait=False, cancel_futures=True)
     total_alerts = sum(r.get("alert_count", 0) for r in results)
     return jsonify({"results": results, "total_alerts": total_alerts,
-                    "checked": len(results),
+                    "checked": len(results), "timed_out": timed_out,
+                    "requested": requested, "max_per_request": CHECK_ALL_MAX,
+                    "skipped": max(0, requested - len(targets)),
                     "checked_at": datetime.now(timezone.utc).isoformat()})
 
 
@@ -2242,6 +2582,7 @@ def api_watchlist_check_all():
 # change over time, not a single point-in-time search.
 
 @app.route("/api/history")
+@rate_limit(60, 60)         # B2: cheap (one DB read) — generous
 def api_history():
     """Time series for a query: mentions, coordination, sentiment, narratives.
 
@@ -2309,6 +2650,7 @@ def api_history():
 
 
 @app.route("/api/alerts")
+@rate_limit(60, 60)         # B2: cheap (one DB read) — generous
 def api_alerts():
     """Alert history across all watchlists. ?days=N &limit=N &unack=1"""
     days = request.args.get("days", type=int)
@@ -2331,6 +2673,8 @@ CADENCE_CHOICES = {2: "Every 2 days", 7: "Weekly", 14: "Every 2 weeks", 30: "Mon
 
 
 @app.route("/api/subscribe", methods=["POST"])
+@rate_limit(10, 3600)       # B2: each subscription schedules a recurring paid search
+@require_api_key
 def api_subscribe():
     body = request.get_json(silent=True) or {}
     email = (body.get("email") or "").strip().lower()
@@ -2356,6 +2700,7 @@ def api_subscribe():
 
 
 @app.route("/api/subscriptions")
+@rate_limit(30, 60)
 def api_subscriptions():
     email = (request.args.get("email") or "").strip().lower()
     if not EMAIL_RE.match(email): return jsonify({"error": "invalid email"}), 400
@@ -2365,30 +2710,71 @@ def api_subscriptions():
 
 
 @app.route("/api/subscribe/<sub_id>", methods=["DELETE"])
+@rate_limit(30, 60)
+@require_api_key            # B5: this had NO auth of any kind — any id, any caller
 def api_unsubscribe_by_id(sub_id):
     return jsonify({"ok": bool(db.subscription_deactivate(sub_id))})
 
 
-@app.route("/unsubscribe")
-def unsubscribe_page():
-    """One-click unsubscribe from an email link — no login required."""
-    token = (request.args.get("token") or "").strip()
-    sub = db.subscription_by_token(token) if token else None
-    if sub: db.subscription_deactivate(sub["id"])
-    msg = ("You have been unsubscribed from reports on "
-           f"\u201c{html.escape(sub['query'])}\u201d." if sub
-           else "That unsubscribe link is not valid or has already been used.")
-    return make_response(f"""<!doctype html><html><head><meta charset="utf-8">
+def _unsub_page(title: str, msg: str, form_token: str | None = None) -> str:
+    """Shared chrome for the unsubscribe confirmation and result pages."""
+    form = ""
+    if form_token is not None:
+        form = (f'<form method="post" action="/unsubscribe" style="margin:22px 0 0;">'
+                f'<input type="hidden" name="token" value="{html.escape(form_token)}">'
+                f'<button type="submit" style="background:#c23d0c;color:#fff;border:0;'
+                f'cursor:pointer;font-size:13px;font-weight:600;border-radius:9px;'
+                f'padding:11px 20px;">Yes, unsubscribe me</button></form>')
+    return f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>XTag \u2014 Unsubscribe</title></head>
 <body style="margin:0;background:#f0efe9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
 <div style="max-width:520px;margin:80px auto;background:#fff;border-radius:14px;padding:34px;">
 <div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#c23d0c;font-weight:700;">XTag</div>
-<h1 style="font-size:21px;color:#18181f;margin:12px 0 10px;">{'Unsubscribed' if sub else 'Link not valid'}</h1>
+<h1 style="font-size:21px;color:#18181f;margin:12px 0 10px;">{html.escape(title)}</h1>
 <p style="font-size:14px;color:#4a4a60;line-height:1.7;margin:0;">{msg}</p>
-<a href="/" style="display:inline-block;margin-top:22px;background:#c23d0c;color:#fff;text-decoration:none;
+{form}
+<a href="/" style="display:inline-block;margin-top:22px;background:#f7f6f2;color:#4a4a60;text-decoration:none;
    font-size:13px;font-weight:600;border-radius:9px;padding:11px 20px;">Back to XTag</a>
-</div></body></html>""", 200)
+</div></body></html>"""
+
+
+@app.route("/unsubscribe", methods=["GET", "POST"])
+@rate_limit(20, 60)
+def unsubscribe_page():
+    """Unsubscribe from an emailed link.
+
+    B4: this used to deactivate on GET. Corporate mail security (Proofpoint,
+    Defender, Barracuda) and browser link prefetchers fetch every URL in an
+    inbound message, so a recipient who never clicked anything was silently
+    unsubscribed the moment the report landed — and the state change was
+    unattributable afterwards. GET now only ASKS; the deactivation happens on
+    POST, which scanners and prefetchers do not issue. The token stays in a
+    hidden field so the emailed link itself is unchanged.
+    """
+    if request.method == "POST":
+        token = (request.form.get("token") or request.args.get("token") or "").strip()
+    else:
+        token = (request.args.get("token") or "").strip()
+    sub = db.subscription_by_token(token) if token else None
+
+    if not sub:
+        return make_response(_unsub_page(
+            "Link not valid",
+            "That unsubscribe link is not valid or has already been used."), 200)
+
+    label = f"\u201c{html.escape(sub.get('query') or '')}\u201d"
+    if request.method == "GET":
+        return make_response(_unsub_page(
+            "Confirm unsubscribe",
+            f"You are about to stop receiving XTag reports on {label}.",
+            form_token=token), 200)
+
+    db.subscription_deactivate(sub["id"])
+    return make_response(_unsub_page(
+        "Unsubscribed",
+        f"You have been unsubscribed from reports on {label}."), 200)
 
 
 def _run_one_subscription(sub: dict) -> dict:
@@ -2400,10 +2786,24 @@ def _run_one_subscription(sub: dict) -> dict:
         payload = _run_full_search(query)
         brief = None
         try:
-            snippets = _top_docs(payload.get("platforms") or {}, 40)
-            brief = generate_brief(query, snippets, payload.get("narratives") or [],
-                                   payload.get("entities") or {},
-                                   payload.get("coordination") or {})
+            # E1 (a): _top_docs returns DICTS, and generate_brief joins its
+            # snippets with str(s)[:220] — so the model was analysing
+            # "{'id': '9f3c…', 'platform': 'x', 'source_type': 'social', …}",
+            # 220 characters of metadata per post, and never saw a word of the
+            # actual text. Extract the text the way /api/brief and /api/dossier
+            # already do.
+            snippets = []
+            for d in _top_docs(payload.get("platforms") or {}, 40):
+                t = ((d.get("title_en") or d.get("title") or "") + " " +
+                     (d.get("excerpt_en") or d.get("excerpt") or "")).strip()
+                if t: snippets.append(t)
+            br = generate_brief(query, snippets[:20], payload.get("narratives") or [],
+                                payload.get("entities") or {},
+                                payload.get("coordination") or {})
+            # E1 (b): generate_brief returns {"brief": ..., "reason": ...}.
+            # Passing the dict to mailer.render_report, which expects a string,
+            # printed "{'brief': 'SITUATION: …'}" verbatim in the email.
+            brief = br.get("brief")
         except Exception as e:
             app.logger.warning("brief failed for %r: %s", query, e)
 
@@ -2492,6 +2892,8 @@ def api_reports_test():
 
 # ── Report / dossier endpoints ────────────────────────────────────────────────
 @app.route("/api/dossier", methods=["POST"])
+@rate_limit(4, 60)          # B2: full search + a Claude brief
+@require_api_key
 def api_dossier():
     """Return a structured dossier JSON for a query."""
     body = request.get_json(silent=True) or {}
@@ -2513,6 +2915,8 @@ def api_dossier():
 
 
 @app.route("/report")
+@rate_limit(4, 60)          # B2: full search + a Claude brief, then renders HTML
+@require_api_key
 def report_view():
     """Printable HTML dossier. Opens in a new tab; user prints to PDF."""
     q = (request.args.get("q") or "").strip()
@@ -2534,6 +2938,8 @@ def report_view():
     return render_template("report.html", d=d)
 
 @app.route("/api/brief",methods=["POST"])
+@rate_limit(10, 60)         # B2: one Claude call per uncached query
+@require_api_key
 def api_brief():
     body=request.get_json(silent=True) or {}
     q=(body.get("q") or "").strip(); snippets=body.get("snippets") or []
@@ -2541,12 +2947,11 @@ def api_brief():
     coordination=body.get("coordination") or {}
     if not q: return jsonify({"error":"missing q"}),400
     if not ANTHROPIC_API_KEY: return jsonify({"brief":None,"reason":"ANTHROPIC_API_KEY needed"}),200
-    cache_key="__brief__"+q.lower(); now=time.time()
-    if cache_key in _cache:
-        ts,cached=_cache[cache_key]
-        if now-ts<CACHE_TTL: return jsonify({**cached,"cached":True})
+    cache_key="__brief__"+q.lower()
+    cached=_cache_get(cache_key)                    # C4: lock-guarded
+    if cached is not None: return jsonify({**cached,"cached":True})
     result=generate_brief(q,snippets,narratives,entities,coordination)
-    if result.get("brief"): _cache[cache_key]=(now,result)
+    if result.get("brief"): _cache_put(cache_key,result)
     return jsonify(result)
 
 @app.route("/api/status")
@@ -2564,10 +2969,61 @@ def api_status():
                     "state_media_feeds":len(ADVERSARY_RSS_FEEDS),
                     "podcast_watchlist":len(PODCAST_WATCHLIST)})
 
+# ── B1 limits ────────────────────────────────────────────────────────────────
+# `history` from the request body used to be forwarded to Anthropic as the
+# `messages` array more or less verbatim. That made this endpoint a free,
+# anonymous proxy to XTag's API key: post any conversation you like, get the
+# model's answer, billed to XTag. The knowledge-bank system prompt did not
+# constrain it, because the caller controlled the whole conversation.
+#
+# The fix is to stop trusting the client with the message array. History is
+# accepted (multi-turn Q&A is the point of the feature) but bounded, sanitised,
+# forced to alternate, and the FINAL turn is always the server's own — built
+# from `q` — so the model is always answering this request's question, not a
+# payload the caller planted at the end.
+KB_MAX_HISTORY_TURNS = int(os.environ.get("KB_MAX_HISTORY_TURNS", "6"))
+KB_MAX_TURN_CHARS    = int(os.environ.get("KB_MAX_TURN_CHARS", "1200"))
+KB_MAX_QUESTION_CHARS= int(os.environ.get("KB_MAX_QUESTION_CHARS", "1200"))
+KB_MAX_TOKENS        = int(os.environ.get("KB_MAX_TOKENS", "600"))
+
+
+def _kb_messages(q: str, history) -> list:
+    """Bounded, alternating message list ending in the server's own user turn."""
+    turns = []
+    if isinstance(history, list):
+        for h in history[-KB_MAX_HISTORY_TURNS:]:
+            if not isinstance(h, dict):
+                continue
+            role = h.get("role")
+            if role not in ("user", "assistant"):
+                continue
+            content = str(h.get("content") or "").strip()[:KB_MAX_TURN_CHARS]
+            if not content:
+                continue
+            # Collapse runs of the same role and drop a leading assistant turn:
+            # the API requires the conversation to start with a user turn and to
+            # alternate, and a client-supplied array need not do either.
+            if not turns:
+                if role != "user":
+                    continue
+                turns.append({"role": role, "content": content})
+            elif turns[-1]["role"] == role:
+                turns[-1] = {"role": role, "content": content}
+            else:
+                turns.append({"role": role, "content": content})
+    # The last turn is ours, always.
+    if turns and turns[-1]["role"] == "user":
+        turns.pop()
+    turns.append({"role": "user", "content": q[:KB_MAX_QUESTION_CHARS]})
+    return turns
+
+
 @app.route("/api/kb/chat",methods=["POST"])
+@rate_limit(15, 60)         # B2: every call is a billed Claude request
 def api_kb_chat():
     body=request.get_json(silent=True) or {}
-    q=(body.get("q") or "").strip(); history=body.get("history") or []
+    q=(body.get("q") or "").strip()[:KB_MAX_QUESTION_CHARS]
+    history=body.get("history") or []
     if not q: return jsonify({"error":"missing q"}),400
     if not ANTHROPIC_API_KEY: return jsonify({"answer":"Knowledge Bank needs ANTHROPIC_API_KEY.","sources":[]}),200
     NL=chr(10); matches=[]; q_lower=q.lower(); q_words=[w for w in q_lower.split() if len(w)>3]
@@ -2588,14 +3044,14 @@ def api_kb_chat():
                 text=(src.get("title","")+" "+src.get("snippet","")).strip()
                 matches.append({"nb":nb.get("title","Unknown"),"title":src.get("title",""),"text":text[:200],"url":src.get("url","")})
     ctx=NL.join("- ["+m["nb"]+"] "+m["title"]+": "+m["text"] for m in matches[:15]) or "No relevant content."
-    msgs=[h for h in history[-5:] if h.get("role") in ("user","assistant")]
-    if not msgs or msgs[-1]["role"] != "user": msgs.append({"role":"user","content":q})
+    msgs=_kb_messages(q, history)   # B1
     system=("Expert intelligence analyst — Hezbollah Knowledge Bank.\n"+
             "Relevant content:\n\n"+ctx+"\n\nAnswer based on notebooks. Bold key entities. English only.")
     try:
         r=requests.post("https://api.anthropic.com/v1/messages",
             headers={"x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
-            json={"model":"claude-haiku-4-5-20251001","max_tokens":600,"system":system,"messages":msgs},
+            json={"model":"claude-haiku-4-5-20251001","max_tokens":KB_MAX_TOKENS,
+                  "system":system,"messages":msgs},
             timeout=SERPAPI_TIMEOUT)
         if r.status_code >= 400: return jsonify({"answer":"Knowledge Bank unavailable.","sources":[]}),200
         answer="".join(b.get("text","") for b in r.json().get("content",[]) if b.get("type")=="text").strip()
@@ -2695,21 +3151,54 @@ def debug_account():
         return body,r.status_code
     except Exception as e: return {"error":str(e)[:160]},500
 
+# B6: /healthz called claude_health(), which sends a real (billed) message to
+# the Anthropic API, plus a DB write round-trip and a live GDELT fetch — on
+# EVERY hit. Platform health checks poll this every few seconds, so the liveness
+# probe itself was a recurring line item and a source of load against three
+# third parties. A liveness check must answer "is this process up" and touch
+# nothing outbound. The deep probe still exists, behind ?deep=1, with its result
+# cached so even a hammered deep check costs one round-trip per DEEP_HEALTH_TTL.
+DEEP_HEALTH_TTL = int(os.environ.get("DEEP_HEALTH_TTL", "120"))
+_deep_health: dict = {"at": 0.0, "value": None}
+_deep_health_lock = threading.Lock()
+
+
 @app.route("/healthz")
+@rate_limit(120, 60)
 def healthz():
     # Lightweight liveness/config-status endpoint (matches README; distinct from
     # the fuller /api/status which is used by the UI's source indicators).
-    return jsonify({"ok":True,"sources_configured":{
+    # Everything here is read from process memory — no outbound calls.
+    shallow = {"ok":True,"sources_configured":{
         "youtube":bool(YOUTUBE_API_KEY),"serpapi":bool(SERPAPI_KEY),
         "scrapebadger":bool(SCRAPEBADGER_KEY),"reddit_official":bool(REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET),
         "anthropic":bool(ANTHROPIC_API_KEY),"babelstreet":bool(BABELSTREET_API_KEY)},
-        "persistence":db.health(),
-        "analysis_engine":claude_health(),
-        "email":mailer.health(),
-        # GDELT needs no API key, so "configured" would always be true and tell
-        # you nothing. What actually matters is whether this IP is currently
-        # being rate-limited, which is what health() reports.
-        "gdelt":{**gdelt.health(),"limiter":gdelt.stats()}}),200
+        "deep":False,
+        "hint":"add ?deep=1 for live persistence / Claude / email / GDELT probes"}
+
+    if (request.args.get("deep") or "").lower() not in ("1","true","yes"):
+        return jsonify(shallow),200
+
+    now = time.time()
+    with _deep_health_lock:
+        cached = _deep_health["value"]
+        fresh = cached is not None and (now - _deep_health["at"]) < DEEP_HEALTH_TTL
+    if fresh:
+        return jsonify({**shallow,**cached,"deep":True,"deep_cached":True,
+                        "deep_age_seconds":round(now - _deep_health["at"],1)}),200
+
+    deep = {"persistence":db.health(),
+            "analysis_engine":claude_health(),
+            "email":mailer.health(),
+            # GDELT needs no API key, so "configured" would always be true and
+            # tell you nothing. What actually matters is whether this IP is
+            # currently being rate-limited, which is what health() reports.
+            "gdelt":{**gdelt.health(),"limiter":gdelt.stats()}}
+    with _deep_health_lock:
+        _deep_health["at"] = time.time()
+        _deep_health["value"] = deep
+    return jsonify({**shallow,**deep,"deep":True,"deep_cached":False,
+                    "deep_age_seconds":0}),200
 
 if NOTEBOOKLM_AUTH_ARCHIVE and _restore_notebooklm_auth():
     threading.Thread(target=_notebooklm_sync_loop,daemon=True,name="notebooklm-sync").start()
