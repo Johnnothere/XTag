@@ -1,0 +1,113 @@
+Rebuild the UI on Apple's Liquid Glass layer rules; fix 34 defects
+
+FRONTEND — design system v3 ("sovereign glass")
+
+Glass is a layer, not a style. Apple's HIG puts Liquid Glass on "the topmost
+layer of the interface, where you define your navigation", warns that making
+a table glass "would make it compete with other elements and muddy the
+hierarchy", and forbids glass on glass. The previous stylesheet glassed the
+data — stat tiles, cluster cards, entity chips, relationship rows, the threat
+card, result cards. Chrome is now glass; content is opaque with a hairline.
+
+Also: specular rims (the "lensing" edge is what reads as glass, not the blur),
+concentric radii (inner = outer - padding), a type ramp with negative tracking
+at display sizes and positive at caption sizes, tabular figures on every
+number, title-case section headers, a 4pt spacing scale, tokenised motion, a
+full-bleed editorial landing state, and a print stylesheet.
+
+Accessibility:
+- --ink3 measured 2.6:1 and carried nearly every caption. Now 4.6:1.
+- Reduce Transparency toggle in the top bar. Safari does not expose the OS
+  setting to CSS; Apple shipped this same toggle in iOS 26.1.
+- prefers-reduced-transparency, prefers-contrast, forced-colors and
+  prefers-reduced-motion all handled.
+- Clickable divs are now buttons, one focus ring that is never removed,
+  labelled form controls, live regions, 44px targets on coarse pointers.
+
+FRONTEND — bugs
+
+- 8 controls installed no handler at all. onclick="loadQ(" + JSON.stringify(q)
+  + ")" closes the attribute at the second quote, leaving the body "loadQ(".
+  This killed every hero suggestion chip, the whole search-history rail, every
+  narrative cluster card and the watchlist delete button. Replaced with event
+  delegation; no handler is built from a string anywhere now.
+- Stored XSS: the executive brief was written to innerHTML raw, and it is
+  generated from scraped adversary posts. Escaped before markup is applied.
+- esc() did not escape apostrophes while values were interpolated into
+  single-quoted attributes.
+- The entity map's rAF loop, ResizeObserver and MutationObserver leaked for the
+  session: EMAP lives inside the IIFE, so window.EMAP was undefined and the
+  teardown call was a silent no-op.
+- fetch() never checked r.ok, so a 429 or 500 rendered as a confident report
+  reading "0 posts from 0 sources" — indistinguishable from no activity.
+- Filters leaked between searches; the grid could read "0 / 412 posts" while
+  the report above summarised all 412.
+- The loader was uncancellable, its interval never cleared, and its hide timer
+  raced the next search.
+- "812 / 812 posts" while only 300 were in the DOM.
+- Empty, no-match, filtered-out and failed are four distinct screens now.
+- Mode tabs were hidden below 860px, making Entities and Timeline — including
+  the entity map — unreachable on a narrow window.
+- The brief was lost permanently if you switched tabs while it was in flight.
+- Rail tooltips were clipped by overflow:hidden; .istat.neg did not exist;
+  .wl-alert.low was unstyled; the cluster connector's dashed border had no
+  border-width so it rendered solid; "show original" was styled but never
+  rendered, so non-English posts could only be read as machine translations.
+
+BACKEND — correctness
+
+- intel.py: the physical-security score was inverted. flagged_docs capped at 12
+  while the denominator did not, so 180 violent documents in 200 scored 10.2
+  (low) instead of 100 — the dimension fell as violence rose.
+- app.py: unanalysed documents were padded with "neutral" and counted as real
+  data, then persisted as the permanent time series. They are now unscored and
+  the shortfall is reported.
+- intel.py: a banded threat score could be produced from zero documents;
+  confidence reached "high" at 8 documents on coverage alone.
+- intel.py: the coordination signal was counted twice, producing factor rows
+  with a non-zero score whose own evidence string said there was no evidence.
+- db.py: snapshots_history ordered ascending with a limit, truncating the
+  recent end — history froze permanently past the limit.
+- db.py: user query text reached a PostgREST ilike filter with % and _
+  unescaped, so it acted as a SQL wildcard.
+- app.py: _credibility_for_url used lstrip("www."), a character set, not a
+  prefix. wsj.com -> sj.com, nytimes.com -> ytimes.com; both were scoring as
+  unattributed sources, pushing the credibility threat factor up.
+- app.py: one future-dated post matched every velocity window at once and
+  fired an "accelerating" alert and an email.
+- gdelt.py: articles() reported error=None on partial window failure; a single
+  timeout permanently downgraded the process from HTTPS to HTTP; the
+  circuit-breaker abort matched substrings the breaker never emits.
+- intel.py: geographic breadth read a display-truncated country list and
+  saturated at 40 countries.
+
+BACKEND — security and cost
+
+- /api/kb/chat passed client-supplied history straight to Anthropic as the
+  messages array: a free proxy to the API key.
+- Every money-spending route was anonymous and unthrottled. Added an
+  in-process rate limiter (429 + Retry-After) and an optional XTAG_API_KEY
+  gate that stays off when the variable is unset.
+- /api/watchlist/check-all raised an unhandled 500 on its normal path and
+  discarded completed work.
+- /unsubscribe acted on GET, so link prefetchers and mail scanners silently
+  unsubscribed real recipients. GET now confirms; POST acts.
+- /healthz made a billed Anthropic call on every probe.
+
+BACKEND — reliability
+
+- _claude_call hardcoded a 25s timeout, making ANALYSIS_TIMEOUT dead config and
+  failing exactly the two largest analysis calls.
+- The search pool's deadline bounded nothing: shutdown(wait=True) blocked on
+  the slowest source anyway.
+- The NotebookLM sync thread cleared and refilled a dict readers were
+  iterating.
+- Both in-process caches were mutated from multiple threads with no lock.
+
+NEW
+
+- templates/report.html. /report called render_template on a file that did not
+  exist, so it 500'd after paying for a full search and a Claude brief.
+  Printable, escapes everything, renders from an empty dict.
+
+See FIXES.md for the per-fix detail.
