@@ -1,381 +1,613 @@
-<!DOCTYPE html>
+{#
+  XTag printable intelligence report.
+
+  Rendered by /report with `d` = build_dossier(payload, brief_text). Everything
+  is read defensively — `d.get(...) or {}` — because a dossier assembled from a
+  degraded search legitimately has whole sections missing, and a report that
+  500s after the search has already been paid for is the worst possible outcome.
+
+  ESCAPING: every value here is either scraped from the open web or written by a
+  language model. `|safe` appears nowhere in this file and must not be added.
+  The only transform applied to model text is stripping the `**` markdown
+  emphasis the brief prompt asks for, which is a plain string replace on an
+  already-escaped value.
+
+  No external stylesheets, fonts, scripts or images: the report has to render
+  identically offline, from a saved .html file, and inside a print preview.
+#}
+{% set conf      = d.get('confidence')      or {} %}
+{% set totals    = d.get('totals')          or {} %}
+{% set sent      = d.get('sentiment')       or {} %}
+{% set threat    = d.get('threat')          or {} %}
+{% set risk      = d.get('risk')            or {} %}
+{% set inauth    = d.get('inauthenticity')  or {} %}
+{% set audience  = d.get('audience')        or {} %}
+{% set coord     = d.get('coordination')    or {} %}
+{% set vel       = d.get('velocity')        or {} %}
+{% set prop      = d.get('propagation')     or {} %}
+{% set langs     = d.get('languages')       or {} %}
+{% set narr      = d.get('narratives')      or [] %}
+{% set ents      = d.get('entities')        or [] %}
+{% set edges     = d.get('entity_edges')    or [] %}
+{% set mix       = d.get('source_mix')      or [] %}
+{% set evidence  = d.get('evidence')        or [] %}
+{% set dims      = (risk.get('dimensions')  if risk else none) or {} %}
+{% set errors    = d.get('engine_errors')   or {} %}
+{% set degraded  = d.get('gdelt_degraded')  or [] %}
+
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>XTag Dossier — {{ d.query }}</title>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>XTag report — {{ d.get('query') or 'untitled' }}</title>
 <style>
-:root{
-  --ink:#111;--ink2:#444;--ink3:#777;--line:#ddd;--line2:#eee;
-  --accent:#c2410c;--bg:#fff;--surface:#fafafa;
-  --pos:#0d9669;--neg:#dc2626;--neu:#71717a;--warn:#d97706;
-  --state:#7c3aed;--academic:#0369a1;
-  --serif:"Instrument Serif",Georgia,serif;--sans:"Inter",system-ui,sans-serif;--mono:"JetBrains Mono",monospace;
-}
-*{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:11pt;line-height:1.6;}
-.page{max-width:920px;margin:0 auto;padding:48px 56px;}
-a{color:var(--accent);text-decoration:none;}
+  :root{
+    --ink:#16161c; --ink-2:#3d3d4d; --ink-3:#6a6a7d; --ink-4:#9a9aab;
+    --rule:#e2e1dc; --rule-2:#efeeea; --panel:#f7f6f2; --accent:#b8380a;
+    --low:#3f7f5e; --moderate:#9a7212; --elevated:#c0620d;
+    --high:#c0350d; --critical:#8f1f0b; --unknown:#6a6a7d;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-print-color-adjust:exact; print-color-adjust:exact;}
+  body{
+    margin:0; background:#fff; color:var(--ink);
+    font:14px/1.62 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+  }
+  .sheet{max-width:920px;margin:0 auto;padding:44px 40px 64px;}
+  h1,h2,h3,th,.eyebrow,.badge,.tag,.num{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  }
+  .eyebrow{font-size:10px;letter-spacing:.22em;text-transform:uppercase;
+           color:var(--accent);font-weight:700;}
+  h1{font-size:30px;line-height:1.22;margin:12px 0 6px;font-weight:600;letter-spacing:-.01em;}
+  h2{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+     font-weight:700;margin:0 0 12px;padding-bottom:7px;border-bottom:1px solid var(--rule);}
+  h3{font-size:13px;margin:0 0 6px;font-weight:700;color:var(--ink);}
+  p{margin:0 0 10px;}
+  a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid var(--rule);}
+  .meta{font-size:12px;color:var(--ink-3);margin:0;}
+  .rule-top{border-top:3px solid var(--ink);padding-top:14px;}
+  header{border-bottom:1px solid var(--rule);padding-bottom:20px;margin-bottom:26px;}
+  section{margin:0 0 30px;}
 
-/* PRINT TOOLBAR */
-.toolbar{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:12px 56px;display:flex;align-items:center;gap:12px;z-index:100;max-width:920px;margin:0 auto;}
-.tb-btn{font:inherit;font-size:12px;font-weight:600;background:var(--accent);color:#fff;border:none;border-radius:7px;padding:8px 18px;cursor:pointer;}
-.tb-btn:hover{background:#a5330a;}
-.tb-btn.alt{background:#fff;color:var(--ink2);border:1px solid var(--line);}
-.tb-btn.alt:hover{background:var(--surface);}
-.tb-note{font-size:11px;color:var(--ink3);margin-left:auto;}
+  /* Figures */
+  .figs{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0 0;}
+  .fig{background:var(--panel);border:1px solid var(--rule-2);border-radius:8px;padding:12px 12px 11px;}
+  .fig .num{font-size:23px;line-height:1.05;font-weight:300;color:var(--ink);}
+  .fig .lbl{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+            color:var(--ink-4);margin-top:5px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
 
-/* HEADER */
-.doc-head{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:28px;}
-.doc-class{font-size:9pt;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:700;margin-bottom:14px;}
-.doc-title{font-family:var(--serif);font-size:32pt;line-height:1.1;letter-spacing:-.01em;margin-bottom:8px;}
-.doc-sub{font-size:10pt;color:var(--ink3);display:flex;gap:16px;flex-wrap:wrap;}
-.doc-sub span{display:flex;align-items:center;gap:5px;}
+  /* Bands */
+  .badge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.09em;
+         text-transform:uppercase;border-radius:4px;padding:3px 8px;border:1px solid currentColor;}
+  .b-low{color:var(--low);} .b-moderate{color:var(--moderate);}
+  .b-elevated{color:var(--elevated);} .b-high{color:var(--high);}
+  .b-critical{color:var(--critical);background:#fbeeea;}
+  .b-unknown{color:var(--unknown);background:var(--panel);}
 
-/* CONFIDENCE */
-.conf-box{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:4px;padding:14px 18px;margin-bottom:28px;background:var(--surface);}
-.conf-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
-.conf-label{font-size:9pt;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:600;}
-.conf-val{font-size:11pt;font-weight:700;letter-spacing:.04em;}
-.conf-val.HIGH{color:var(--pos);}
-.conf-val.MODERATE{color:var(--warn);}
-.conf-val.LOW{color:var(--neg);}
-.conf-caveat{font-size:10pt;color:var(--ink2);padding:3px 0 3px 16px;position:relative;}
-.conf-caveat::before{content:"▸";position:absolute;left:0;color:var(--ink3);}
-.conf-caveat b{color:var(--ink);}
-.conf-none{font-size:10pt;color:var(--ink2);}
+  .score-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px;}
+  .score-head .score{font-size:40px;font-weight:300;line-height:1;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .score-head .of{font-size:13px;color:var(--ink-4);}
 
-/* SECTIONS */
-h2{font-size:11pt;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:600;margin:32px 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line);}
-h2:first-of-type{margin-top:0;}
-.brief-text{font-size:11.5pt;line-height:1.8;color:var(--ink2);}
-.brief-text strong{color:var(--ink);font-weight:600;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th{text-align:left;font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
+     color:var(--ink-4);font-weight:700;padding:0 8px 6px 0;border-bottom:1px solid var(--rule);}
+  td{padding:7px 8px 7px 0;border-bottom:1px solid var(--rule-2);vertical-align:top;}
+  td.n,th.n{text-align:right;padding-right:0;white-space:nowrap;
+            font-variant-numeric:tabular-nums;}
+  .muted{color:var(--ink-3);} .dim{color:var(--ink-4);}
+  .wrap{overflow-x:auto;}
 
-/* STATS GRID */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px;}
-.stat{border:1px solid var(--line);border-radius:5px;padding:12px 14px;}
-.stat-v{font-size:20pt;font-weight:300;line-height:1;letter-spacing:-.02em;}
-.stat-l{font-size:8.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-top:4px;}
+  .callout{background:var(--panel);border-left:3px solid var(--accent);
+           padding:12px 16px;border-radius:0 6px 6px 0;font-size:13px;}
+  .brief{white-space:pre-wrap;font-size:14.5px;line-height:1.75;color:var(--ink-2);}
+  ul.plain{margin:0;padding-left:18px;} ul.plain li{margin:0 0 5px;}
 
-/* SENTIMENT */
-.sent-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;margin:10px 0;}
-.sent-seg.pos{background:var(--pos);}
-.sent-seg.neu{background:var(--neu);}
-.sent-seg.neg{background:var(--neg);}
-.sent-legend{display:flex;gap:18px;font-size:10pt;color:var(--ink2);flex-wrap:wrap;}
-.sent-legend span{display:flex;align-items:center;gap:6px;}
-.sdot{width:8px;height:8px;border-radius:50%;}
+  .tag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.05em;
+       text-transform:uppercase;border-radius:9px;padding:2px 8px;
+       background:var(--panel);border:1px solid var(--rule);color:var(--ink-3);}
+  .chips{line-height:2.1;}
+  .chip{display:inline-block;font-size:12px;background:var(--panel);
+        border:1px solid var(--rule-2);border-radius:12px;padding:3px 10px;margin:0 5px 4px 0;}
 
-/* TABLES */
-table{width:100%;border-collapse:collapse;font-size:10pt;margin-bottom:8px;}
-th{text-align:left;font-size:8.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line);}
-td{padding:9px 10px;border-bottom:1px solid var(--line2);vertical-align:top;}
-tr:last-child td{border-bottom:none;}
-.tag{display:inline-block;font-size:8.5pt;font-weight:600;padding:2px 8px;border-radius:10px;letter-spacing:.03em;}
-.tag.fear{background:#fff2e6;color:#c2410c;}
-.tag.anger{background:#fee;color:#dc2626;}
-.tag.hope{background:#e6f9f2;color:var(--pos);}
-.tag.pride{background:#f0ebff;color:#7c3aed;}
-.tag.grief{background:#f1f5f9;color:#64748b;}
-.tag.threat{background:#fee;color:#b91c1c;}
-.tag.disinformation{background:#fce7f3;color:#be185d;}
-.tag.neutral{background:#f4f4f5;color:var(--neu);}
-.tag.positive{background:#e6f9f2;color:var(--pos);}
-.tag.negative{background:#fee;color:var(--neg);}
-.tag.high{background:#e6f9f2;color:var(--pos);}
-.tag.medium{background:#fef3c7;color:var(--warn);}
-.tag.low{background:#fee;color:var(--neg);}
-.tag.state{background:#f0ebff;color:var(--state);}
-.tag.academic{background:#e0f2fe;color:var(--academic);}
-.tag.news{background:#fef3c7;color:var(--warn);}
-.mono{font-family:var(--mono);font-size:9.5pt;}
+  .item{padding:11px 0;border-bottom:1px solid var(--rule-2);}
+  .item:last-child{border-bottom:0;}
+  .ev-src{font-size:11px;color:var(--ink-4);margin-top:4px;word-break:break-word;}
 
-/* LANGUAGE */
-.lang-row{display:flex;gap:8px;flex-wrap:wrap;}
-.lang-pill{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:16px;padding:5px 12px;font-size:10pt;}
-.lang-n{font-family:var(--mono);font-size:9pt;color:var(--ink3);}
+  footer{border-top:1px solid var(--rule);margin-top:36px;padding-top:16px;
+         font-size:11.5px;line-height:1.7;color:var(--ink-3);}
 
-/* ENTITIES */
-.ent-row{display:flex;flex-wrap:wrap;gap:6px;}
-.ent{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:14px;padding:4px 11px;font-size:10pt;}
-.ent-type{font-size:8pt;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);}
-.ent-n{font-family:var(--mono);font-size:9pt;color:var(--accent);}
-
-/* PROPAGATION */
-.prop{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:10pt;}
-.prop-node{border:1px solid var(--line);border-radius:5px;padding:4px 10px;}
-.prop-node.origin{border-color:var(--accent);color:var(--accent);font-weight:600;}
-.prop-lag{font-size:8.5pt;color:var(--ink3);}
-
-/* EVIDENCE */
-.ev{border:1px solid var(--line);border-radius:5px;padding:12px 14px;margin-bottom:8px;page-break-inside:avoid;}
-.ev-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;font-size:9.5pt;}
-.ev-plat{font-weight:600;color:var(--ink);}
-.ev-author{color:var(--ink3);}
-.ev-time{color:var(--ink3);margin-left:auto;font-family:var(--mono);font-size:9pt;}
-.ev-title{font-size:10.5pt;font-weight:600;margin-bottom:4px;line-height:1.4;}
-.ev-text{font-size:10pt;color:var(--ink2);line-height:1.55;margin-bottom:6px;}
-.ev-url{font-size:8.5pt;color:var(--ink3);font-family:var(--mono);word-break:break-all;}
-.ev-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;}
-.translated-note{font-size:8.5pt;color:var(--accent);font-style:italic;}
-
-/* FOOTER */
-.doc-foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);font-size:9pt;color:var(--ink3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;}
-
-/* PRINT */
-@media print{
-  .toolbar{display:none;}
-  .page{padding:0;max-width:100%;}
-  body{font-size:10pt;}
-  h2{page-break-after:avoid;}
-  .ev,.conf-box,table{page-break-inside:avoid;}
-  @page{margin:18mm 16mm;}
-}
+  @media print{
+    @page{margin:16mm 14mm;}
+    body{font-size:11.5pt;}
+    .sheet{max-width:none;padding:0;}
+    a{border-bottom:0;color:var(--ink);}
+    section,.item,.fig,.callout{break-inside:avoid;page-break-inside:avoid;}
+    h2{break-after:avoid;page-break-after:avoid;}
+    tr{break-inside:avoid;page-break-inside:avoid;}
+    .no-print{display:none !important;}
+    footer{break-before:auto;}
+  }
+  @media (max-width:640px){
+    .sheet{padding:24px 18px 40px;}
+    .figs{grid-template-columns:repeat(2,1fr);}
+    h1{font-size:24px;}
+  }
 </style>
 </head>
 <body>
+<div class="sheet">
 
-<div class="toolbar">
-  <button class="tb-btn" onclick="window.print()">Print / Save as PDF</button>
-  <button class="tb-btn alt" onclick="downloadJSON()">Download JSON</button>
-  <span class="tb-note">Use your browser's print dialog → "Save as PDF"</span>
-</div>
+{# ── Header ──────────────────────────────────────────────────────────────── #}
+<header class="rule-top">
+  <div class="eyebrow">XTag Narrative Intelligence &middot; {{ d.get('classification') or 'OSINT — OPEN SOURCE' }}</div>
+  <h1>{{ d.get('query') or '(no query)' }}</h1>
+  <p class="meta">
+    Generated {{ d.get('generated_at') or 'unknown' }} (UTC)
+    {%- if conf.get('overall') %} &middot; Dossier confidence
+      <span class="badge b-{{ conf.get('overall')|lower }}">{{ conf.get('overall') }}</span>
+    {%- endif %}
+    {%- if threat.get('band') %} &middot; Threat band
+      <span class="badge b-{{ threat.get('band') }}">{{ threat.get('band') }}</span>
+    {%- endif %}
+  </p>
+</header>
 
-<div class="page">
-
-  <!-- HEADER -->
-  <div class="doc-head">
-    <div class="doc-class">{{ d.classification }}</div>
-    <div class="doc-title">{{ d.query }}</div>
-    <div class="doc-sub">
-      <span>Narrative Intelligence Dossier</span>
-      <span>·</span>
-      <span>{{ d.generated_at[:19].replace('T',' ') }} UTC</span>
-      <span>·</span>
-      <span>{{ d.totals.mentions }} documents</span>
-      <span>·</span>
-      <span>{{ d.totals.platforms_with_results }} sources</span>
+{# ── Headline figures ────────────────────────────────────────────────────── #}
+<section>
+  <h2>At a glance</h2>
+  <div class="figs">
+    <div class="fig"><div class="num">{{ totals.get('mentions', 0) }}</div><div class="lbl">Documents</div></div>
+    <div class="fig"><div class="num">{{ totals.get('platforms_with_results', 0) }}/{{ totals.get('platforms_searched', 0) }}</div><div class="lbl">Sources with data</div></div>
+    <div class="fig">
+      <div class="num">{% if sent.get('net') is not none %}{{ '%+.2f'|format(sent.get('net')) }}{% else %}&mdash;{% endif %}</div>
+      <div class="lbl">Net sentiment</div>
     </div>
+    <div class="fig"><div class="num">{{ coord.get('coordination_score', 0) }}</div><div class="lbl">Coordination</div></div>
+    <div class="fig"><div class="num">{{ totals.get('state_media', 0) }}</div><div class="lbl">State media</div></div>
+    <div class="fig"><div class="num">{{ narr|length }}</div><div class="lbl">Narrative clusters</div></div>
+    <div class="fig"><div class="num">{{ ents|length }}</div><div class="lbl">Entities</div></div>
+    <div class="fig"><div class="num">{{ vel.get('acceleration') or '—' }}</div><div class="lbl">Velocity</div></div>
+  </div>
+</section>
+
+{# ── Executive brief ─────────────────────────────────────────────────────── #}
+{% if d.get('executive_brief') %}
+<section>
+  <h2>Executive brief</h2>
+  {# Model-generated prose. Escaped by Jinja's autoescape; the only change is
+     stripping the ** emphasis markers the prompt asks the model to use. #}
+  <div class="brief">{{ (d.get('executive_brief'))|replace('**','') }}</div>
+  <p class="meta" style="margin-top:10px;">Machine-generated summary of the collected material. Verify every claim against the evidence section before acting on it.</p>
+</section>
+{% endif %}
+
+{# ── Threat assessment ───────────────────────────────────────────────────── #}
+{% if threat %}
+<section>
+  <h2>Narrative threat assessment</h2>
+  <div class="score-head">
+    <span class="score">{{ threat.get('score', 0) }}</span><span class="of">/ 100</span>
+    <span class="badge b-{{ threat.get('band') or 'unknown' }}">{{ threat.get('band') or 'unknown' }}</span>
+    <span class="muted" style="font-size:12.5px;">
+      Confidence {{ threat.get('confidence', 0) }}
+      ({{ threat.get('confidence_band') or 'unknown' }})
+      &middot; signal coverage {{ threat.get('signal_coverage', 0) }}%
+    </span>
   </div>
 
-  <!-- CONFIDENCE -->
-  <div class="conf-box">
-    <div class="conf-head">
-      <span class="conf-label">Analytic Confidence</span>
-      <span class="conf-val {{ d.confidence.overall }}">{{ d.confidence.overall }}</span>
+  {% if threat.get('caveats') %}
+  <div class="callout" style="margin-bottom:14px;">
+    <ul class="plain">
+      {% for c in threat.get('caveats') %}<li>{{ c }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if threat.get('factors') %}
+  <div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Factor</th><th class="n">Score</th><th class="n">Weight</th>
+      <th class="n">Share</th><th class="n">Contribution</th><th>Evidence</th>
+    </tr></thead>
+    <tbody>
+    {% for f in threat.get('factors') %}
+      <tr>
+        <td><strong>{{ f.get('label') }}</strong></td>
+        <td class="n">{% if f.get('available') %}{{ f.get('score') }}{% else %}&mdash;{% endif %}</td>
+        <td class="n dim">{{ f.get('weight') }}</td>
+        <td class="n dim">{% if f.get('contribution_pct') is not none %}{{ f.get('contribution_pct') }}%{% else %}&mdash;{% endif %}</td>
+        <td class="n">{% if f.get('contribution') is not none %}{{ f.get('contribution') }}{% else %}&mdash;{% endif %}</td>
+        <td class="muted">
+          {%- if f.get('available') %}{{ f.get('detail') or '' }}
+          {%- else %}<em>not assessed &mdash; {{ f.get('reason') or 'unavailable' }}</em>{% endif -%}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="meta" style="margin-top:8px;">
+    <strong>Weight</strong> is the factor's configured importance; <strong>share</strong> is
+    the portion of this assessment it actually carried after unavailable factors were
+    excluded and the remainder renormalised. Unavailable factors are excluded from the
+    total, never scored as zero.
+  </p>
+  {% endif %}
+
+  {% if threat.get('primary_drivers') %}
+  <p class="meta" style="margin-top:10px;">Primary drivers:
+    {% for dr in threat.get('primary_drivers') %}{{ dr.get('label') }} ({{ dr.get('contribution') }}){% if not loop.last %} &middot; {% endif %}{% endfor %}
+  </p>
+  {% endif %}
+
+  {% if threat.get('inputs') %}
+  {% set inp = threat.get('inputs') %}
+  <p class="meta">Computed from {{ inp.get('n_docs', 0) }} document(s){% if inp.get('timespan_hours') %} over a {{ inp.get('timespan_hours') }}h window{% endif %}; GDELT snapshot {% if inp.get('gdelt_cached') %}from cache{% else %}fetched live{% endif %}.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── Risk dimensions ─────────────────────────────────────────────────────── #}
+{% if dims %}
+<section>
+  <h2>Risk by dimension</h2>
+  {% for key, dim in dims.items() %}
+  <div class="item">
+    <div class="score-head" style="margin-bottom:6px;">
+      <h3 style="margin:0;">{{ key|replace('_',' ')|title }}</h3>
+      <span class="badge b-{{ dim.get('band') or 'unknown' }}">{{ dim.get('band') or 'unknown' }}</span>
+      <span class="muted" style="font-size:12.5px;">{{ dim.get('score', 0) }}/100 &middot; coverage {{ dim.get('coverage', 0) }}%</span>
     </div>
-    {% if d.confidence.caveats %}
-      {% for c in d.confidence.caveats %}
-      <div class="conf-caveat"><b>{{ c[0] }}</b> — {{ c[1] }}</div>
+    {% if dim.get('rationale') %}<p class="muted" style="font-size:12.5px;">{{ dim.get('rationale') }}</p>{% endif %}
+    {% if dim.get('factors') %}
+    <div class="wrap">
+    <table>
+      <thead><tr><th>Factor</th><th class="n">Score</th><th class="n">Share</th><th>Evidence</th></tr></thead>
+      <tbody>
+      {% for f in dim.get('factors') %}
+        <tr>
+          <td>{{ f.get('label') }}</td>
+          <td class="n">{% if f.get('available') %}{{ f.get('score') }}{% else %}&mdash;{% endif %}</td>
+          <td class="n dim">{% if f.get('contribution_pct') is not none %}{{ f.get('contribution_pct') }}%{% else %}&mdash;{% endif %}</td>
+          <td class="muted">
+            {%- if f.get('available') %}{{ f.get('detail') or '' }}
+            {%- else %}<em>not assessed &mdash; {{ f.get('reason') or 'unavailable' }}</em>{% endif -%}
+          </td>
+        </tr>
       {% endfor %}
-    {% else %}
-      <div class="conf-none">No significant collection or analysis limitations identified.</div>
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+    {% if dim.get('top_terms') %}
+    <p class="meta" style="margin-top:8px;">Most frequent terms:
+      {% for t in dim.get('top_terms') %}{{ t.get('term') }} ({{ t.get('count') }}){% if not loop.last %}, {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+    {% if dim.get('flagged_documents') %}
+    <p class="meta">Flagged for human review
+      {%- if dim.get('flagged_document_count') %} ({{ dim.get('flagged_document_count') }} document(s); showing {{ dim.get('flagged_documents')|length }}){% endif %}:</p>
+    <ul class="plain" style="font-size:12px;">
+      {% for fd in dim.get('flagged_documents')[:8] %}
+        <li>[{{ fd.get('platform') or '?' }}] {{ fd.get('excerpt') or '' }}
+          <span class="dim">&mdash; {{ (fd.get('terms') or [])|join(', ') }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if dim.get('method_note') %}
+    <p class="meta"><em>{{ dim.get('method_note') }}</em></p>
     {% endif %}
   </div>
+  {% endfor %}
+</section>
+{% endif %}
 
-  <!-- EXECUTIVE BRIEF -->
-  {% if d.executive_brief %}
-  <h2>Executive Assessment</h2>
-  <div class="brief-text">{{ d.executive_brief | replace('**','') | replace('\n','<br/>') | safe }}</div>
-  {% endif %}
-
-  <!-- KEY METRICS -->
-  <h2>Key Metrics</h2>
-  <div class="stats">
-    <div class="stat"><div class="stat-v">{{ d.totals.mentions }}</div><div class="stat-l">Documents</div></div>
-    <div class="stat"><div class="stat-v">{{ d.sentiment.net if d.sentiment.net is not none else '—' }}</div><div class="stat-l">Net Sentiment</div></div>
-    <div class="stat"><div class="stat-v">{{ d.totals.state_media }}</div><div class="stat-l">State Media</div></div>
-    <div class="stat"><div class="stat-v">{{ d.coordination.coordination_score if d.coordination.coordination_score is defined else 0 }}</div><div class="stat-l">Coord. Score</div></div>
-  </div>
-
-  <!-- SENTIMENT -->
-  {% if d.sentiment.scored %}
-  <h2>Sentiment Distribution</h2>
-  {% set tot = d.sentiment.scored %}
-  <div class="sent-bar">
-    <div class="sent-seg pos" style="width:{{ (d.sentiment.positive / tot * 100)|round(1) }}%"></div>
-    <div class="sent-seg neu" style="width:{{ (d.sentiment.neutral / tot * 100)|round(1) }}%"></div>
-    <div class="sent-seg neg" style="width:{{ (d.sentiment.negative / tot * 100)|round(1) }}%"></div>
-  </div>
-  <div class="sent-legend">
-    <span><span class="sdot" style="background:var(--pos)"></span>Positive {{ d.sentiment.positive }} ({{ (d.sentiment.positive / tot * 100)|round(0)|int }}%)</span>
-    <span><span class="sdot" style="background:var(--neu)"></span>Neutral {{ d.sentiment.neutral }} ({{ (d.sentiment.neutral / tot * 100)|round(0)|int }}%)</span>
-    <span><span class="sdot" style="background:var(--neg)"></span>Negative {{ d.sentiment.negative }} ({{ (d.sentiment.negative / tot * 100)|round(0)|int }}%)</span>
-  </div>
-  {% if d.sentiment.engines %}
-  <p style="font-size:9.5pt;color:var(--ink3);margin-top:8px;">
-    Engines: {{ d.sentiment.engines | join(', ') }}{% if d.sentiment.agreement is not none %} · inter-engine agreement {{ (d.sentiment.agreement * 100)|round(0)|int }}%{% endif %}
-  </p>
-  {% endif %}
-  {% endif %}
-
-  <!-- LANGUAGES -->
-  {% if d.languages.distribution and d.languages.languages_detected > 1 %}
-  <h2>Language Distribution</h2>
-  <div class="lang-row">
-    {% for l in d.languages.distribution %}
-    <div class="lang-pill">{{ l.flag }} {{ l.name }} <span class="lang-n">{{ l.count }}</span></div>
-    {% endfor %}
-  </div>
-  <p style="font-size:9.5pt;color:var(--ink3);margin-top:8px;">
-    {{ d.languages.non_english_docs }} of {{ d.languages.total_docs }} documents are non-English.
-    Sentiment and framing were analysed in the source language; translations shown in evidence are for display only.
-  </p>
-  {% endif %}
-
-  <!-- NARRATIVES -->
-  {% if d.narratives %}
-  <h2>Narrative Clusters</h2>
-  <table>
-    <thead><tr><th>Narrative</th><th>Framing</th><th>Vol.</th><th>Velocity</th><th>Key Claim</th></tr></thead>
-    <tbody>
-    {% for n in d.narratives %}
-    <tr>
-      <td><b>{{ n.label }}</b>{% if n.actors %}<br/><span style="font-size:9pt;color:var(--ink3)">{{ n.actors[:4] | join(', ') }}</span>{% endif %}</td>
-      <td><span class="tag {{ n.framing }}">{{ n.framing }}</span></td>
-      <td class="mono">{{ n.count }}</td>
-      <td style="font-size:9.5pt;color:var(--ink3)">{{ n.velocity }}</td>
-      <td style="font-size:9.5pt;">{{ n.key_claim }}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  <!-- ENTITIES -->
-  {% if d.entities %}
-  <h2>Key Entities</h2>
-  <div class="ent-row">
-    {% for e in d.entities %}
-    <div class="ent"><span class="ent-type">{{ e.type }}</span><span>{{ e.name }}</span><span class="ent-n">×{{ e.mentions }}</span></div>
-    {% endfor %}
-  </div>
-  {% if d.entity_edges %}
-  <table style="margin-top:14px;">
-    <thead><tr><th>From</th><th>Relation</th><th>To</th></tr></thead>
-    <tbody>
-    {% for edge in d.entity_edges %}
-    <tr><td>{{ edge.from }}</td><td style="color:var(--ink3);font-size:9.5pt">{{ edge.relation }}</td><td>{{ edge.to }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-  {% endif %}
-
-  <!-- COORDINATION -->
-  {% if d.coordination.signals %}
-  <h2>Coordination Assessment</h2>
-  <p style="margin-bottom:10px;">
-    Score <b class="mono">{{ d.coordination.coordination_score }}/100</b> —
-    <span class="tag {{ d.coordination.risk }}">{{ d.coordination.risk }} risk</span>
-  </p>
-  <table>
-    <thead><tr><th>Signal</th><th>Severity</th><th>Detail</th></tr></thead>
-    <tbody>
-    {% for s in d.coordination.signals %}
-    <tr>
-      <td>{{ s.type | replace('_',' ') | title }}</td>
-      <td><span class="tag {{ s.severity }}">{{ s.severity }}</span></td>
-      <td style="font-size:9.5pt">{{ s.description }}</td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  <!-- VELOCITY -->
-  {% if d.velocity.windows %}
-  <h2>Velocity</h2>
-  <table>
-    <thead><tr><th>1h</th><th>6h</th><th>24h</th><th>48h</th><th>72h</th><th>7d</th><th>Trend</th></tr></thead>
-    <tbody><tr>
-      <td class="mono">{{ d.velocity.windows['1h'] }}</td>
-      <td class="mono">{{ d.velocity.windows['6h'] }}</td>
-      <td class="mono">{{ d.velocity.windows['24h'] }}</td>
-      <td class="mono">{{ d.velocity.windows['48h'] }}</td>
-      <td class="mono">{{ d.velocity.windows['72h'] }}</td>
-      <td class="mono">{{ d.velocity.windows['7d'] }}</td>
-      <td><b>{{ d.velocity.acceleration }}</b></td>
-    </tr></tbody>
-  </table>
-  {% endif %}
-
-  <!-- PROPAGATION -->
-  {% if d.propagation.propagation_chain and d.propagation.propagation_chain|length > 1 %}
-  <h2>Propagation Chain</h2>
-  <div class="prop">
-    {% for step in d.propagation.propagation_chain %}
-      <div>
-        <div class="prop-node {% if step.platform == d.propagation.origin %}origin{% endif %}">{{ step.platform }}</div>
-        <div class="prop-lag" style="text-align:center">{% if loop.index0 > 0 and step.lag_hours %}+{{ step.lag_hours }}h{% else %}origin{% endif %}</div>
-      </div>
-      {% if not loop.last %}<span style="color:var(--ink3)">→</span>{% endif %}
-    {% endfor %}
-  </div>
-  {% if d.propagation.spread_hours %}
-  <p style="font-size:9.5pt;color:var(--ink3);margin-top:8px;">
-    Total spread {{ d.propagation.spread_hours }}h across {{ d.propagation.platforms_reached }} platforms.
-  </p>
-  {% endif %}
-  {% endif %}
-
-  <!-- SOURCE MIX -->
-  {% if d.source_mix %}
-  <h2>Source Mix</h2>
-  <table>
-    <thead><tr><th>Platform</th><th>Documents</th></tr></thead>
-    <tbody>
-    {% for s in d.source_mix %}
-    <tr><td>{{ s.platform | replace('_',' ') | title }}</td><td class="mono">{{ s.count }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  <!-- EVIDENCE -->
-  {% if d.evidence %}
-  <h2>Evidence — Top Documents</h2>
-  {% for e in d.evidence[:25] %}
-  <div class="ev">
-    <div class="ev-head">
-      <span class="ev-plat">{{ e.platform | replace('_',' ') | title }}</span>
-      {% if e.author %}<span class="ev-author">{{ e.author }}</span>{% endif %}
-      {% if e.credibility == 'state' %}<span class="tag state">state</span>
-      {% elif e.credibility == 'high' %}<span class="tag high">high cred</span>{% endif %}
-      {% if e.timestamp %}<span class="ev-time">{{ e.timestamp[:16] | replace('T',' ') }}</span>{% endif %}
-    </div>
-    {% if e.title %}<div class="ev-title">{{ e.title }}</div>{% endif %}
-    {% if e.excerpt %}<div class="ev-text">{{ e.excerpt }}</div>{% endif %}
-    {% if e.translated %}<div class="translated-note">Translated from {{ e.language }} — analysis performed on original text</div>{% endif %}
-    <div class="ev-url">{{ e.url }}</div>
-    <div class="ev-tags">
-      {% if e.sentiment %}<span class="tag {{ e.sentiment }}">{{ e.sentiment }}</span>{% endif %}
-      {% if e.framing and e.framing != 'neutral' %}<span class="tag {{ e.framing }}">{{ e.framing }}</span>{% endif %}
-      {% if e.source_type and e.source_type != 'social' %}<span class="tag {{ e.source_type }}">{{ e.source_type | replace('_',' ') }}</span>{% endif %}
-    </div>
+{# ── Narratives ──────────────────────────────────────────────────────────── #}
+{% if narr %}
+<section>
+  <h2>Narrative clusters ({{ narr|length }})</h2>
+  {% for n in narr %}
+  <div class="item">
+    <h3>{{ n.get('label') or '(unlabelled)' }}</h3>
+    <p class="meta" style="margin-bottom:5px;">
+      <span class="tag">{{ n.get('framing') or 'neutral' }}</span>
+      {{ n.get('count', 0) }} posts &middot; {{ n.get('velocity') or 'stable' }}
+      {%- if n.get('platforms') %} &middot; {{ (n.get('platforms'))|join(', ') }}{% endif %}
+    </p>
+    {% if n.get('key_claim') %}<p style="font-size:13px;color:var(--ink-2);">{{ n.get('key_claim') }}</p>{% endif %}
+    {% if n.get('actors') %}<p class="meta">Actors: {{ (n.get('actors'))|join(', ') }}</p>{% endif %}
   </div>
   {% endfor %}
+</section>
+{% endif %}
+
+{# ── Entities and relationships ──────────────────────────────────────────── #}
+{% if ents or edges %}
+<section>
+  <h2>Entities and relationships</h2>
+  {% if ents %}
+  <div class="wrap">
+  <table>
+    <thead><tr><th>Entity</th><th>Type</th><th class="n">Mentions</th><th>Sentiment</th></tr></thead>
+    <tbody>
+    {% for e in ents %}
+      <tr>
+        <td><strong>{{ e.get('name') }}</strong></td>
+        <td class="muted">{{ e.get('type') or '—' }}</td>
+        <td class="n">{{ e.get('mentions', 0) }}</td>
+        <td class="muted">{{ e.get('sentiment') or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  {% if edges %}
+  <p class="meta" style="margin-top:14px;"><strong>Asserted relationships</strong> (extracted by a model from source text; unverified):</p>
+  <ul class="plain" style="font-size:12.5px;">
+    {% for g in edges %}
+      <li>{{ g['from'] if 'from' in g else '?' }} &rarr; {{ g.get('to') or '?' }}
+        <span class="dim">&mdash; {{ g.get('relation') or 'related' }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── Coordination and inauthenticity ─────────────────────────────────────── #}
+{% if coord or inauth %}
+<section>
+  <h2>Coordination &amp; inauthentic amplification</h2>
+
+  {% if coord %}
+  <div class="item">
+    <div class="score-head" style="margin-bottom:6px;">
+      <h3 style="margin:0;">Coordinated distribution</h3>
+      <span class="badge b-{{ coord.get('risk') or 'unknown' }}">{{ coord.get('risk') or 'unknown' }}</span>
+      <span class="muted" style="font-size:12.5px;">{{ coord.get('coordination_score', 0) }}/100</span>
+    </div>
+    <p class="meta">
+      {{ coord.get('near_duplicate_pairs', 0) }} cross-platform near-duplicate pairs &middot;
+      peak burst {{ coord.get('peak_burst_30min', 0) }} posts / 30min &middot;
+      {{ coord.get('cross_shared_urls', 0) }} URLs shared across 3+ platforms
+    </p>
+    {% if coord.get('signals') %}
+    <ul class="plain" style="font-size:12.5px;">
+      {% for sig in coord.get('signals') %}
+        <li><span class="tag">{{ sig.get('severity') or 'low' }}</span>
+            {{ sig.get('description') or sig.get('type') or '' }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
   {% endif %}
 
-  <!-- FOOTER -->
-  <div class="doc-foot">
-    <span>XTag Narrative Intelligence Platform</span>
-    <span>Generated {{ d.generated_at[:19] | replace('T',' ') }} UTC</span>
+  {% if inauth %}
+  <div class="item">
+    <div class="score-head" style="margin-bottom:6px;">
+      <h3 style="margin:0;">Inauthentic amplification</h3>
+      {% if inauth.get('score') is not none %}
+        <span class="badge b-{{ inauth.get('band') or 'unknown' }}">{{ inauth.get('band') or 'unknown' }}</span>
+        <span class="muted" style="font-size:12.5px;">{{ inauth.get('score') }}/100 across {{ inauth.get('assessed_docs', 0) }} documents</span>
+      {% else %}
+        <span class="badge b-unknown">not assessed</span>
+      {% endif %}
+    </div>
+    {% if inauth.get('unavailable_reason') %}
+      <p class="muted" style="font-size:12.5px;">{{ inauth.get('unavailable_reason') }}</p>
+    {% endif %}
+    {% if inauth.get('signals') %}
+    <ul class="plain" style="font-size:12.5px;">
+      {% for sig in inauth.get('signals') %}
+        <li><span class="tag">{{ sig.get('severity') or 'low' }}</span>
+            {{ sig.get('description') or sig.get('type') or '' }}</li>
+      {% endfor %}
+    </ul>
+    {% elif inauth.get('score') is not none %}
+      <p class="muted" style="font-size:12.5px;">No amplification signals met threshold in this corpus.</p>
+    {% endif %}
+    <p class="meta">
+      {{ inauth.get('copypasta_clusters', 0) }} verbatim clusters &middot;
+      {{ inauth.get('laundering_chains', 0) }} laundering chains
+      {%- if inauth.get('suspicious_handle_ratio') is not none %} &middot;
+        {{ (inauth.get('suspicious_handle_ratio') * 100)|round(1) }}% of handles match bulk-registration patterns{% endif %}
+    </p>
+    {% if inauth.get('method_note') %}<p class="meta"><em>{{ inauth.get('method_note') }}</em></p>{% endif %}
   </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── Velocity and propagation ────────────────────────────────────────────── #}
+{% if vel or prop %}
+<section>
+  <h2>Velocity &amp; propagation</h2>
+  {% if vel.get('windows') %}
+  <div class="figs">
+    {% for w in ['1h','6h','24h','48h','72h','7d'] %}
+      <div class="fig"><div class="num">{{ vel.get('windows').get(w, 0) }}</div><div class="lbl">Last {{ w }}</div></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <p class="meta" style="margin-top:12px;">
+    Trend: <strong>{{ vel.get('acceleration') or 'unknown' }}</strong>
+    {%- set basis = vel.get('acceleration_basis') or {} %}
+    {%- if basis %} ({{ basis.get('recent_6h', 0) }} posts in the last 6h vs
+      {{ basis.get('prior_18h', 0) }} in the 18h before it{% if basis.get('low_volume') %};
+      below the {{ basis.get('min_docs') }}-document floor, so no acceleration is
+      claimed{% endif %}){% endif %}
+    {%- if vel.get('future_dated_docs') %} &middot; {{ vel.get('future_dated_docs') }} document(s)
+      excluded for future-dated timestamps{% endif %}
+  </p>
+  {% if prop.get('propagation_chain') %}
+  <p class="meta">First observed on <strong>{{ prop.get('origin') or 'unknown' }}</strong>,
+     reaching {{ prop.get('platforms_reached', 0) }} platform(s)
+     {%- if prop.get('spread_hours') is not none %} over {{ prop.get('spread_hours') }}h{% endif %}.</p>
+  <div class="wrap">
+  <table>
+    <thead><tr><th>Platform</th><th>First seen</th><th class="n">Lag (h)</th></tr></thead>
+    <tbody>
+    {% for hop in prop.get('propagation_chain') %}
+      <tr><td>{{ hop.get('platform') }}</td>
+          <td class="muted">{{ hop.get('first_seen') }}</td>
+          <td class="n">{{ hop.get('lag_hours') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
+
+{# ── Source mix, sentiment, languages, geography ─────────────────────────── #}
+<section>
+  <h2>Source mix &amp; composition</h2>
+  {% if mix %}
+  <div class="wrap">
+  <table>
+    <thead><tr><th>Platform</th><th class="n">Documents</th></tr></thead>
+    <tbody>
+    {% for m in mix %}
+      <tr><td>{{ m.get('platform') }}</td><td class="n">{{ m.get('count', 0) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No platform returned documents for this query.</p>
+  {% endif %}
+
+  <p class="meta" style="margin-top:12px;">
+    By type: {{ totals.get('news', 0) }} news &middot; {{ totals.get('social', 0) }} social &middot;
+    {{ totals.get('state_media', 0) }} state/adversary media &middot; {{ totals.get('academic', 0) }} academic.
+    Engagement observed: {{ totals.get('engagement', 0) }}
+    ({{ totals.get('reactions', 0) }} reactions, {{ totals.get('comments', 0) }} comments,
+    {{ totals.get('shares', 0) }} shares).
+  </p>
+
+  {% if sent %}
+  <p class="meta">
+    Sentiment: {{ sent.get('positive', 0) }} positive, {{ sent.get('neutral', 0) }} neutral,
+    {{ sent.get('negative', 0) }} negative across {{ sent.get('scored', 0) }} scored document(s)
+    {%- if sent.get('unscored') %}; {{ sent.get('unscored') }} document(s) were NOT scored and are
+      excluded from these counts{% endif %}
+    {%- if sent.get('engines') %} &middot; engines: {{ (sent.get('engines'))|join(', ') }}{% endif %}
+    {%- if sent.get('agreement') is not none %} &middot; inter-engine agreement
+      {{ (sent.get('agreement') * 100)|round(0)|int }}%{% endif %}.
+  </p>
+  {% endif %}
+
+  {% if langs.get('distribution') %}
+  <p class="meta">Languages ({{ langs.get('languages_detected', 0) }} detected,
+     {{ langs.get('non_english_docs', 0) }} non-English documents):</p>
+  <div class="chips">
+    {% for l in langs.get('distribution')[:14] %}
+      <span class="chip">{{ l.get('name') or l.get('lang') }} <span class="dim">{{ l.get('count', 0) }}</span></span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if audience.get('countries') %}
+  <p class="meta" style="margin-top:12px;">Carried by media in
+    {{ audience.get('country_count', 0) }} countries
+    {%- if audience.get('geographic_concentration') %} ({{ audience.get('geographic_concentration') }} spread{% if audience.get('top3_country_share') is not none %}, top 3 hold {{ audience.get('top3_country_share') }}%{% endif %}){% endif %}:</p>
+  <div class="chips">
+    {% for c in audience.get('countries')[:16] %}
+      <span class="chip">{{ c.get('country') }} <span class="dim">{{ c.get('share') }}%</span></span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+{# ── Evidence ────────────────────────────────────────────────────────────── #}
+{% if evidence %}
+<section>
+  <h2>Evidence ({{ evidence|length }} highest-engagement documents)</h2>
+  {% for e in evidence %}
+  <div class="item">
+    <p class="meta" style="margin-bottom:3px;">
+      <span class="tag">{{ e.get('platform') or '?' }}</span>
+      {{ e.get('credibility') or 'unknown' }} credibility
+      {%- if e.get('author') %} &middot; {{ e.get('author') }}{% endif %}
+      {%- if e.get('timestamp') %} &middot; {{ e.get('timestamp') }}{% endif %}
+      {%- if e.get('sentiment') %} &middot; {{ e.get('sentiment') }}{% endif %}
+      {%- if e.get('framing') %} / {{ e.get('framing') }}{% endif %}
+      {%- if e.get('translated') %} &middot; translated from {{ e.get('language') or 'source language' }}{% endif %}
+    </p>
+    {% if e.get('title') %}<h3>{{ e.get('title') }}</h3>{% endif %}
+    {% if e.get('excerpt') %}<p style="font-size:12.5px;color:var(--ink-2);margin:0;">{{ e.get('excerpt') }}</p>{% endif %}
+    {% if e.get('url') %}<div class="ev-src">{{ e.get('url') }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{# ── Confidence, caveats, provenance ─────────────────────────────────────── #}
+<section>
+  <h2>Confidence &amp; limitations</h2>
+  <p><strong>Overall dossier confidence: {{ conf.get('overall') or 'UNKNOWN' }}</strong></p>
+  {% if conf.get('caveats') %}
+  <ul class="plain">
+    {% for c in conf.get('caveats') %}
+      <li><strong>{{ c[0] }}</strong> &mdash; {{ c[1] }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No structural confidence problems were detected in this collection.</p>
+  {% endif %}
+
+  {% if degraded %}
+  <p class="meta" style="margin-top:10px;"><strong>GDELT partially unavailable.</strong>
+    Tone, volume and geographic signals may be thin or missing:</p>
+  <ul class="plain" style="font-size:12px;">
+    {% for g in degraded %}<li>{{ g }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if errors %}
+  <p class="meta" style="margin-top:10px;"><strong>Analysis engine reported errors.</strong>
+    Sections below may be empty because a stage failed, not because nothing was found:</p>
+  <ul class="plain" style="font-size:12px;">
+    {% for k, v in errors.items() %}<li><strong>{{ k }}</strong>: {{ v }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<footer>
+  <p><strong>Sources.</strong> Open-source collection only. Social platforms (X, Reddit,
+  Bluesky, Mastodon, Telegram, TikTok, YouTube, Hacker News and web-indexed
+  Instagram/Facebook/LinkedIn/Threads/Pinterest/Tumblr), news via GDELT's global
+  article index and Google News, state and adversary media RSS in their native
+  languages, academic literature via OpenAlex and arXiv, podcast transcript
+  metadata via Podcast Index, and any connected NotebookLM knowledge bases.
+  Aggregate tone, volume, geography and language breakdowns come from GDELT.</p>
+
+  <p><strong>Method and limits.</strong> Figures reflect only what was reachable at
+  generation time; a source that was rate-limited, blocked or slow is absent, and
+  absence here is not evidence of absence in the world. Narrative clusters,
+  entities, relationships and the executive brief are produced by a language
+  model from collected text and are unverified assertions, not findings.
+  Sentiment is a machine classification; documents that could not be scored are
+  reported as unscored rather than counted as neutral. Coordination and
+  inauthenticity are campaign-shape measurements over observable text and
+  metadata &mdash; they make no claim about any individual account being
+  automated, and account age, follower graphs and posting history are not
+  available from these sources. The physical-security dimension is a lexical
+  screen that flags language for human review; it does not assess intent,
+  capability or credibility, and must not be read as a prediction of violence.
+  Where the evidence base was too thin to support a judgement, the band reads
+  "unknown" &mdash; that means the assessment could not be made, not that
+  nothing is happening.</p>
+
+  <p class="dim">XTag Narrative Intelligence &middot; {{ d.get('classification') or 'OSINT — OPEN SOURCE' }}
+  &middot; generated {{ d.get('generated_at') or 'unknown' }}</p>
+</footer>
 
 </div>
-
-<script>
-var DOSSIER = {{ d | tojson }};
-function downloadJSON(){
-  var blob = new Blob([JSON.stringify(DOSSIER, null, 2)], {type:'application/json'});
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'xtag-dossier-' + DOSSIER.query.replace(/[^a-z0-9]/gi,'-').toLowerCase() + '.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-</script>
 </body>
 </html>

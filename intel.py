@@ -83,11 +83,20 @@ class Factor:
         # so the visible contributions always sum to the headline score even
         # when some factors dropped out.
         contrib = None
+        # E4: `weight` is the CONFIGURED weight, but the composite renormalises
+        # over available factors only — so a factor configured at 20 can actually
+        # be carrying 50% of the score once others drop out, and displaying "20"
+        # understates it by more than a factor of two. Both numbers are emitted:
+        # `weight` for the design intent, `contribution_pct` for what this factor
+        # actually contributed to THIS assessment.
+        contribution_pct = None
         if self.available and total_weight > 0:
             contrib = round(self.score * self.weight / total_weight, 1)
+            contribution_pct = round(self.weight / total_weight * 100, 1)
         return {
             "key": self.key, "label": self.label,
-            "weight": self.weight, "available": self.available,
+            "weight": self.weight, "contribution_pct": contribution_pct,
+            "available": self.available,
             "score": round(self.score, 1) if self.available else None,
             "contribution": contrib,
             "detail": self.detail, "reason": self.reason,
@@ -109,6 +118,12 @@ def _composite(factors: list[Factor]) -> tuple[float, float, list[dict]]:
     score = sum(f.score * f.weight for f in usable) / total_w
     coverage = total_w / sum(f.weight for f in factors)
     return _clamp(score), coverage, [f.as_dict(total_w) for f in factors]
+
+
+# The minimum corpus size at which any document-derived judgement is worth
+# making. detect_inauthenticity already used 8 as its floor; A7 promotes it to a
+# module constant so the threat band can apply the same standard.
+MIN_ASSESSABLE_DOCS = 8
 
 
 def _band(score: float) -> str:
@@ -148,6 +163,10 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
     """
     Content- and account-level markers of inauthentic amplification.
 
+    `coordination` is accepted for call-site compatibility and deliberately NOT
+    used in the score (see A9 below): coordination is already a separately
+    weighted factor everywhere this score is consumed.
+
     This is deliberately NOT a bot classifier. Real bot detection needs account
     age, follower graphs and posting history that none of XTag's sources expose.
     What is observable here is the shape of an amplification campaign, so that is
@@ -162,7 +181,7 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
     # threat composite as a real, confident low reading and drags the headline
     # score down. Unavailable is the honest answer, and the composite excludes
     # it rather than counting it as clean.
-    if len(docs) < 8:
+    if len(docs) < MIN_ASSESSABLE_DOCS:
         return {
             "score": None, "band": None, "signals": [], "signal_count": 0,
             "copypasta_clusters": 0, "suspicious_handle_ratio": None,
@@ -312,14 +331,15 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
         })
 
     # ── Composite inauthenticity score ───────────────────────────────────────
-    coord = coordination or {}
+    # A9: the coordination score used to be folded in here at 0.33 weight. That
+    # double-counted it, because score_threat and assess_risk BOTH already score
+    # coordination as an independent weighted factor alongside this one. The
+    # visible symptom was a factor row reading "score 26.4 / 0 signals; 0
+    # clusters" — a non-zero score whose own evidence string said there was no
+    # evidence. This score is now purely its own signals; coordination is
+    # scored where it belongs, once.
     sev_weight = {"high": 26, "medium": 14, "low": 5}
-    raw = sum(sev_weight.get(s["severity"], 5) for s in signals)
-    # Fold in the existing coordination score at a third of its weight — it is
-    # measuring an adjacent thing (cross-platform duplication), so it is
-    # corroborating evidence, not an independent finding.
-    raw += (coord.get("coordination_score") or 0) * 0.33
-    score = _clamp(raw)
+    score = _clamp(sum(sev_weight.get(s["severity"], 5) for s in signals))
 
     return {
         "score": round(score, 1),
@@ -367,7 +387,14 @@ def build_audience(platforms: dict, languages: dict | None = None,
                    for c, n in corpus_langs.most_common(15)]
 
     countries = geo.get("countries") or []
-    reach_countries = len(countries)
+    # A10: geo["countries"] is truncated to 40 entries for DISPLAY, so len() on
+    # it saturated breadth at 40 and made the full_at=45 curve unreachable —
+    # a narrative in 40 countries scored identically to one in 120. GDELT
+    # already returns the real count; use it, and fall back to the list length
+    # only when the field is absent.
+    reach_countries = geo.get("total_countries")
+    if not reach_countries:
+        reach_countries = len(countries)
 
     # Reach breadth: how many national medias carry it at all. A narrative in
     # 40 countries is categorically different from one in 3, independent of volume.
@@ -561,7 +588,16 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
     vol_conf = _clamp(_log_scale(n_docs, 250))
     engine_errors = payload.get("engine_errors") or {}
     engine_penalty = min(35, len(engine_errors) * 12)
-    confidence = _clamp(0.55 * coverage * 100 + 0.45 * vol_conf - engine_penalty)
+    # A8: the old formula was 0.55*coverage*100 + 0.45*vol_conf, so full signal
+    # coverage alone scored 55 before a single document was read — "moderate"
+    # confidence on zero evidence, and "high" on eight. Coverage answers "did
+    # the signals exist", never "was there enough material to judge", so it must
+    # not be able to carry the score by itself. A multiplicative volume gate
+    # makes that structural: below ~100 documents the whole confidence figure is
+    # scaled down, and no amount of coverage escapes it.
+    vol_gate = 0.35 + 0.65 * min(1.0, n_docs / 100.0)
+    confidence = _clamp(
+        (0.55 * coverage * 100 + 0.45 * vol_conf - engine_penalty) * vol_gate)
 
     caveats = []
     if n_docs < 25:
@@ -583,6 +619,12 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
     # "0 / 100 — LOW" when nothing was collected would present total ignorance
     # as an all-clear, which is the worst thing a threat system can do: a reader
     # acts on green. "Unknown" forces the reader to look at why instead.
+    #
+    # A7: coverage alone was not a sufficient guard. GDELT-only factors (reach +
+    # geography + tone = 32 of 100 weight) clear the 25% bar without a single
+    # document being collected, so a real-looking band could be produced from an
+    # empty corpus. The document floor is now part of the same guard, using the
+    # module's existing MIN_ASSESSABLE_DOCS.
     band = _band(score)
     if coverage < 0.25:
         band = "unknown"
@@ -590,10 +632,26 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
             f"Insufficient signal to assess — only {round(coverage*100)}% of the "
             f"intended evidence base was available. This is NOT an all-clear; it "
             f"means the assessment could not be made."))
+    elif n_docs < MIN_ASSESSABLE_DOCS:
+        band = "unknown"
+        caveats.insert(0, (
+            f"Insufficient documents to assess — {n_docs} collected, minimum "
+            f"{MIN_ASSESSABLE_DOCS}. The numeric score below is derived almost "
+            f"entirely from GDELT's aggregate index rather than from any corpus "
+            f"this system read. This is NOT an all-clear."))
 
     return {
         "score": round(score, 1),
         "band": band,
+        # E5: the fingerprint of what this score was computed FROM. Without it a
+        # stored score cannot be reproduced or audited later — two runs of the
+        # same query over different corpora are indistinguishable in the record.
+        "inputs": {
+            "query": payload.get("query"),
+            "n_docs": n_docs,
+            "timespan_hours": snap.get("timespan_hours"),
+            "gdelt_cached": bool(snap.get("cached")),
+        },
         "confidence": round(confidence, 1),
         "confidence_band": ("high" if confidence >= 70 else
                             "moderate" if confidence >= 45 else "low"),
@@ -666,7 +724,8 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
                detail=f"{audience.get('country_count')} countries" if breadth is not None else None,
                reason=None if breadth is not None else "GDELT geography unavailable"),
         Factor("velocity", "Acceleration", 30, accel_score,
-               detail=accel, reason=None if accel_score is not None else "no velocity signal"),
+               detail=accel if accel_score is not None else None,
+               reason=None if accel_score is not None else "no velocity signal"),
     ]
     s, cov, fd = _composite(f)
     dims["reputational"] = {
@@ -678,11 +737,17 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
 
     # ── Information integrity ────────────────────────────────────────────────
     f = [
+        # E3: detail was passed unconditionally, so an UNAVAILABLE factor still
+        # rendered "0 signals" next to "reason: not assessed" — a reader sees a
+        # measurement where none was taken. Detail is now None whenever the
+        # factor is unavailable.
         Factor("inauthenticity", "Inauthentic amplification", 45, inauth_score,
-               detail=f"{inauth.get('signal_count', 0)} signals",
+               detail=(f"{inauth.get('signal_count', 0)} signals"
+                       if inauth_score is not None else None),
                reason=None if inauth_score is not None else "not assessed"),
         Factor("coordination", "Coordination", 35, coord_score,
-               detail=f"{coordination.get('near_duplicate_pairs', 0)} near-duplicate pairs",
+               detail=(f"{coordination.get('near_duplicate_pairs', 0)} near-duplicate pairs"
+                       if coord_score is not None else None),
                reason=None if coord_score is not None else "not assessed"),
         Factor("state_media", "State-media share", 20,
                _clamp(state_share * 130) if n_docs >= 5 else None,
@@ -702,18 +767,18 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
     gd_total = (snap.get("volume") or {}).get("total")
     vol_score = _log_scale(gd_total, 3000) if gd_total else (
         _log_scale(n_docs, 600) if n_docs else None)
+    _reached = (payload.get("propagation") or {}).get("platforms_reached")
     f = [
         Factor("volume", "Coverage volume", 40, vol_score,
-               detail=f"{gd_total or n_docs} items",
+               detail=(f"{gd_total or n_docs} items" if vol_score is not None else None),
                reason=None if vol_score is not None else "no volume signal"),
-        Factor("velocity", "Acceleration", 35, accel_score, detail=accel,
+        Factor("velocity", "Acceleration", 35, accel_score,
+               detail=accel if accel_score is not None else None,
                reason=None if accel_score is not None else "no velocity signal"),
         Factor("platforms", "Platform spread", 25,
-               _log_scale((payload.get("propagation") or {}).get("platforms_reached") or 0, 10)
-               if (payload.get("propagation") or {}).get("platforms_reached") else None,
-               detail=f"{(payload.get('propagation') or {}).get('platforms_reached')} platforms",
-               reason=None if (payload.get("propagation") or {}).get("platforms_reached")
-               else "no propagation trace"),
+               _log_scale(_reached, 10) if _reached else None,
+               detail=f"{_reached} platforms" if _reached else None,
+               reason=None if _reached else "no propagation trace"),
     ]
     s, cov, fd = _composite(f)
     dims["operational"] = {
@@ -733,6 +798,13 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
     ]
     hits = Counter()
     flagged_docs = []
+    # A1: `flagged_docs` stops growing at 12 because it is a DISPLAY list, but
+    # the share used to divide len(flagged_docs) by the full corpus size. The
+    # numerator was capped and the denominator was not, so past 12 hits the
+    # physical-threat dimension FELL as more violent documents were found —
+    # exactly inverted. The share now counts every match; the list stays capped.
+    FLAGGED_DISPLAY_CAP = 12
+    flagged_total = 0
     for d in docs:
         body = _norm_text((d.get("title") or "") + " " + (d.get("excerpt") or ""))
         if not body:
@@ -741,13 +813,14 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
         if found:
             for t in found:
                 hits[t] += 1
-            if len(flagged_docs) < 12:
+            flagged_total += 1
+            if len(flagged_docs) < FLAGGED_DISPLAY_CAP:
                 flagged_docs.append({
                     "url": d.get("url"), "platform": d.get("platform"),
                     "terms": found[:5],
                     "excerpt": (d.get("title") or d.get("excerpt") or "")[:160],
                 })
-    threat_doc_share = (len(flagged_docs) / n_docs) if n_docs else 0.0
+    threat_doc_share = (flagged_total / n_docs) if n_docs else 0.0
     if n_docs >= 10:
         # Density of violent language, amplified when it coincides with a
         # coordinated push — organised hostile messaging warrants a closer look
@@ -768,17 +841,20 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
         phys_score = None
         phys_reason = "too few documents for lexical assessment"
 
+    _detail = None
+    if phys_score is not None:
+        _detail = (f"{flagged_total} of {n_docs} documents contain threat vocabulary")
+        if flagged_total > len(flagged_docs):
+            _detail += f" (showing {len(flagged_docs)})"
     f = [Factor("violent_language", "Violent/threatening language density", 100,
-                phys_score,
-                detail=(f"{len(flagged_docs)}/{n_docs} documents contain threat vocabulary"
-                        if phys_score is not None else None),
-                reason=phys_reason)]
+                phys_score, detail=_detail, reason=phys_reason)]
     s, cov, fd = _composite(f)
     dims["physical_security"] = {
         "score": round(s, 1), "band": _band_cov(s, cov), "coverage": round(cov * 100, 1),
         "factors": fd,
         "top_terms": [{"term": t, "count": c} for t, c in hits.most_common(10)],
         "flagged_documents": flagged_docs,
+        "flagged_document_count": flagged_total,
         "rationale": ("Presence and density of violent or threatening vocabulary in the "
                       "corpus, weighted up when it coincides with coordinated distribution."),
         "method_note": ("Lexical screening only. This flags language for human review; "
@@ -822,8 +898,20 @@ def assess(payload: dict, gdelt_snapshot: dict | None = None) -> dict:
         log.warning("audience assessment failed: %s", e)
         out["errors"]["audience"] = str(e)[:160]
 
+    # E2: assess() recorded its own stage crashes in out["errors"], but
+    # score_threat reads payload["engine_errors"] — a key assess() never wrote —
+    # so a crashed inauthenticity or audience stage cost the confidence score
+    # nothing. Merge them in (on a copy; the caller's payload is not ours to
+    # mutate) so an engine failure is actually paid for.
+    scoring_payload = payload
+    if out["errors"]:
+        scoring_payload = {**payload, "engine_errors": {
+            **(payload.get("engine_errors") or {}),
+            **{f"assess_{k}": v for k, v in out["errors"].items()},
+        }}
+
     try:
-        out["threat"] = score_threat(payload, gdelt_snapshot,
+        out["threat"] = score_threat(scoring_payload, gdelt_snapshot,
                                      out.get("inauthenticity"), out.get("audience"))
     except Exception as e:
         log.warning("threat scoring failed: %s", e)
@@ -837,4 +925,13 @@ def assess(payload: dict, gdelt_snapshot: dict | None = None) -> dict:
         log.warning("risk assessment failed: %s", e)
         out["errors"]["risk"] = str(e)[:160]
 
+    # E5: the fingerprint of the inputs this assessment was computed from, so a
+    # stored score can be reproduced and audited rather than merely believed.
+    snap = gdelt_snapshot or {}
+    out["inputs"] = {
+        "query": payload.get("query"),
+        "n_docs": len(_all_docs(payload.get("platforms") or {})),
+        "timespan_hours": snap.get("timespan_hours"),
+        "gdelt_cached": bool(snap.get("cached")),
+    }
     return out
