@@ -33,7 +33,7 @@ Each result is scored positive / neutral / negative:
 - If neither key is set, sentiment is skipped and everything else still works.
 
 ## Environment variables (Railway → Variables)
-- `SCRAPEBADGER_KEY` — X/TikTok, Reddit fallback (scrapebadger.com)
+- `SCRAPEBADGER_KEY` — X, TikTok, Instagram, Reddit fallback (scrapebadger.com)
 - `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` — official Reddit API (reddit.com/prefs/apps,
   create a "script" type app); preferred over ScrapeBadger for Reddit when set
 - `SERPAPI_KEY` — Instagram/FB/etc. (serpapi.com)
@@ -45,6 +45,19 @@ Each result is scored positive / neutral / negative:
   401 for everyone. Set this and send it back as the `X-Debug-Token` header.
 - `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` — persistence (see below); optional
 - `MISE_PYTHON_GITHUB_ATTESTATIONS=false` — Railway builder workaround
+
+Relevance gate (`relevance.py`) — see the section below:
+- `RELEVANCE_MIN` (0.35) — score a document must clear to enter the corpus. Raising it
+  toward 0.65 admits only verified term matches; 0 disables the gate.
+- `RELEVANCE_AUDIT_SAMPLE` (20) — rejected documents retained **per platform** so the
+  gate can be inspected from the payload rather than trusted.
+- `TIKTOK_REGION` (US) — ISO-3166 code selecting ScrapeBadger's regional proxy. "US" is
+  a poor default for MENA / Persian-language work; set it to the region you are watching.
+
+Not yet configured, and the reason two sources report zero:
+- `BLUESKY_IDENTIFIER` / `BLUESKY_APP_PASSWORD` — Bluesky returns
+  "requires auth" on every search until these are set
+- `PODCASTINDEX_KEY` / `PODCASTINDEX_SECRET` — podcasts returns HTTP 401 without them
 
 GDELT needs **no key**. Its tunables (all optional, sane defaults):
 - `GDELT_RETRY_ATTEMPTS` (4) — retries on a 429. **The most important setting
@@ -60,6 +73,68 @@ GDELT needs **no key**. Its tunables (all optional, sane defaults):
 - `GDELT_TIMESPAN_HOURS` (168) — lookback window, 7 days
 - `GDELT_BREAKER_COOLDOWN` (180) — backoff after repeated connection failures
 - `GDELT_ANALYTICS_TTL` (3600) — cache for tone/geography/audience/volume series
+
+## Relevance gate (`relevance.py`)
+
+Every upstream source is a third-party search engine with its own fuzzy ranker, and none
+of them are obliged to respect the query. Measured against the live deployment on
+2026-09-01, `#covid1948` returned **530 documents of which 389 (73.4%) contained no form
+of the query at all** — YouTube alone supplied 450 generic COVID-19 videos, because its
+ranker silently substitutes the nearest token it can match for one it cannot.
+
+That noise was not cosmetic. Sentiment was computed over it, narratives and entities were
+extracted from it, `intel.score_threat` diluted every ratio-based factor with it, and the
+confidence formula — which reads document count — reported **94.5 ("high") precisely
+because there were 530 documents**. Unfiltered noise does not merely add error; it
+certifies it.
+
+**The rule that matters: fused tokens do not decompose.** `#covid1948` is one identifier,
+not `covid` AND `1948`. `covid19` must never match `covid1948` and vice versa.
+
+Matching works by expanding the *query* into its plausible written surface forms and
+testing each against the normalised document under word boundaries — never by stripping
+separators from both sides and doing a substring test, which is wrong in the silent
+direction (with separators gone, `covid19` is a prefix of `covid1948`). `#QudsDay2020`
+expands to `qudsday2020`, `qudsday 2020`, `quds day2020` and `quds day 2020`; the Turkish
+dotted İ in `#COVİD1948` folds onto `i`; Arabic-Indic and Persian digits fold to ASCII.
+
+| Tier | Score | Meaning |
+|---|---|---|
+| Exact | 1.00 | a surface form of the query is present |
+| Expansion | 0.65 | an Arabic/Persian/Hebrew rendering is present |
+| All terms | 0.45 | every term present but not adjacent — multi-word queries only |
+| Unverified | 0.40 | long-form source matched the full page; term absent from the snippet we stored |
+| No match | 0.00 | dropped |
+
+`LENIENT_SOURCES` (google, gnews, gdelt, academic, state_media, serpapi, notebooklm) are
+snippet-bearing: absence of the term in a truncated snippet is not evidence of absence in
+the document, so a non-match is admitted at 0.40 and capped at 12 per source. YouTube and
+Hacker News are deliberately excluded — both were measured degrading the query rather than
+matching it, and a source that rewrites the question gets no benefit of the doubt.
+
+**Dropping is not deleting.** Up to `RELEVANCE_AUDIT_SAMPLE` rejected documents stay on
+each platform group as `filtered`, each with the reason it was rejected, and the payload
+carries a `relevance` report with per-platform kept/dropped counts. `?relevance=off`
+returns the unfiltered corpus so a suspected false negative can be checked rather than
+argued about; the resulting assessment is stamped with a caveat saying so.
+
+### Stratified analysis sampling
+
+`_top_docs` feeds the narrative, entity and event prompts. It used to sort the whole
+corpus by engagement, which is a popularity contest the largest platform always wins: on
+`#covid1948` the 160-document prompt was 43 YouTube + 17 X and **nothing else**, so the
+Persian-language posts driving the campaign and the DFRLab/Jerusalem Post reporting on it
+never reached the model. That is why the report never mentioned the protests — a sampling
+bug, not a prompt bug. It now round-robins across platforms, best-first within each.
+
+## Real-world events (`extract_real_world_events`)
+
+Volume, sentiment and framing answer "what is being posted" and leave the analyst's actual
+question — "did this do anything?" — untouched. This stage asks what happened offline:
+protests, violence, arrests, official acts, platform enforcement, published attributions.
+It is deliberately conservative and returns `[]` when the corpus does not evidence an
+event, because an invented protest is far worse than a missing one. Each event carries a
+quoted phrase from a source document as its evidence.
 
 ## Design
 Instrument Serif display + Inter body, editorial intelligence-terminal aesthetic with a
@@ -233,6 +308,11 @@ every DB call fails soft and falls back.
 Schema lives in `supabase/migrations/`.
 
 ## Known limitations
+- **The relevance gate trades recall for precision, on purpose.** A document that
+  discusses the campaign without ever naming the tag is dropped unless it came from a
+  lenient source. `?relevance=off` and the per-platform `filtered` samples exist so this
+  is checkable; if a real query is being over-filtered, lower `RELEVANCE_MIN` rather than
+  removing the gate.
 - **The GDELT rate limiter is per-process.** It relies on a module-level lock, which
   only serialises correctly because gunicorn runs `--workers 1`. Raising the worker
   count silently multiplies the effective GDELT request rate by the number of workers
