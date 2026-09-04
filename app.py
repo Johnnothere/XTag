@@ -187,11 +187,19 @@ SERPAPI_TIMEOUT = 25
 # below the gunicorn --timeout in the Dockerfile or the worker is killed first.
 # P1-3: the collection fan-out deadline. Clamped at call time against the
 # request-wide budget (see _Budget.slice), so this is a ceiling, never a floor.
-SEARCH_POOL_TIMEOUT = int(os.environ.get("SEARCH_POOL_TIMEOUT", "90"))
+# 90 was a guess; the first real measurement spent 81.5s of it, because
+# `as_completed` waits for the slowest source and nothing bounded an individual
+# one. Threads cannot be interrupted mid-call, so the only real lever is to
+# abandon stragglers sooner — which is safe: their results are discarded, the
+# sources that answered are kept, and the corpus is reported as degraded.
+SEARCH_POOL_TIMEOUT = int(os.environ.get("SEARCH_POOL_TIMEOUT", "25"))
 
 # Shared per-stage budgets. Each is spent ACROSS the stage's whole fan-out, not
 # per task — see _drain().
-TRANSLATE_BUDGET = int(os.environ.get("TRANSLATE_BUDGET", "20"))
+# Measured at 19.9s of a 20s budget — it spends whatever it is given, every
+# time, for a DISPLAY nicety (English previews of foreign-language posts).
+# Sentiment already runs natively per-language and does not depend on it.
+TRANSLATE_BUDGET = int(os.environ.get("TRANSLATE_BUDGET", "6"))
 SENTIMENT_BUDGET = int(os.environ.get("SENTIMENT_BUDGET", "35"))
 SOURCE_DEADLINE  = float(os.environ.get("SOURCE_DEADLINE", "8"))
 SSE_HEARTBEAT = float(os.environ.get("SSE_HEARTBEAT", "10"))   # comment frame cadence
@@ -3190,9 +3198,28 @@ def _run_full_search(q: str, use_cache: bool = True,
     # deliberately NOT part of `all_futures`: collection must not wait on it.
     gdelt_future = ex.submit(_gdelt_snapshot_safe, q)
     _t_collect = time.monotonic()
+    # Per-source wall clock. The pool deadline told us collection took 81s; it
+    # could not say WHICH source spent it, so the number could not be acted on.
+    # Sources abandoned at the deadline never return, so they are reported by
+    # what they had already consumed rather than omitted — an abandoned source
+    # is the single most important entry on this list.
+    _src_start: dict = {}
+    _src_done: dict = {}
+    _src_lock = threading.Lock()
+
+    def _timed(name, fn):
+        def run(qq):
+            t = time.monotonic()
+            with _src_lock: _src_start[name] = t
+            try:
+                return fn(qq)
+            finally:
+                with _src_lock: _src_done[name] = round(time.monotonic() - t, 2)
+        return run
+
     try:
-        futures={ex.submit(fn,q):name for name,fn in API_PLATFORMS.items()}
-        cse_future=ex.submit(search_serpapi,q)
+        futures={ex.submit(_timed(name, fn), q):name for name,fn in API_PLATFORMS.items()}
+        cse_future=ex.submit(_timed("serpapi", search_serpapi), q)
         all_futures=list(futures.keys())+[cse_future]
         try:
             done_iter=as_completed(all_futures,
@@ -3223,6 +3250,14 @@ def _run_full_search(q: str, use_cache: bool = True,
         # already running and survives this call.
         ex.shutdown(wait=False, cancel_futures=True)
         budget.record("collection", time.monotonic() - _t_collect)
+        _cut = time.monotonic()
+        with _src_lock:
+            source_timings = dict(_src_done)
+            for nm, st in _src_start.items():
+                if nm not in _src_done:
+                    source_timings[nm] = f">{_cut - st:.1f} ABANDONED"
+        source_timings = dict(sorted(source_timings.items(),
+            key=lambda kv: -(kv[1] if isinstance(kv[1], (int, float)) else 1e9)))
     out={}
     for pid in set(direct_out.keys())|set(cse_out.keys()):
         direct=direct_out.get(pid); cse=cse_out.get(pid)
@@ -3333,7 +3368,8 @@ def _run_full_search(q: str, use_cache: bool = True,
         # timeout each: 70+70+10+20+10+70 = a 250-second worst case wearing a
         # 70-second label, against `gunicorn --timeout 300`. They now share one
         # deadline, itself clamped to whatever the request has left.
-        _an_end = time.monotonic() + budget.slice(ANALYSIS_TIMEOUT, reserve=25)
+        _t_an = time.monotonic()
+        _an_end = _t_an + budget.slice(ANALYSIS_TIMEOUT, reserve=25)
         for key,fut in (("narratives",f_narr),("entities",f_ents),
                         ("velocity",f_vel),("coordination",f_coord),
                         ("propagation",f_prop),("events",f_evt)):
@@ -3352,6 +3388,10 @@ def _run_full_search(q: str, use_cache: bool = True,
                 engine_errors[key]=str(e)[:160]
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
+        # Never timed, so the six concurrent Claude calls were the one stage
+        # missing from `timings` entirely — measured as ~11s of a 125s request
+        # that the breakdown simply did not account for.
+        budget.record("analysis", time.monotonic() - _t_an)
     # A silent Claude failure makes narratives/entities/sentiment all empty,
     # which is indistinguishable from "nothing worth reporting". Label it.
     # Entities empty while other stages worked is the signature of a truncated
@@ -3517,6 +3557,7 @@ def _run_full_search(q: str, use_cache: bool = True,
     budget.record("total", budget.elapsed())
     payload["timings"] = dict(sorted(budget.timings.items(),
                                      key=lambda kv: -kv[1]))
+    payload["source_timings"] = source_timings
     app.logger.info("timings q=%r %s", q, payload["timings"])
 
     if degraded_reasons:
