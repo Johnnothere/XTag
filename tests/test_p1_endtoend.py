@@ -48,6 +48,16 @@ chk("timings include collection", "collection" in t)
 chk("total ~= wall clock", abs(t.get("total",0) - el) < 1.0, f"total={t.get('total')} wall={el:.2f}")
 chk("sorted slowest first", list(t.values()) == sorted(t.values(), reverse=True), str(list(t)[:4]))
 
+print("\n=== H2. per-source timings name the culprit ===")
+st = r.get("source_timings") or {}
+chk("source timings present", bool(st), str(st))
+chk("the hung source is named as abandoned",
+    "ABANDONED" in str(st.get("slow","")), f"slow={st.get('slow')}")
+chk("fast sources report a number",
+    isinstance(st.get("x"), (int,float)) and st["x"] < 2, f"x={st.get('x')}")
+chk("slowest listed first", list(st)[0]=="slow", str(list(st)[:3]))
+chk("analysis stage is now timed", "analysis" in t, str(list(t)))
+
 print("\n=== H. GDELT overlapped rather than tailed ===")
 gw = t.get("gdelt_snapshot_wait", 999)
 chk("snapshot wait is near zero", gw < 0.35,

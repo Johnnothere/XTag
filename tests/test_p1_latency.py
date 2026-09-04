@@ -96,7 +96,11 @@ app.gdelt.snapshot = orig
 
 print("\n=== 7. tuning constants ===")
 chk("MAX_RESULTS_PER_SOURCE 150", app.MAX_RESULTS_PER_SOURCE == 150, str(app.MAX_RESULTS_PER_SOURCE))
-chk("SEARCH_POOL_TIMEOUT 90", app.SEARCH_POOL_TIMEOUT == 90, str(app.SEARCH_POOL_TIMEOUT))
+# Assert the PROPERTY, not the number. Pinning 90 here meant retuning from a
+# real measurement broke a test that was only ever restating the config.
+chk("collection deadline is bounded and leaves room for analysis",
+    0 < app.SEARCH_POOL_TIMEOUT <= app.REQUEST_BUDGET - 60,
+    f"{app.SEARCH_POOL_TIMEOUT}s of a {app.REQUEST_BUDGET}s request budget")
 chk("REQUEST_BUDGET under gunicorn 300", app.REQUEST_BUDGET < 300, str(app.REQUEST_BUDGET))
 chk("MAX_PAGES still 2 (P0)", app.MAX_PAGES == 2)
 chk("MIN_ENTITY_DOCS defined", app.MIN_ENTITY_DOCS == 5)
