@@ -165,6 +165,64 @@ def error_kind(err) -> str:
     return getattr(err, "kind", "other") if err else ""
 
 
+class ArticleSet(list):
+    """A list of articles that also says how much of the corpus it actually is.
+
+    A14: completeness was only ever expressed as an ERROR. A caller therefore
+    learned "this corpus is whole" by the ABSENCE of something — and every
+    caller that reasonably wrote `arts, err = articles(...)` then only looked at
+    `err` when `arts` was empty (app.py did exactly that until A11) scored a
+    one-window-of-three corpus as the whole picture. Absence of an error is a
+    terrible carrier for a fact this load-bearing: it survives no assignment, no
+    log line and no serialisation, and there is no way to ask a bare list
+    whether it is everything.
+
+    So the answer travels with the data. Subclassing list is the same trick
+    GdeltError plays on str: every existing consumer — iteration, len(),
+    truthiness, json.dumps, slicing — behaves identically, while a caller that
+    wants the truth can read `.coverage` (or call gdelt.coverage(arts)) and get
+    an explicit `complete: True/False` instead of inferring it.
+    """
+
+    def __init__(self, items=(), coverage: dict | None = None):
+        super().__init__(items)
+        self.coverage = coverage or _coverage()
+
+
+def _coverage(windows_total: int = 0, windows_ok: int = 0, windows_failed: int = 0,
+              windows_abandoned: int = 0, windows_truncated: int = 0,
+              articles: int = 0, reason: str | None = None) -> dict:
+    """Build the coverage record shared by ArticleSet and its error.
+
+    `complete` is the only field most callers need: True means every window was
+    fetched, none was abandoned, and none came back against the API's record
+    cap — i.e. this really is everything GDELT has for the query and range.
+    """
+    complete = not (windows_failed or windows_abandoned or windows_truncated)
+    return {
+        "complete": bool(complete and windows_total > 0),
+        "partial": bool(articles and not complete),
+        "windows_total": windows_total,
+        "windows_ok": windows_ok,
+        "windows_failed": windows_failed,
+        "windows_abandoned": windows_abandoned,
+        "windows_truncated": windows_truncated,
+        "articles": articles,
+        "reason": reason,
+    }
+
+
+def coverage(result) -> dict:
+    """Coverage of an articles() result — pass either the list or the error.
+
+    Mirrors error_kind(): tolerates anything, so a caller never has to guard the
+    lookup. A plain list from some older path reports complete=False with
+    unknown window counts rather than claiming completeness it cannot vouch for.
+    """
+    cov = getattr(result, "coverage", None)
+    return dict(cov) if isinstance(cov, dict) else _coverage()
+
+
 def _throttle() -> None:
     """Serialise GDELT calls process-wide with a minimum gap between them."""
     global _last_call_at
@@ -357,7 +415,14 @@ def _build_query(q: str, lang: str | None = None, country: str | None = None) ->
     q = (q or "").strip().lstrip("#").strip()
     if not q:
         return ""
-    if " " in q and not (q.startswith('"') and q.endswith('"')):
+    # Quoting was applied only to multi-word input, so a fused token like
+    # "covid1948" went through as bare full-text input and GDELT matched it
+    # loosely — which is how a hashtag search returned articles about 1948.
+    # A single token with an alpha/digit transition is a phrase too: it is one
+    # name, and the API must be asked for it exactly.
+    already_quoted = q.startswith('"') and q.endswith('"')
+    fused = bool(re.search(r"[A-Za-z][0-9]|[0-9][A-Za-z]", q)) and " " not in q
+    if (" " in q or fused) and not already_quoted:
         q = f'"{q}"'
     parts = [q]
     if lang:
@@ -505,10 +570,16 @@ def articles(q: str, timespan_hours: int | None = None,
     against the block risk documented at the top of this file. Four windows over
     seven days yields up to 1000 articles for four requests, which is the
     balance point that held up in testing.
+
+    RETURNS (ArticleSet, error). The list carries `.coverage` — read it, or call
+    gdelt.coverage(result), to tell "this is everything" from "this is what we
+    could get". `coverage["complete"]` is True only when every window was
+    fetched and none hit the 250-record cap; the error is non-None whenever it
+    is False and something still came back (kind "partial").
     """
     query = _build_query(q, lang=lang, country=country)
     if not query:
-        return [], "empty query"
+        return ArticleSet([], _coverage(reason="empty query")), "empty query"
 
     hours = timespan_hours or TIMESPAN_HOURS
     n_windows = max(1, windows if windows is not None else ARTICLE_WINDOWS)
@@ -521,6 +592,9 @@ def articles(q: str, timespan_hours: int | None = None,
     out: list = []
     errors: list = []
     truncated_windows = 0
+    ok_windows = 0
+    attempted = 0
+    abandoned_windows = 0
 
     for i in range(n_windows):
         w_start = start_all + step * i
@@ -530,6 +604,7 @@ def articles(q: str, timespan_hours: int | None = None,
             "format": "json", "sort": "datedesc",
             "startdatetime": _stamp(w_start), "enddatetime": _stamp(w_end),
         }
+        attempted += 1
         data, err = _get(DOC_PATH, params)
         if err:
             errors.append(err)
@@ -538,11 +613,28 @@ def articles(q: str, timespan_hours: int | None = None,
             # windows against a blocked IP. This used to substring-match the
             # message and silently never fire; it now tests the error's kind.
             if error_kind(err) in ("breaker", "rate_limit"):
+                # A14: the abandoning was right, the accounting was not. The
+                # windows we never tried were counted neither as fetched nor as
+                # failed, so a breaker trip on window 1 of 3 reported "1 of 3
+                # window(s) failed" — a caller reading windows_failed/
+                # windows_total saw 67% coverage of a corpus it had 33% of, and
+                # the two thirds of the time range that were never queried at
+                # all looked like time ranges with no news in them.
+                abandoned_windows = n_windows - attempted
                 break
             continue
-        if not isinstance(data, dict):
+        if data is not None and not isinstance(data, dict):
+            # A14: a response of an unexpected shape used to `continue`
+            # silently — no article, no error, nothing counted. The window
+            # simply evaporated and the run was reported as whole. (data is
+            # None on a legitimate 204/empty body, which really is an empty
+            # window and is counted as fetched below.)
+            errors.append(GdeltError(
+                f"unexpected response shape ({type(data).__name__}) for window "
+                f"{i + 1}/{n_windows}", "bad_response"))
             continue
-        window_arts = data.get("articles") or []
+        ok_windows += 1
+        window_arts = (data or {}).get("articles") or []
         # A11: MAX_RECORDS is the API's hard per-call ceiling with no cursor to
         # page past it. A window that comes back exactly full almost certainly
         # had more behind it, so the corpus for that slice is truncated and the
@@ -566,16 +658,32 @@ def articles(q: str, timespan_hours: int | None = None,
     if errors:
         notes.append(f"{len(errors)} of {n_windows} time window(s) failed "
                      f"({errors[0]})")
+    if abandoned_windows:
+        notes.append(f"{abandoned_windows} window(s) never attempted — aborted "
+                     f"after a {error_kind(errors[-1])} failure")
     if truncated_windows:
         notes.append(f"{truncated_windows} window(s) hit the {MAX_RECORDS}-record "
                      f"API cap — those slices are truncated")
+
+    cov = _coverage(windows_total=n_windows, windows_ok=ok_windows,
+                    windows_failed=len(errors), windows_abandoned=abandoned_windows,
+                    windows_truncated=truncated_windows, articles=len(out),
+                    reason="; ".join(notes) or None)
+    result = ArticleSet(out, cov)
+
     err = None
     if notes:
         err = GdeltError("; ".join(notes), "partial" if out else "failed")
+        # Flat attributes are the shape app.py already reads (getattr with a
+        # None default), so they stay. `coverage` is the same record the list
+        # carries, so a caller can branch on whichever of the two it happens to
+        # be holding.
         err.windows_total = n_windows
         err.windows_failed = len(errors)
         err.windows_truncated = truncated_windows
-    return out, err
+        err.windows_abandoned = abandoned_windows
+        err.coverage = cov
+    return result, err
 
 
 # ── Timeline / breakdown modes ────────────────────────────────────────────────
@@ -804,6 +912,22 @@ def snapshot(q: str, timespan_hours: int | None = None,
     out["geography"] = _stage("geography", lambda: country_breakdown(q, hours))
     out["audience"] = _stage("audience", lambda: language_breakdown(q, hours))
     out["volume"] = _stage("volume", lambda: volume_timeline(q, hours))
+
+    # A14, same defect as articles(): `degraded` was the only tell that this
+    # block was assembled from fewer than four stages, and it is a list of
+    # prose. A consumer had to know that an empty list means "whole" and infer
+    # completeness from the truthiness of a message list — so a snapshot whose
+    # geography stage was skipped for budget rendered exactly like one where
+    # GDELT genuinely reported no countries, and the threat factors computed
+    # from it carried the confidence of a full picture. State it outright, in
+    # the same vocabulary the ArticleSet coverage record uses.
+    stage_names = ("tone", "geography", "audience", "volume")
+    out["stages_total"] = len(stage_names)
+    out["stages_ok"] = sum(
+        1 for k in stage_names
+        if isinstance(out.get(k), dict) and out[k] and not out[k].get("error"))
+    out["complete"] = not out["degraded"]
+    out["partial"] = bool(out["degraded"]) and out["stages_ok"] > 0
 
     # Only cache a result that actually carries signal. Caching a fully degraded
     # snapshot would pin the "GDELT is blocked" state in place for an hour after
