@@ -24,7 +24,16 @@ import threading
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# FuturesTimeout is imported explicitly and never assumed to be the builtin.
+# Python 3.11 made concurrent.futures.TimeoutError an ALIAS of the builtin
+# TimeoutError; on 3.10 and earlier they are two unrelated classes. So a bare
+# `except TimeoutError:` around as_completed() catches the deadline on 3.11 and
+# silently does not on 3.9 — the collection handler whose entire job is to
+# degrade gracefully instead of 500ing simply stops working, and only on some
+# interpreters. The deployed image is 3.11 today; that is exactly the kind of
+# thing that changes in a base-image bump nobody reads.
+from concurrent.futures import (ThreadPoolExecutor, as_completed,
+                                TimeoutError as FuturesTimeout)
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote_plus, urlparse
 
@@ -3196,7 +3205,7 @@ def _run_full_search(q: str, use_cache: bool = True,
                     name=futures[fut]
                     try: direct_out[name]=fut.result()
                     except Exception as e: direct_out[name]=_empty(name,str(e)[:120])
-        except TimeoutError:
+        except (FuturesTimeout, TimeoutError):
             # One or more sources hung past the deadline — degrade gracefully
             # instead of 500ing the whole search. Anything that finished stays;
             # anything still running gets marked as timed-out for this query.

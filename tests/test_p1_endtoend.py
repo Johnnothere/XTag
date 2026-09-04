@@ -62,7 +62,21 @@ ents = r2.get("entities") or {}
 chk("no bogus entities engine error", "entities" not in ee, str(ee))
 chk("explains thin evidence instead", "insufficient_evidence" in ents, str(ents)[:120])
 
-print("\n=== J. degraded results still not cached (P0 held) ===")
+print("\n=== J. the collection deadline is caught on EVERY interpreter ===")
+import inspect, concurrent.futures as _cf
+src = inspect.getsource(app._run_full_search)
+chk("does not rely on the 3.11 TimeoutError alias",
+    "except (FuturesTimeout, TimeoutError)" in src,
+    "concurrent.futures.TimeoutError is only the builtin on 3.11+")
+chk("FuturesTimeout imported explicitly", app.FuturesTimeout is _cf.TimeoutError)
+# On <=3.10 these are different classes; on 3.11+ they are the same. Either way
+# the handler must catch what as_completed actually raises.
+chk("handler catches what as_completed raises",
+    issubclass(_cf.TimeoutError, (app.FuturesTimeout, TimeoutError)),
+    f"py{sys.version_info.major}.{sys.version_info.minor}, "
+    f"aliased={_cf.TimeoutError is TimeoutError}")
+
+print("\n=== K. degraded results still not cached (P0 held) ===")
 chk("degraded key present", "degraded" in r)
 
 print(f"\n{'='*46}\n  {P} passed, {F} failed\n{'='*46}")
