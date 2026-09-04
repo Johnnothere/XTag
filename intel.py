@@ -126,6 +126,25 @@ def _composite(factors: list[Factor]) -> tuple[float, float, list[dict]]:
 MIN_ASSESSABLE_DOCS = 8
 
 
+def _dur(hours) -> str:
+    """Hours as something a reader can picture.
+
+    A corpus spanning years reported "spread over 22394.4h", which is precise,
+    unreadable, and reads like a bug in a panel whose whole job is to make the
+    score believable.
+    """
+    try:
+        h = float(hours or 0)
+    except (TypeError, ValueError):
+        return "unknown"
+    if h < 1:    return f"{round(h * 60)}min"
+    if h < 48:   return f"{h:.0f}h"
+    d = h / 24
+    if d < 60:   return f"{d:.0f}d"
+    if d < 730:  return f"{d / 30.44:.0f}mo"
+    return f"{d / 365.25:.1f}y"
+
+
 def _band(score: float) -> str:
     if score >= 75: return "critical"
     if score >= 55: return "high"
@@ -205,9 +224,44 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
             continue
         by_text[body].append(d)
 
-    copypasta = []
+    def _is_wire_syndication(group) -> bool:
+        """Distinguish a syndicated news story from a scripted amplification net.
+
+        Verified defect: GDELT documents set `excerpt == title` and `author ==
+        the publishing domain`. A Reuters story carried by six outlets therefore
+        arrives as six "identical texts from six distinct authors" — the exact
+        signature this function treats as high-severity inauthenticity. Measured
+        on a real corpus: 6 high-credibility news documents produced an
+        inauthenticity score of 26, severity HIGH, feeding info-integrity at
+        weight 45.
+
+        Syndication is a normal, visible, attributable publishing practice. It
+        is not an influence operation, and reporting it as one both wastes the
+        analyst's attention and makes every genuine finding less believable.
+
+        The test is deliberately conservative — it only excuses a group where
+        EVERY member is a news-type document from a DIFFERENT domain, which is
+        what syndication looks like and what a sock-puppet network does not.
+        """
+        if len(group) < 2:
+            return False
+        domains = set()
+        for g in group:
+            if (g.get("source_type") or "social") not in ("news", "state_media", "academic"):
+                return False
+            dom = (g.get("author") or "").strip().lower()
+            if not dom or " " in dom:      # a real handle, not a domain
+                return False
+            domains.add(dom)
+        return len(domains) == len(group)
+
+    copypasta, syndicated = [], []
     for body, group in by_text.items():
         authors = {(g.get("author") or "").strip().lower() for g in group if g.get("author")}
+        if len(group) >= 3 and len(authors) >= 3 and _is_wire_syndication(group):
+            syndicated.append({"text": body[:160], "outlets": sorted(authors)[:8],
+                               "copies": len(group)})
+            continue
         if len(group) >= 3 and len(authors) >= 3:
             copypasta.append({
                 "text": body[:160],
@@ -225,6 +279,19 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
             "description": (f"{len(copypasta)} message(s) reposted verbatim by 3+ distinct "
                             f"accounts (worst: {worst} copies)"),
             "examples": copypasta[:3],
+        })
+
+    # Reported, but as context rather than as a finding: an analyst should be
+    # able to see that the corpus contains syndicated copy, and should not see
+    # it counted as amplification.
+    if syndicated:
+        signals.append({
+            "type": "wire_syndication",
+            "severity": "info",
+            "description": (f"{len(syndicated)} story/stories carried verbatim by multiple "
+                            f"distinct outlets — normal news syndication, excluded from the "
+                            f"inauthenticity score"),
+            "examples": syndicated[:3],
         })
 
     # ── 2. Account handle patterns ───────────────────────────────────────────
@@ -574,7 +641,7 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
             "propagation", "Cross-platform propagation", 8,
             score=_log_scale(reached, 10),
             detail=(f"{reached} platforms; origin {prop.get('origin')}, "
-                    f"spread over {prop.get('spread_hours')}h")))
+                    f"spread over {_dur(prop.get('spread_hours'))}")))
     else:
         factors.append(Factor("propagation", "Cross-platform propagation", 8,
                               reason="propagation trace unavailable"))
@@ -609,6 +676,24 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
         caveats.append("Analysis engine reported errors: " + ", ".join(sorted(engine_errors)) + ".")
     if snap.get("degraded"):
         caveats.append("GDELT partially unavailable — geographic and tone signals may be thin.")
+
+    # Corpus purity. `n_docs` above counts documents that PASSED the relevance
+    # gate, which is what makes the confidence figure defensible — before the
+    # gate existed, "#covid1948" produced confidence 94.5 ("high") from 530
+    # documents of which 389 contained no form of the query at all. A reader who
+    # is told only the surviving number cannot tell a clean corpus from a heavily
+    # filtered one, and those warrant different levels of trust, so say it.
+    rel = payload.get("relevance") or {}
+    if rel.get("enabled") and rel.get("dropped"):
+        caveats.append(
+            f"{rel['dropped']} of {rel['collected']} collected documents were off-topic "
+            f"and excluded ({round(rel.get('noise_ratio', 0) * 100)}% noise). Every score "
+            f"here is computed from the {rel.get('kept')} that matched the query.")
+    elif rel.get("enabled") is False:
+        caveats.insert(0, (
+            "Relevance filtering was DISABLED for this run. Scores include every "
+            "document each source returned, on-topic or not, and should not be "
+            "compared against a filtered assessment."))
 
     drivers = sorted([f for f in factor_dicts if f["available"]],
                      key=lambda f: (f["contribution"] or 0), reverse=True)[:3]
@@ -649,6 +734,12 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
         "inputs": {
             "query": payload.get("query"),
             "n_docs": n_docs,
+            # Part of the reproducibility fingerprint: the same query over the
+            # same window scores differently under a different relevance floor,
+            # so the floor and the corpus it produced belong in the record.
+            "relevance_threshold": (payload.get("relevance") or {}).get("threshold"),
+            "docs_collected": (payload.get("relevance") or {}).get("collected"),
+            "docs_dropped": (payload.get("relevance") or {}).get("dropped"),
             "timespan_hours": snap.get("timespan_hours"),
             "gdelt_cached": bool(snap.get("cached")),
         },

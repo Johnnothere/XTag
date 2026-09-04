@@ -530,6 +530,9 @@ button{background:none;border:none;cursor:pointer;}
 
 /* ── Coordination / velocity ── */
 .intel-pair{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-bottom:var(--s5);}
+/* Coordination moved out to its own full-width section, so the pair is
+   frequently a single card and must not sit in a half-width column. */
+.intel-pair.one{grid-template-columns:1fr;}
 .mini-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-card);padding:var(--s3) var(--s4);}
 .mini-title{font-size:var(--fs-micro);letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);margin-bottom:var(--s2);display:flex;align-items:center;gap:6px;}
 .coord-score-num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:30px;font-weight:500;letter-spacing:-.03em;}
@@ -732,6 +735,17 @@ button{background:none;border:none;cursor:pointer;}
 .mc-platform{font-size:var(--fs-micro);color:var(--ink3);}
 .mc-cred{font-size:var(--fs-micro);font-weight:700;padding:2px 6px;border-radius:var(--r-xs);margin-left:auto;}
 .mc-cred.high{background:var(--pos-tint);color:var(--pos);}
+.rp-pending{padding:2px 0;}
+.rp-pending-head{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink2);margin-bottom:8px;}
+.rp-pending-head b{color:var(--ink1);font-variant-numeric:tabular-nums;}
+.rp-pending-note{font-size:12px;line-height:1.6;color:var(--ink3);margin-bottom:16px;max-width:62ch;}
+.rp-spin{width:13px;height:13px;flex:0 0 13px;border-radius:50%;
+  border:2px solid var(--line);border-top-color:var(--accent,#6ea8fe);
+  animation:rpspin .8s linear infinite;}
+@keyframes rpspin{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){.rp-spin{animation-duration:2.4s;}}
+.rh-part{font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink3);border:1px solid var(--line);border-radius:4px;padding:1px 5px;}
 .mc-cred.state{background:var(--state-tint);color:var(--state);}
 .mc-cred.low{background:var(--neg-tint);color:var(--neg);}
 .mc-title{font-size:var(--fs-sm);font-weight:600;color:var(--ink);line-height:1.4;margin-bottom:5px;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
@@ -945,7 +959,7 @@ button{background:none;border:none;cursor:pointer;}
 .em-lg .rg{width:11px;height:11px;border-radius:50%;border:2px solid;flex:none;}
 .em-lg .sep{color:var(--ink3);font-family:var(--mono);font-size:var(--fs-micro);letter-spacing:.1em;text-transform:uppercase;}
 .em-dos{
-  position:absolute;top:var(--s3);right:var(--s3);width:250px;max-height:calc(100% - var(--s6));overflow-y:auto;
+  position:absolute;top:var(--s3);right:var(--s3);width:282px;max-height:calc(100% - var(--s6));overflow-y:auto;
   border-radius:var(--r-card);padding:var(--s4);z-index:6;
   opacity:0;transform:translateX(12px);pointer-events:none;transition:opacity var(--t-mid),transform var(--t-mid) var(--e-out);
 }
@@ -1027,6 +1041,616 @@ button{background:none;border:none;cursor:pointer;}
 .export-btn{border:1px solid var(--line);}
 .mc.show-original .mc-title[data-trans],.mc.show-original .mc-excerpt[data-trans]{display:none;}
 [hidden]{display:none!important;}
+
+/* ══ PASS B — EXPLAINABILITY ═══════════════════════════════════════════════
+   Every score in this product was already computed from weighted factors that
+   ship with their own weight, contribution, availability and reason, and every
+   risk dimension already carried a plain-English rationale. None of it was
+   rendered. A number an analyst cannot interrogate is a number they cannot
+   defend, act on, or notice is wrong — so the reasoning is one click from the
+   number, never a page away, and never absent. */
+.xp{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface2);}
+.xp+.xp{margin-top:var(--s2);}
+.xp-head{display:flex;align-items:center;gap:var(--s2);width:100%;padding:9px var(--s3);
+  background:none;border:0;cursor:pointer;text-align:left;color:var(--ink2);font:inherit;
+  font-size:var(--fs-sm);transition:background var(--t-fast);}
+.xp-head:hover{background:var(--on-glass);color:var(--ink);}
+.xp-head:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+.xp-head .chev{margin-left:auto;font-size:13px;color:var(--ink3);transition:transform var(--t-fast);}
+.xp.on .xp-head .chev{transform:rotate(90deg);}
+.xp-body{display:none;padding:var(--s2) var(--s3) var(--s3);border-top:1px solid var(--line2);}
+.xp.on .xp-body{display:block;}
+.xp-why{font-size:var(--fs-sm);color:var(--ink2);line-height:1.6;margin-bottom:var(--s3);}
+.xp-why b{color:var(--ink);font-weight:600;}
+
+/* Factor table — the actual output of the scoring layer. `weight` is the
+   configured intent; `contribution_pct` is what the factor really carried once
+   others dropped out, which can be more than double it. Both are shown. */
+.fct{display:grid;grid-template-columns:1fr 42px 58px;gap:6px var(--s2);align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--line2);}
+.fct:last-child{border-bottom:0;}
+.fct-n{font-size:var(--fs-sm);color:var(--ink);}
+.fct-d{grid-column:1/-1;font-size:var(--fs-cap);color:var(--ink3);line-height:1.5;margin-top:-3px;}
+.fct-s{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:var(--fs-sm);
+  text-align:right;color:var(--ink);}
+.fct-w{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:var(--fs-micro);
+  text-align:right;color:var(--ink3);}
+.fct.off .fct-n{color:var(--ink3);}
+.fct.off .fct-s{color:var(--ink4);}
+.fct-bar{grid-column:1/-1;height:3px;border-radius:2px;background:var(--surface3);overflow:hidden;}
+.fct-bar i{display:block;height:100%;background:var(--tw,var(--accent));border-radius:2px;}
+.fct-miss{font-size:var(--fs-cap);color:var(--warn);display:flex;gap:5px;align-items:baseline;}
+
+/* Risk cells become interrogable rather than decorative. */
+.risk-cell{cursor:pointer;position:relative;transition:border-color var(--t-fast);}
+.risk-cell:hover{border-color:var(--tw,var(--accent));}
+.risk-cell:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.risk-cell .rk-more{position:absolute;top:8px;right:9px;font-size:11px;color:var(--ink4);}
+.risk-cell:hover .rk-more{color:var(--tw,var(--accent));}
+.rk-cov{font-size:var(--fs-micro);color:var(--ink3);font-family:var(--mono);margin-top:3px;}
+.rk-panel{margin-top:var(--s2);}
+
+/* Confidence is a claim about the ASSESSMENT, not about the threat. It is the
+   single most misread number on the page, so it gets a real explanation. */
+.tc-conf{cursor:pointer;}
+.tc-conf:hover{color:var(--ink);}
+.conf-note{font-size:var(--fs-cap);color:var(--ink2);line-height:1.6;background:var(--surface2);
+  border-left:2px solid var(--accent);border-radius:0 var(--r-xs) var(--r-xs) 0;
+  padding:9px var(--s3);margin-top:var(--s2);}
+.conf-note b{color:var(--ink);}
+
+/* Relevance audit — what the gate removed, and why. Silent filtering in an
+   intelligence tool is its own failure mode; this is the receipt. */
+.rel-card{border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);
+  padding:var(--s3);margin-bottom:var(--s3);}
+.rel-top{display:flex;align-items:baseline;gap:var(--s2);flex-wrap:wrap;margin-bottom:var(--s2);}
+.rel-h{font-size:var(--fs-cap);letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);font-weight:600;}
+.rel-n{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:19px;color:var(--ink);}
+.rel-sub{font-size:var(--fs-sm);color:var(--ink2);}
+.rel-meter{height:7px;border-radius:4px;background:var(--neg);overflow:hidden;display:flex;}
+.rel-meter i{display:block;height:100%;}
+.rel-meter i.k{background:var(--pos);}
+.rel-meter i.u{background:var(--warn);}
+.rel-key{display:flex;gap:var(--s3);flex-wrap:wrap;margin-top:7px;font-size:var(--fs-micro);color:var(--ink3);}
+.rel-key span{display:flex;align-items:center;gap:5px;}
+.rel-key b{width:8px;height:8px;border-radius:2px;display:inline-block;}
+.rel-plat{display:grid;grid-template-columns:1fr auto auto;gap:4px var(--s3);align-items:center;
+  font-size:var(--fs-sm);padding:5px 0;border-bottom:1px solid var(--line2);}
+.rel-plat:last-child{border-bottom:0;}
+.rel-plat .p{color:var(--ink2);}
+.rel-plat .k{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--pos);}
+.rel-plat .d{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink3);}
+.rel-drop{font-size:var(--fs-cap);color:var(--ink3);padding:6px 0;border-bottom:1px solid var(--line2);line-height:1.5;}
+.rel-drop:last-child{border-bottom:0;}
+.rel-drop .t{color:var(--ink2);display:block;}
+.rel-drop .r{color:var(--ink4);font-style:italic;}
+
+/* Real-world events — what happened offline, as opposed to what was posted. */
+.ev-row{display:flex;gap:var(--s3);padding:var(--s2) 0;border-bottom:1px solid var(--line2);}
+.ev-row:last-child{border-bottom:0;}
+.ev-kind{flex:none;width:26px;height:26px;border-radius:var(--r-xs);display:flex;align-items:center;
+  justify-content:center;font-size:13px;background:var(--surface3);color:var(--ink2);}
+.ev-kind.protest{background:var(--warn-tint,rgba(245,179,60,.14));color:var(--warn);}
+.ev-kind.violence{background:var(--neg-tint,rgba(255,107,107,.14));color:var(--neg);}
+.ev-kind.official_action,.ev-kind.platform_action{background:var(--state-tint,rgba(169,123,255,.14));color:var(--state);}
+.ev-kind.investigation{background:var(--academic-tint,rgba(79,179,255,.14));color:var(--academic);}
+.ev-b{flex:1;min-width:0;}
+.ev-l{font-size:var(--fs-body);color:var(--ink);line-height:1.45;}
+.ev-m{display:flex;gap:9px;flex-wrap:wrap;font-size:var(--fs-micro);color:var(--ink3);margin-top:3px;font-family:var(--mono);}
+.ev-q{font-size:var(--fs-sm);color:var(--ink2);border-left:2px solid var(--line);padding-left:var(--s2);
+  margin-top:6px;font-style:italic;line-height:1.5;}
+.ev-c{font-size:var(--fs-micro);text-transform:uppercase;letter-spacing:.08em;}
+.ev-c.high{color:var(--pos);} .ev-c.medium{color:var(--warn);} .ev-c.low{color:var(--ink3);}
+
+.tl-trim{margin-top:7px;font-size:var(--fs-micro);color:var(--ink3);line-height:1.6;}
+.tl-trim b{color:var(--ink2);font-family:var(--mono);}
+/* Timeline — the chart is the control surface, not an illustration. */
+.tl-hint{margin-left:auto;font-size:var(--fs-micro);color:var(--ink3);font-weight:400;
+  letter-spacing:0;text-transform:none;}
+.tl-chart{position:relative;width:100%;}
+.tl-chart svg{width:100%;height:150px;display:block;cursor:crosshair;touch-action:none;}
+#tlBrush{fill:var(--accent);opacity:.14;pointer-events:none;}
+.tlb .hit{fill:transparent;}
+.tlb:hover .hit{fill:var(--on-glass);}
+.tlev line{stroke:var(--warn);stroke-width:1;stroke-dasharray:2 3;opacity:.55;}
+.tlev circle{fill:var(--warn);}
+text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:middle;}
+.tl-tip{position:absolute;top:2px;transform:translateX(-50%);pointer-events:none;z-index:5;
+  background:var(--surface3);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:6px 9px;font-size:var(--fs-micro);color:var(--ink2);white-space:nowrap;
+  box-shadow:var(--sh);}
+.tl-tip b{display:block;color:var(--ink);font-family:var(--mono);margin-bottom:2px;}
+.tl-tip span{display:block;}
+.tl-tip .s{color:var(--ink3);} .tl-tip .p{color:var(--ink4);margin-top:2px;}
+.tl-legend{display:flex;gap:var(--s3);flex-wrap:wrap;margin-top:7px;font-size:var(--fs-micro);color:var(--ink3);}
+.tl-legend span{display:flex;align-items:center;gap:5px;}
+.tl-legend b{width:8px;height:8px;border-radius:2px;display:inline-block;}
+.tl-legend b.evdot{background:var(--warn);border-radius:50%;}
+.tl-focus{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s2);
+  padding:8px var(--s3);border-radius:var(--r);background:var(--accent-tint);
+  border:1px solid var(--accent);font-size:var(--fs-sm);color:var(--ink2);}
+.tl-focus b{color:var(--accent2);font-family:var(--mono);}
+.tl-focus .rb-btn{margin-left:0;}
+.tl-focus .rb-btn:first-of-type{margin-left:auto;}
+
+/* Platform lanes. Two bright rows offset in time IS cross-platform migration —
+   the one pattern a single stacked chart structurally cannot show. */
+.lanes{display:flex;flex-direction:column;gap:3px;}
+.lane{display:grid;grid-template-columns:104px 1fr 34px;gap:var(--s2);align-items:center;}
+.lane-n{font-size:var(--fs-micro);color:var(--ink2);display:flex;align-items:center;gap:5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lane-n .dot{width:7px;height:7px;border-radius:50%;flex:none;}
+.lane-c{display:flex;gap:1px;height:16px;}
+.lane-c i{flex:1;border-radius:1px;min-width:1px;}
+.lane-t{font-size:var(--fs-micro);color:var(--ink3);font-family:var(--mono);text-align:right;}
+
+.tl-day-h{position:sticky;top:0;z-index:2;background:var(--bg2);font-family:var(--mono);
+  font-size:var(--fs-micro);color:var(--ink3);padding:5px 0 4px;margin-top:var(--s2);
+  border-bottom:1px solid var(--line);}
+.ac-chip.tm{background:var(--academic-tint,rgba(79,179,255,.14));border-color:var(--academic);color:var(--academic);}
+.ac-chip.tm:hover{background:var(--academic);color:#fff;}
+
+/* The backlink list scrolls inside the dossier rather than pushing the actor's
+   name and metrics off the top of a 470px stage. */
+.em-srcs{max-height:196px;overflow-y:auto;margin:0 calc(var(--s2) * -1);padding:0 var(--s2);}
+.em-srcs::-webkit-scrollbar{width:5px;}
+.em-srcs::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px;}
+
+/* Entity backlinks — the dossier becomes an index into the corpus. */
+.em-tip .src{display:block;margin-top:2px;color:var(--accent2);font-weight:600;}
+.em-quote{font-size:var(--fs-sm);color:var(--ink2);font-style:italic;line-height:1.55;
+  border-left:2px solid var(--line);padding-left:var(--s2);margin-bottom:var(--s2);}
+.em-cnt{font-family:var(--mono);color:var(--accent2);margin-left:5px;}
+.em-src{display:flex;align-items:flex-start;gap:8px;padding:6px 0;text-decoration:none;
+  color:inherit;border-bottom:1px solid var(--line2);}
+.em-src:last-of-type{border-bottom:0;}
+.em-src:hover .tt{color:var(--accent2);}
+.em-src .dot{width:7px;height:7px;border-radius:50%;flex:none;margin-top:6px;}
+.em-src .b{flex:1;min-width:0;}
+.em-src .tt{display:block;font-size:var(--fs-sm);color:var(--ink2);line-height:1.45;}
+.em-src .mm{display:block;font-size:var(--fs-micro);color:var(--ink3);font-family:var(--mono);margin-top:2px;}
+.em-src i{color:var(--ink4);font-size:12px;flex:none;margin-top:4px;}
+.em-more{margin-top:var(--s2);font-size:var(--fs-cap);color:var(--ink3);}
+.em-lnk{background:none;border:0;padding:0;color:var(--accent2);cursor:pointer;font:inherit;
+  text-decoration:underline;text-underline-offset:2px;}
+/* The dossier had no background of its own and floated unbacked over the live
+   canvas — .em-dos>*{z-index:1} was the vestige of a glass layer that was never
+   there. Give it a real surface. */
+.em-dos{background:var(--glass-base,var(--surface));backdrop-filter:blur(var(--glass-blur,18px)) saturate(var(--glass-sat,180%));
+  -webkit-backdrop-filter:blur(var(--glass-blur,18px)) saturate(var(--glass-sat,180%));
+  border:1px solid var(--glass-border,var(--line));}
+.ac-chip.ent{background:var(--state-tint,rgba(169,123,255,.14));border-color:var(--state);color:var(--state);}
+.ac-chip.ent:hover{background:var(--state);color:#fff;}
+
+/* Active-filter chips live in the toolbar, where the effect is visible. A badge
+   reading "3" says something is hidden but not what, so the grid looks broken;
+   a chip reading "TikTok x" says what you did and undoes it in one click. */
+.gt-chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center;}
+.ac-chip{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-micro);
+  padding:3px 7px 3px 9px;border-radius:var(--pill);cursor:pointer;
+  background:var(--accent-tint);border:1px solid var(--accent);color:var(--accent2);}
+.ac-chip:hover{background:var(--accent);color:#fff;}
+.ac-chip.rel{background:var(--surface3);border-color:var(--line);color:var(--ink2);}
+.ac-chip.rel:hover{background:var(--on-glass);color:var(--ink);}
+.ac-chip i{font-size:11px;opacity:.8;}
+/* The sort popover was pinned at right:110px regardless of where its button
+   actually sits, so it drifted off its anchor on any narrow panel. */
+.sort-panel{right:var(--s3) !important;}
+.fp-sep[hidden]{display:none !important;}
+
+/* Case rail — a search is a record with an outcome, not just a string. The
+   heading only exists in the expanded state; collapsed, the rail is icons. */
+.rail-hh{display:none;font-size:var(--fs-micro);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink3);padding:0 var(--s2) 6px;font-weight:600;}
+.rail.expanded .rail-hh{display:block;}
+
+.rh-q{display:flex;flex-direction:column;gap:3px;align-items:flex-start;}
+.rh-t{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rh-m{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:var(--fs-micro);
+  font-family:var(--mono);color:var(--ink3);}
+.rh-band{color:var(--tw,var(--ink3));text-transform:uppercase;letter-spacing:.06em;}
+.rh-docs,.rh-age{color:var(--ink4);}
+.rh-run{color:var(--accent2);}
+.rh-fail{color:var(--neg);}
+
+.restored-bar{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;
+  background:var(--surface2);border:1px solid var(--line);border-left:3px solid var(--academic);
+  border-radius:var(--r);padding:9px var(--s3);margin-bottom:var(--s3);
+  font-size:var(--fs-sm);color:var(--ink2);}
+.restored-bar i{color:var(--academic);}
+.rb-btn{margin-left:auto;font-size:var(--fs-cap);padding:5px 11px;border-radius:var(--pill);
+  border:1px solid var(--line);background:var(--surface);color:var(--ink2);cursor:pointer;}
+.rb-btn:hover{border-color:var(--accent);color:var(--accent2);}
+
+/* Per-document relevance, shown on the card so the gate is visible in the grid. */
+.rl-pill{font-size:var(--fs-micro);font-family:var(--mono);padding:1px 5px;border-radius:var(--r-xs);
+  border:1px solid var(--line);color:var(--ink3);cursor:help;}
+.rl-pill.v{color:var(--pos);border-color:rgba(47,217,163,.3);}
+.rl-pill.u{color:var(--warn);border-color:rgba(245,179,60,.3);}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   INSTRUMENT LAYER — visual reset for the report column
+   ──────────────────────────────────────────────────────────────────────────
+   The explainability pass answered "why is this number 32?" but answered it in
+   prose, in cards, all at the same weight — so the product read as
+   documentation rather than as an instrument. This layer changes three things
+   and nothing else:
+
+     1. CHROME RECEDES. Bordered cards nested inside bordered sections are
+        replaced by space and hairlines. Depth comes from layering, not outlines.
+     2. NUMBERS LEAD. One hero numeral per view, set large and light in tabular
+        figures. Labels shrink to wide-tracked micro-caps and get out of the way.
+     3. PROSE IS ON DEMAND. Explanations stay — they are the point — but they
+        live behind disclosure instead of occupying the default view.
+
+   Everything below is an override; no token is redefined, so light mode, the
+   reduced-transparency mode and the contrast modes all continue to work. */
+
+/* Ambient field. One low-opacity gradient behind the report column gives the
+   panel depth without adding a single visible edge. */
+#report{position:relative;}
+#report::before{
+  content:"";position:absolute;inset:-40px -24px auto;height:420px;z-index:0;
+  pointer-events:none;opacity:.55;
+  background:
+    radial-gradient(120% 90% at 12% 0%, color-mix(in srgb,var(--accent) 13%, transparent) 0%, transparent 62%),
+    radial-gradient(90% 70% at 88% 6%, color-mix(in srgb,var(--state) 11%, transparent) 0%, transparent 66%);
+}
+#report>*{position:relative;z-index:1;}
+
+/* Sections lose their boxes. A hairline and real space do the separating. */
+.report-section{
+  background:none !important;border:0 !important;box-shadow:none !important;
+  border-radius:0 !important;padding:var(--s6) 0 0 !important;margin:0 !important;
+  border-top:1px solid var(--line2) !important;
+}
+.report-section:first-of-type{border-top:0 !important;}
+.report-section-title{
+  font-size:9.5px !important;letter-spacing:.18em !important;text-transform:uppercase;
+  font-weight:600 !important;color:var(--ink3) !important;
+  margin:0 0 var(--s4) !important;padding:0 !important;border:0 !important;
+  display:flex;align-items:center;gap:8px;
+}
+.report-section-title i{font-size:12px;opacity:.5;}
+
+/* ── Verdict: the one hero on the page ─────────────────────────────────────
+   The numeral is INK, not the band colour. A 60px coloured digit is a shout,
+   and it also stops meaning anything once every band has its own hue — the
+   reader ends up decoding a colour instead of reading a number. The band word
+   and the rule above it carry the severity; the number just has to be legible
+   and large. */
+.verdict{padding:var(--s6) 0 var(--s7);display:flex;align-items:flex-end;gap:var(--s6);flex-wrap:wrap;}
+.verdict-num{
+  font-size:clamp(58px,8.5vw,84px);font-weight:200;line-height:.86;
+  letter-spacing:-.055em;font-variant-numeric:tabular-nums;
+  color:var(--ink);display:block;
+}
+.verdict-num .of{font-size:15px;font-weight:400;letter-spacing:0;color:var(--ink4);margin-left:6px;}
+.verdict-meta{flex:1 1 200px;min-width:0;padding-bottom:6px;}
+.verdict-band{
+  font-size:11px;letter-spacing:.2em;text-transform:uppercase;font-weight:600;
+  color:var(--tw,var(--accent2));margin-bottom:7px;
+}
+.verdict-line{font-size:var(--fs-sm);color:var(--ink2);line-height:1.5;max-width:44ch;}
+.verdict-rule{height:2px;width:44px;background:var(--tw,var(--accent));margin-bottom:var(--s3);opacity:.9;}
+.vc{
+  display:inline-flex;align-items:center;gap:7px;margin-top:var(--s3);
+  font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;
+  color:var(--ink3);background:none;border:0;padding:0;cursor:pointer;
+}
+.vc:hover{color:var(--ink);}
+.vc .cdot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+.vc.conf-high{color:var(--pos);} .vc.conf-moderate{color:var(--warn);} .vc.conf-low{color:var(--neg);}
+.vc i{opacity:.5;font-size:12px;}
+
+/* ── Risk row: four instruments, not four cards ──────────────────────────── */
+.risk-grid{
+  display:grid !important;grid-template-columns:repeat(4,1fr) !important;
+  gap:0 !important;margin-top:var(--s5);border-top:1px solid var(--line2);
+}
+.risk-cell{
+  background:none !important;border:0 !important;border-radius:0 !important;
+  border-right:1px solid var(--line2) !important;
+  padding:var(--s4) var(--s3) var(--s4) 0 !important;position:relative;cursor:pointer;
+  transition:background var(--t-fast);
+}
+.risk-cell:last-child{border-right:0 !important;}
+.risk-cell:not(:first-child){padding-left:var(--s3) !important;}
+.risk-cell:hover{background:var(--on-glass);}
+.risk-cell.on{background:var(--on-glass);}
+.risk-name{
+  font-size:9px !important;letter-spacing:.16em !important;text-transform:uppercase;
+  color:var(--ink3) !important;font-weight:600;margin-bottom:var(--s2) !important;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.risk-val{display:flex;align-items:baseline;gap:6px;margin-bottom:var(--s2) !important;}
+.risk-num{
+  font-size:30px !important;font-weight:250 !important;letter-spacing:-.04em;
+  line-height:1;font-variant-numeric:tabular-nums;color:var(--tw,var(--ink)) !important;
+}
+.risk-band{font-size:9px !important;letter-spacing:.13em;text-transform:uppercase;color:var(--ink3) !important;}
+.risk-track{height:2px !important;background:var(--line) !important;border-radius:0 !important;}
+.risk-fill{background:var(--tw,var(--accent)) !important;border-radius:0 !important;}
+.risk-cell .rk-more{display:none;}
+.rk-cov{display:none;}          /* moved into the panel — it is detail, not headline */
+
+/* ── Corpus strip: one line, one meter ───────────────────────────────────── */
+.rel-card{
+  background:none !important;border:0 !important;border-radius:0 !important;
+  padding:0 0 var(--s5) !important;margin:0 !important;
+}
+.rel-top{display:flex;align-items:baseline;gap:10px;margin-bottom:9px !important;}
+.rel-h{font-size:9px !important;letter-spacing:.18em !important;color:var(--ink3) !important;}
+.rel-n{font-size:20px !important;font-weight:300 !important;letter-spacing:-.03em;color:var(--ink) !important;}
+.rel-sub{font-size:var(--fs-cap) !important;color:var(--ink3) !important;}
+.rel-meter{height:3px !important;border-radius:0 !important;}
+.rel-key{gap:var(--s4) !important;font-size:9.5px !important;letter-spacing:.02em;}
+.rel-key b{width:6px;height:6px;border-radius:50%;}
+
+/* ── Disclosure: quiet until asked ───────────────────────────────────────── */
+.xp{
+  background:none !important;border:0 !important;border-radius:0 !important;
+  border-top:1px solid var(--line2) !important;
+}
+.xp+.xp{margin-top:0 !important;}
+.xp-head{
+  padding:11px 0 !important;font-size:var(--fs-cap) !important;color:var(--ink3) !important;
+  letter-spacing:.02em;
+}
+.xp-head:hover{background:none !important;color:var(--ink) !important;}
+.xp-head i:first-child{opacity:.45;font-size:13px;}
+.xp-body{border-top:0 !important;padding:0 0 var(--s4) !important;}
+.xp-why{
+  font-size:var(--fs-sm) !important;line-height:1.65 !important;color:var(--ink3) !important;
+  max-width:62ch;margin-bottom:var(--s4) !important;
+}
+.xp-why b{color:var(--ink2) !important;font-weight:500;}
+
+/* Factor rows read as a table of instruments. */
+.fct{padding:9px 0 !important;border-bottom:1px solid var(--line2) !important;}
+.fct-n{font-size:var(--fs-sm) !important;color:var(--ink2) !important;}
+.fct-s{font-size:var(--fs-sm) !important;font-weight:400;color:var(--ink) !important;}
+.fct-w{font-size:9.5px !important;letter-spacing:.06em;color:var(--ink4) !important;}
+.fct-d{font-size:10.5px !important;color:var(--ink4) !important;line-height:1.55;}
+.fct-bar{height:2px !important;background:var(--line) !important;border-radius:0 !important;}
+.fct-bar i{border-radius:0 !important;opacity:.75;}
+.fct-miss{font-size:10.5px !important;color:var(--warn) !important;opacity:.85;}
+
+/* ── Everything else: strip the boxes ────────────────────────────────────── */
+.threat-card{
+  background:none !important;border:0 !important;border-radius:0 !important;
+  box-shadow:none !important;padding:0 !important;
+}
+.threat-card::after{display:none !important;}
+.tc-drivers{border:0 !important;background:none !important;padding:var(--s4) 0 0 !important;}
+.tc-lbl{font-size:9px !important;letter-spacing:.18em !important;color:var(--ink3) !important;}
+.drv-track{height:2px !important;background:var(--line) !important;border-radius:0 !important;}
+/* Driver and factor bars are magnitudes, not severities — nothing about "this
+   signal contributed 11.1" is amber or red. Painting them the band colour makes
+   the eye read severity where there is none, and puts a fourth hue on a block
+   that should carry one. They are ink; the band word carries the severity. */
+.drv-fill{border-radius:0 !important;opacity:1;background:var(--ink3) !important;}
+.fct-bar i{background:var(--ink3) !important;}
+.drv-name{font-size:var(--fs-sm) !important;color:var(--ink2) !important;}
+.drv-val{font-size:var(--fs-sm) !important;color:var(--ink3) !important;}
+.tc-caveats{border:0 !important;background:none !important;padding:var(--s4) 0 0 !important;}
+.cv{font-size:var(--fs-cap) !important;color:var(--ink3) !important;line-height:1.6;align-items:flex-start;}
+.cv i{color:var(--warn);opacity:.7;margin-top:2px;}
+.method-note{
+  border:0 !important;border-left:2px solid var(--line) !important;background:none !important;
+  font-size:10.5px !important;color:var(--ink4) !important;padding:2px 0 2px var(--s3) !important;
+  line-height:1.6;
+}
+.inline-stats{border:0 !important;background:none !important;gap:var(--s6) !important;padding:var(--s5) 0 !important;}
+.istat{background:none !important;border:0 !important;padding:0 !important;text-align:left !important;}
+.istat-val{font-size:26px !important;font-weight:250 !important;letter-spacing:-.035em;}
+.istat-label{font-size:9px !important;letter-spacing:.16em !important;text-transform:uppercase;color:var(--ink3) !important;}
+.vw{background:none !important;border:0 !important;padding:0 !important;text-align:left !important;}
+.vw-n{font-size:26px !important;font-weight:250 !important;letter-spacing:-.035em;}
+.vw-l{font-size:9px !important;letter-spacing:.16em !important;color:var(--ink3) !important;}
+.vel-grid{gap:var(--s6) !important;grid-template-columns:repeat(3,auto) !important;justify-content:start;}
+.conf-note{
+  background:none !important;border:0 !important;border-left:2px solid var(--accent) !important;
+  font-size:var(--fs-sm) !important;line-height:1.7 !important;color:var(--ink3) !important;
+  padding:2px 0 2px var(--s3) !important;max-width:58ch;
+}
+.report-query{
+  font-size:9.5px !important;letter-spacing:.18em !important;text-transform:uppercase;
+  font-weight:600 !important;color:var(--ink3) !important;
+  background:none !important;border:0 !important;border-radius:0 !important;
+  padding:0 !important;margin:0 0 var(--s4) !important;max-width:none !important;
+}
+.report-meta{font-size:var(--fs-cap) !important;color:var(--ink3) !important;}
+.report-meta-dot{display:none !important;}
+
+/* Disclosure rows have to look pressable. A bare line of text reads as a
+   heading, and a heading that silently does nothing when clicked is worse than
+   no affordance at all. */
+.xp-head .chev{opacity:.55;font-size:14px;transition:transform var(--t-fast),opacity var(--t-fast);}
+.xp-head:hover .chev{opacity:1;}
+.xp.on>.xp-head{color:var(--ink) !important;}
+.xp-head::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:1px;
+  background:var(--accent);transform:scaleX(0);transform-origin:left;
+  transition:transform var(--t-mid) var(--e-out);
+}
+.xp-head{position:relative;}
+.xp.on>.xp-head::after{transform:scaleX(1);}
+
+/* Caveats are a footnote to the verdict, not a second paragraph of body copy. */
+.tc-caveats .cv{font-size:10.5px !important;color:var(--ink4) !important;}
+.tc-caveats .cv span{max-width:70ch;}
+.ev-row{border-bottom:1px solid var(--line2) !important;padding:var(--s3) 0 !important;}
+.ev-kind{background:none !important;width:20px !important;height:20px !important;}
+.ev-l{font-size:var(--fs-sm) !important;color:var(--ink2) !important;}
+.ev-m{font-size:9.5px !important;letter-spacing:.06em;}
+.ev-q{font-size:var(--fs-cap) !important;color:var(--ink4) !important;border-left-color:var(--line) !important;}
+.tl-legend,.rel-key{color:var(--ink4) !important;}
+.tl-hint{font-size:9.5px !important;letter-spacing:.04em;text-transform:none;}
+.restored-bar{background:none !important;border:0 !important;border-left:2px solid var(--academic) !important;
+  border-radius:0 !important;padding:2px 0 2px var(--s3) !important;font-size:var(--fs-cap) !important;}
+.lang-pill,.fc{border-radius:var(--r-xs) !important;}
+
+/* The lower half of the report still carried the old card treatment — bordered
+   mini-cards, bordered pills, bordered chain nodes — so the page changed visual
+   language halfway down. Same treatment as above: hairlines and space. */
+.intel-pair{gap:0 !important;border-top:1px solid var(--line2);}
+.mini-card{
+  background:none !important;border:0 !important;border-radius:0 !important;
+  padding:var(--s4) var(--s4) var(--s4) 0 !important;
+}
+.mini-card+.mini-card{border-left:1px solid var(--line2) !important;padding-left:var(--s4) !important;}
+.mini-title{font-size:9px !important;letter-spacing:.16em !important;color:var(--ink3) !important;}
+.coord-score-num{font-size:30px !important;font-weight:250 !important;font-family:var(--sans) !important;}
+.coord-risk-label{font-size:9px !important;letter-spacing:.14em !important;font-weight:600 !important;}
+.coord-detail{font-size:10.5px !important;color:var(--ink4) !important;}
+.prop-node{
+  background:none !important;border:0 !important;border-radius:0 !important;padding:4px 0 !important;
+  font-size:var(--fs-sm) !important;color:var(--ink2) !important;
+}
+.prop-node.origin{color:var(--accent2) !important;}
+.prop-arr{margin:5px var(--s3) 0 !important;opacity:.5;}
+.prop-lag{font-size:9px !important;letter-spacing:.06em;color:var(--ink4) !important;}
+.src-pill,.lang-pill,.ent-chip,.echip{
+  background:none !important;border:0 !important;border-bottom:1px solid var(--line2) !important;
+  border-radius:0 !important;padding:5px 0 !important;
+}
+.src-pills,.lang-row{gap:0 var(--s5) !important;}
+.lang-note{font-size:10.5px !important;color:var(--ink4) !important;}
+.cluster-card{
+  background:none !important;border:0 !important;border-left:2px solid var(--accent) !important;
+  border-radius:0 !important;box-shadow:none !important;padding:var(--s2) 0 var(--s2) var(--s4) !important;
+}
+.cluster-src-pill{
+  background:none !important;border:0 !important;border-radius:0 !important;
+  padding:3px 0 !important;font-size:var(--fs-sm) !important;color:var(--ink3) !important;
+}
+.framing-row .fc{border:0 !important;}
+.ia-sig{border:0 !important;background:none !important;padding:var(--s3) 0 !important;
+  border-bottom:1px solid var(--line2) !important;}
+.geo-chip{background:none !important;border:0 !important;padding:0 var(--s4) 0 0 !important;}
+.unavail-note{background:none !important;border:0 !important;border-left:2px solid var(--line) !important;
+  padding:2px 0 2px var(--s3) !important;font-size:10.5px !important;color:var(--ink4) !important;}
+.skel{border-radius:2px !important;}
+
+/* ═══ P4 / P5 PAYLOAD BLOCKS ═══════════════════════════════════════════════
+   Coordination v2, captured-vs-manufactured reach, persistent narrative
+   identity, and the dating caveats on propagation and velocity.
+
+   Written flat — hairlines and ink, no boxes — because the sheet above strips
+   the boxes off everything in the report body and a new bordered card here
+   would read as a different product.
+
+   ONE RULE RUNS THROUGH ALL OF IT: a severity hue is only ever painted where
+   the backend actually earned a band. Coordination without a matched organic
+   baseline, a reach split with no engagement data, and a narrative on its
+   first observation are all UNKNOWNS, and an unknown drawn in green or amber
+   is a finding the measurement does not support. Those states are ink. */
+
+/* ── Coordination ─────────────────────────────────────────────────────── */
+.cd-head{display:flex;align-items:baseline;gap:var(--s4);flex-wrap:wrap;margin-bottom:var(--s3);}
+.cd-score{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:36px;
+  font-weight:250;letter-spacing:-.035em;color:var(--ink);line-height:1;}
+.cd-score .of{font-size:12px;color:var(--ink4);margin-left:3px;letter-spacing:0;}
+.cd-band{font-size:var(--fs-cap);font-weight:600;letter-spacing:.09em;text-transform:uppercase;}
+.cd-band.high{color:var(--neg);}
+.cd-band.medium{color:var(--warn);}
+.cd-band.low{color:var(--pos);}
+/* Unbanded / unknown: ink, never a severity colour. */
+.cd-band.nb{color:var(--ink3);font-weight:500;letter-spacing:.06em;text-transform:none;}
+.cd-sub{font-size:var(--fs-cap);color:var(--ink3);line-height:1.6;}
+.cd-chips{display:flex;flex-wrap:wrap;gap:var(--s4);margin:var(--s2) 0 var(--s3);}
+.cd-chip{font-size:var(--fs-cap);color:var(--ink3);}
+.cd-chip b{color:var(--ink2);font-weight:500;font-family:var(--mono);
+  font-variant-numeric:tabular-nums;}
+.cd-cl{padding:var(--s3) 0;border-bottom:1px solid var(--line2);}
+.cd-cl:last-child{border-bottom:0;}
+.cd-cl-top{display:flex;align-items:baseline;gap:var(--s3);flex-wrap:wrap;}
+.cd-cl-n{font-size:var(--fs-sm);color:var(--ink);font-weight:500;}
+.cd-cl-m{font-size:var(--fs-cap);color:var(--ink3);font-family:var(--mono);
+  font-variant-numeric:tabular-nums;}
+.cd-traits{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+.cd-trait{font-size:10.5px;letter-spacing:.04em;color:var(--ink3);
+  border:1px solid var(--line);border-radius:var(--pill);padding:2px 8px;}
+.cd-actors{font-size:10.5px;color:var(--ink4);margin-top:5px;line-height:1.6;
+  word-break:break-word;}
+.cd-ex{display:flex;flex-wrap:wrap;gap:var(--s3);margin-top:6px;}
+.cd-ex a{font-size:10.5px;color:var(--ink3);text-decoration:none;
+  border-bottom:1px solid var(--line);max-width:34ch;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;display:inline-block;}
+.cd-ex a:hover{color:var(--accent2);border-bottom-color:var(--accent);}
+
+/* ── Reach split (manufactured vs captured) ───────────────────────────── */
+.rs-bar{display:flex;height:3px;background:var(--line);margin:var(--s2) 0 7px;overflow:hidden;}
+.rs-bar i{display:block;height:100%;}
+.rs-bar i.m{background:var(--warn);opacity:.85;}
+.rs-bar i.c{background:var(--ink3);}
+.rs-key{display:flex;flex-wrap:wrap;gap:var(--s4);font-size:10.5px;color:var(--ink3);}
+.rs-key span{display:flex;align-items:center;gap:5px;}
+.rs-key b{width:7px;height:7px;border-radius:2px;display:inline-block;}
+.rs-verdict{font-size:var(--fs-cap);color:var(--ink2);line-height:1.6;margin-top:7px;}
+
+/* ── Narrative identity ───────────────────────────────────────────────── */
+.nt-row{display:grid;grid-template-columns:1fr auto auto;gap:4px var(--s4);
+  align-items:center;padding:var(--s3) 0;border-bottom:1px solid var(--line2);}
+.nt-row:last-child{border-bottom:0;}
+.nt-l{font-size:var(--fs-sm);color:var(--ink);line-height:1.4;min-width:0;}
+.nt-id{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--ink4);
+  display:block;margin-top:3px;}
+.nt-m{font-size:10.5px;color:var(--ink3);font-family:var(--mono);
+  font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
+.nt-spark{color:var(--ink3);display:block;}
+.nt-spark.new{color:var(--ink4);}
+.nt-nohist{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4);
+  white-space:nowrap;}
+.nt-ev{display:flex;gap:var(--s3);align-items:flex-start;padding:9px 0;
+  border-bottom:1px solid var(--line2);}
+.nt-ev:last-child{border-bottom:0;}
+.nt-ev i{font-size:13px;line-height:1.4;flex:none;color:var(--ink3);}
+.nt-ev.birth i{color:var(--pos);}
+.nt-ev.death i{color:var(--ink4);}
+.nt-ev.growth i{color:var(--warn);}
+.nt-ev.contraction i{color:var(--academic);}
+.nt-ev.merge i,.nt-ev.split i{color:var(--state);}
+/* Drift is the one an analyst must not skim past: the id and the documents
+   held, so every trend line drawn on it stayed continuous, while the subject
+   underneath moved. It gets the accent rail the other kinds do not. */
+.nt-ev.drift{border-left:2px solid var(--accent);padding-left:var(--s3);}
+.nt-ev.drift i{color:var(--accent2);}
+.nt-ev-b{min-width:0;flex:1;}
+.nt-ev-k{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink4);}
+.nt-ev-d{font-size:var(--fs-cap);color:var(--ink2);line-height:1.6;margin-top:2px;
+  word-break:break-word;}
+.nt-ev-t{font-size:10.5px;color:var(--ink4);margin-top:3px;}
+.nt-drift-arrow{display:block;font-size:var(--fs-cap);color:var(--ink3);
+  line-height:1.7;margin-top:4px;}
+.nt-drift-arrow b{color:var(--ink);font-weight:500;}
+
+/* ── Engagement vs views ──────────────────────────────────────────────── */
+.eng-split{display:flex;flex-wrap:wrap;gap:var(--s8);padding:0 0 var(--s5);}
+.eng-fig{min-width:0;}
+.eng-v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:26px;
+  font-weight:250;letter-spacing:-.035em;color:var(--ink);line-height:1;}
+.eng-l{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3);margin-top:5px;}
+.eng-d{font-size:10.5px;color:var(--ink4);margin-top:3px;}
+.mc-engs{display:flex;gap:var(--s3);flex-wrap:wrap;}
+.mc-eng.views{color:var(--ink4);}
+
+/* ── Propagation dating ───────────────────────────────────────────────── */
+.prop-dated{font-size:9px;color:var(--ink4);text-align:center;display:block;margin-top:2px;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;}
+
+@media(max-width:760px){
+  .nt-row{grid-template-columns:1fr auto;}
+  .nt-spark,.nt-nohist{grid-column:2;}
+  .eng-split{gap:var(--s6);}
+}
+
+@media(max-width:760px){
+  .risk-grid{grid-template-columns:repeat(2,1fr) !important;}
+  .risk-cell:nth-child(2){border-right:0 !important;}
+  .risk-cell:nth-child(-n+2){border-bottom:1px solid var(--line2) !important;}
+}
 </style>
 </head>
 <body>
@@ -1066,6 +1690,7 @@ button{background:none;border:none;cursor:pointer;}
       <span class="tip" role="tooltip">New search</span>
     </button>
     <div class="rail-sep"></div>
+    <div class="rail-hh">Saved searches</div>
     <div class="rail-hist" id="railHist"></div>
     <div class="rail-sep"></div>
     <a class="rail-icon" href="/api/status" target="_blank" rel="noopener" aria-label="Source status">
@@ -1145,6 +1770,7 @@ button{background:none;border:none;cursor:pointer;}
         <div class="grid-toolbar glass" id="gridToolbar" style="display:none;">
           <span class="gt-query-label" id="gtQuery"></span>
           <span class="gt-count" id="gtCount" role="status" aria-live="polite"></span>
+          <div class="gt-chips" id="gtChips" hidden></div>
           <div class="gt-flex"></div>
           <button type="button" class="filter-btn" data-act="filter" aria-expanded="false" aria-controls="filterPanel"><i class="ti ti-adjustments-horizontal" aria-hidden="true"></i> Filter</button>
           <button type="button" class="sort-btn" data-act="sort" aria-expanded="false" aria-controls="sortPanel"><i class="ti ti-arrows-sort" aria-hidden="true"></i> Sort</button>
@@ -1155,17 +1781,22 @@ button{background:none;border:none;cursor:pointer;}
             <div class="fp-sep"></div>
             <div class="fp-label">Source Type</div>
             <div class="fp-pills" id="fpSrcTypes"></div>
+            <div class="fp-sep" id="fpRelWrap" hidden>
+              <div class="fp-label">Relevance</div>
+              <div class="fp-pills" id="fpRelevance"></div>
+            </div>
             <div class="fp-sep"></div>
             <div class="fp-label">Date Range</div>
             <div class="date-pills" id="fpDates"></div>
             <div class="fp-actions">
-              <button type="button" class="fp-reset" data-act="fpreset">Reset</button>
-              <button type="button" class="fp-apply" data-act="fpapply">Apply</button>
+              <button type="button" class="fp-reset" data-act="fpreset">Reset all</button>
+              <button type="button" class="fp-apply" data-act="fpapply">Done</button>
             </div>
           </div>
           <!-- SORT PANEL -->
           <div class="sort-panel glass glass--deep" id="sortPanel" role="radiogroup" aria-label="Sort results">
-            <button type="button" class="sort-opt on" data-act="pick" data-sort="newest" role="radio" aria-checked="true"><span>Newest</span><span class="sradio" aria-hidden="true"></span></button>
+            <button type="button" class="sort-opt on" data-act="pick" data-sort="relevance" role="radio" aria-checked="true"><span>Most relevant</span><span class="sradio" aria-hidden="true"></span></button>
+            <button type="button" class="sort-opt" data-act="pick" data-sort="newest" role="radio" aria-checked="false"><span>Newest</span><span class="sradio" aria-hidden="true"></span></button>
             <button type="button" class="sort-opt" data-act="pick" data-sort="eng_desc" role="radio" aria-checked="false"><span>Most engaged</span><span class="sradio" aria-hidden="true"></span></button>
             <button type="button" class="sort-opt" data-act="pick" data-sort="oldest" role="radio" aria-checked="false"><span>Oldest</span><span class="sradio" aria-hidden="true"></span></button>
             <button type="button" class="sort-opt" data-act="pick" data-sort="pos" role="radio" aria-checked="false"><span>Most positive</span><span class="sradio" aria-hidden="true"></span></button>
@@ -1252,6 +1883,18 @@ function ago(ts){
   if(s<86400)return Math.floor(s/3600)+'h';if(s<604800)return Math.floor(s/86400)+'d';
   return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
 }
+/* Hours a reader can picture. The propagation chain was printing "+21656h",
+   which is precise, unreadable, and reads like an unfinished feature in the one
+   panel whose job is to make a spread pattern legible at a glance. */
+function durH(h){
+  h=Number(h); if(!isFinite(h)||h<0)return '';
+  if(h<1)return Math.round(h*60)+'min';
+  if(h<48)return Math.round(h)+'h';
+  var d=h/24;
+  if(d<60)return Math.round(d)+'d';
+  if(d<730)return Math.round(d/30.44)+'mo';
+  return (d/365.25).toFixed(1)+'y';
+}
 function parseTs(ts){
   if(!ts)return null;
   if(typeof ts==='number'){return new Date(ts>1e12?ts:ts*1000);}
@@ -1298,41 +1941,222 @@ var PM={
   podcasts:{n:'Podcasts',c:'#9333ea',i:'🎙'},
 };
 function pm(p){return PM[p]||{n:p||'?',c:'#555',i:'•'};}
+/* Brand colours are not display colours. X is #000, TikTok #010101, Threads
+   #101010 — on this near-black ground those dots have been rendering invisible
+   everywhere they appear, so 19 of the 114 X documents in a #covid1948 corpus
+   had no visible marker at all. Substitute a legible tone when the brand colour
+   collapses into the background, and leave every other brand colour alone. */
+function platCol(p){
+  var c=(pm(p).c||'#888'),m=/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(c);
+  if(!m)return c;
+  var h=m[1];if(h.length===3)h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  var r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+  var lum=(0.2126*r+0.7152*g+0.0722*b)/255;
+  var dark=document.documentElement.getAttribute('data-theme')!=='light';
+  if(dark&&lum<0.22)return '#dfe4ec';
+  if(!dark&&lum>0.86)return '#2a2f3a';
+  return c;
+}
 var SRC_LABELS={state_media:'State Media',academic:'Academic',news:'News',social:'Social',podcast:'Podcast'};
 var CLUSTER_COLORS=['#e05c28','#9b5de5','#0ea5e9','#1ecb94','#f6a609','#f56565','#a78bfa','#38bdf8'];
 
 /* ── HISTORY ── */
 var HIST_KEY='xtag-hist-v3';
+/* ── CASES ──────────────────────────────────────────────────────────────────
+   A search used to leave nothing behind but its query string. Reopening one
+   re-ran the whole 100-second fan-out and depended on a 30-minute server cache
+   to return the same answer — so "my previous search" was gone the moment the
+   cache expired, and "New" wiped the screen with no way back.
+
+   A search is now a CASE: the full payload is kept locally and restored
+   instantly, exactly as it was when it was captured. Intelligence work is
+   comparative — you cannot see that a narrative accelerated if yesterday's
+   reading is unrecoverable — so a captured result is treated as a record, not
+   as a cache entry.
+
+   The index (query, time, threat band, document count) lives in localStorage
+   because it is small and needed synchronously to paint the rail. The payloads
+   are ~500KB each and live in IndexedDB, which has room for them. */
+var CASE_DB='xtag-cases',CASE_STORE='payloads',CASE_MAX=40;
+var _db=null;
+function caseDB(){
+  if(_db)return _db;
+  _db=new Promise(function(res,rej){
+    if(!window.indexedDB)return rej(new Error('no indexedDB'));
+    var rq=indexedDB.open(CASE_DB,1);
+    rq.onupgradeneeded=function(){
+      var d=rq.result;
+      if(!d.objectStoreNames.contains(CASE_STORE))d.createObjectStore(CASE_STORE,{keyPath:'id'});
+    };
+    rq.onsuccess=function(){res(rq.result);};
+    rq.onerror=function(){rej(rq.error);};
+  });
+  return _db;
+}
+function caseTx(mode){
+  return caseDB().then(function(d){return d.transaction(CASE_STORE,mode).objectStore(CASE_STORE);});
+}
+function casePut(id,payload){
+  return caseTx('readwrite').then(function(st){
+    return new Promise(function(res,rej){
+      var r=st.put({id:id,payload:payload,ts:Date.now()});
+      r.onsuccess=function(){res(true);};r.onerror=function(){rej(r.error);};
+    });
+  }).catch(function(e){
+    // Storage is best-effort. A quota error must never cost the user the search
+    // they are currently looking at.
+    console.warn('case store failed:',e);return false;
+  });
+}
+function caseGet(id){
+  return caseTx('readonly').then(function(st){
+    return new Promise(function(res){
+      var r=st.get(id);
+      r.onsuccess=function(){res(r.result?r.result.payload:null);};
+      r.onerror=function(){res(null);};
+    });
+  }).catch(function(){return null;});
+}
+function caseDrop(id){
+  return caseTx('readwrite').then(function(st){st.delete(id);}).catch(function(){});
+}
+
 function loadHist(){try{return JSON.parse(localStorage.getItem(HIST_KEY)||'[]');}catch(e){return[];}}
-function saveHist(h){localStorage.setItem(HIST_KEY,JSON.stringify(h.slice(0,40)));}
+function saveHist(h){try{localStorage.setItem(HIST_KEY,JSON.stringify(h.slice(0,CASE_MAX)));}catch(e){}}
+
+/* Recorded when the search STARTS, so an in-flight or failed search still
+   appears in the rail rather than vanishing. Completed later by finishCase(). */
 function addHist(q){
+  var id='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
   var h=loadHist().filter(function(x){return x.q!==q;});
-  h.unshift({q:q,ts:Date.now()});saveHist(h);renderRailHist();
+  h.unshift({id:id,q:q,ts:Date.now(),state:'running'});
+  // Evict the payloads of any case that just fell off the end of the index,
+  // otherwise IndexedDB grows without limit behind a bounded list.
+  loadHist().slice(CASE_MAX-1).forEach(function(x){if(x.id)caseDrop(x.id);});
+  saveHist(h);renderRailHist();
+  return id;
+}
+function finishCase(id,data){
+  var h=loadHist(),e=null;
+  for(var i=0;i<h.length;i++)if(h[i].id===id){e=h[i];break;}
+  if(!e)return;
+  var t=data.threat||{},r=data.relevance||{};
+  e.state='done';e.band=t.band||null;e.score=(t.score===undefined?null:t.score);
+  e.docs=(data.totals||{}).mentions||0;
+  e.dropped=r.dropped||0;
+  saveHist(h);renderRailHist();
+  casePut(id,data);
+}
+/* P2: a case reaches the rail as soon as COLLECTION finishes, marked partial.
+   If the analysis stage then dies — or the tab is closed mid-request — the
+   documents are already saved and reopenable, instead of the whole search being
+   lost because interpretation failed. */
+function partialCase(id,data){
+  var h=loadHist(),e=null;
+  for(var i=0;i<h.length;i++)if(h[i].id===id){e=h[i];break;}
+  if(!e)return;
+  e.state='partial';
+  e.docs=(data.totals||{}).mentions||0;
+  e.dropped=(data.relevance||{}).dropped||0;
+  saveHist(h);renderRailHist();
+  casePut(id,data);
+}
+function failCase(id,msg){
+  var h=loadHist();
+  for(var i=0;i<h.length;i++)if(h[i].id===id){h[i].state='failed';h[i].err=String(msg||'').slice(0,80);break;}
+  saveHist(h);renderRailHist();
+}
+function relTime(ts){
+  var d=Math.max(0,Date.now()-ts),m=Math.round(d/60000);
+  if(m<1)return'just now'; if(m<60)return m+'m ago';
+  var hh=Math.round(m/60); if(hh<24)return hh+'h ago';
+  return Math.round(hh/24)+'d ago';
 }
 function renderRailHist(){
   var el=$('railHist');if(!el)return;
   var h=loadHist();
   el.setAttribute('role','list');
-  if(!h.length){el.innerHTML='<div style="font-size:11px;color:var(--ink3);padding:8px;">No history yet.</div>';return;}
+  if(!h.length){el.innerHTML='<div style="font-size:11px;color:var(--ink3);padding:8px;">No searches yet.</div>';return;}
   el.innerHTML=h.map(function(x,i){
-    return'<div class="rh-item'+(lastQ===x.q?' on':'')+'" role="listitem">'+
-      '<button type="button" class="rh-q" data-act="hist" data-i="'+i+'">'+esc(x.q)+'</button>'+
+    var meta='';
+    if(x.state==='running')meta='<span class="rh-run">running…</span>';
+    else if(x.state==='failed')meta='<span class="rh-fail">failed</span>';
+    /* A partial case holds real collected documents but no assessment. It must
+       not display a band it does not have, and it must not look like a failure. */
+    else if(x.state==='partial')meta='<span class="rh-part">evidence only</span>'+
+              '<span class="rh-docs">'+(x.docs||0)+' docs</span>';
+    else meta='<span class="rh-band '+bandClass(x.band)+'">'+esc(x.band||'—')+'</span>'+
+              '<span class="rh-docs">'+(x.docs||0)+' docs</span>';
+    return'<div class="rh-item'+(currentCase===x.id?' on':'')+'" role="listitem">'+
+      '<button type="button" class="rh-q" data-act="hist" data-i="'+i+'">'+
+        '<span class="rh-t">'+esc(x.q)+'</span>'+
+        '<span class="rh-m">'+meta+'<span class="rh-age">'+relTime(x.ts)+'</span></span>'+
+      '</button>'+
       '<button type="button" class="rh-del ti ti-x" data-act="histdel" data-i="'+i+'" aria-label="Remove '+esc(x.q)+' from history"></button>'+
     '</div>';
   }).join('');
 }
-function delHist(i){var h=loadHist();h.splice(i,1);saveHist(h);renderRailHist();}
+function delHist(i){
+  var h=loadHist();
+  if(h[i]&&h[i].id)caseDrop(h[i].id);
+  h.splice(i,1);saveHist(h);renderRailHist();
+}
+
+/* Restore a captured case exactly as it was, with no network call. The banner
+   is not decoration: a reading from three hours ago must never be mistaken for
+   a live one, so the age and a way to re-run it are part of the restore. */
+function openCase(entry){
+  if(!entry)return;
+  /* A partial case is openable: the corpus is stored. Only 'running' and
+     'failed' have nothing to restore. */
+  if(entry.state!=='done'&&entry.state!=='partial'){ $('q').value=entry.q; doSearch(); return; }
+  caseGet(entry.id).then(function(data){
+    if(!data){
+      // Index says done but the payload is gone (cleared storage, other browser).
+      $('q').value=entry.q; doSearch(); return;
+    }
+    currentCase=entry.id; lastQ=entry.q; lastData=data;
+    $('q').value=entry.q;
+    $('hero').classList.add('hidden');
+    $('split').classList.remove('landing');
+    $('report').classList.remove('hidden');
+    $('gridToolbar').style.display='flex';
+    $('gtQuery').textContent=entry.q;
+    filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+    pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+    restoredAt=entry.ts;
+    renderReport(data);
+    renderGrid(allItems());
+    briefHTML='';briefState='idle';
+    var bb=$('briefBody');
+    if(bb)bb.innerHTML='<div class="ve-text">The written brief is not stored with a case. '+
+      '<button type="button" class="eg-retry" data-act="rerun">Re-run this search</button> to regenerate it.</div>';
+    renderRailHist();
+  });
+}
 
 /* ── STATE ── */
 var lastQ='',lastData=null,activeMode='narrative';
+/* The case currently on screen, and — when it was restored rather than freshly
+   fetched — when it was captured. `restoredAt` is what stops a three-hour-old
+   reading from being read as live. */
+var currentCase=null,restoredAt=null;
+/* Set when an actor is clicked through from the entity map; narrows the grid to
+   the documents that name it. Cleared like any other filter. */
+var entityFocus=null;
+/* Committed time window from brushing the timeline. Separate from `timeFocus`,
+   which is the transient selection on the chart — brushing shows you what you
+   have selected; only "Show these in results" narrows the grid. Conflating the
+   two makes the chart feel like it is fighting you. */
+var gridTimeFocus=null;
 /* The brief resolves asynchronously and setMode() re-renders #report wholesale,
    so a tab switch mid-flight used to lose it permanently. It is kept here and
    re-applied by renderReport(). */
 var briefHTML='',briefState='idle';
 var searchCtl=null,searchSeq=0,loaderIv=null,loaderHideT=null;
-var filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
-var pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
-var sortMode='newest';
+var filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+var pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+var sortMode='relevance';
 
 /* ── MODE ── */
 function setMode(btn){
@@ -1435,6 +2259,87 @@ function gridState(kind,detail){
 }
 
 /* ── SEARCH ── */
+
+/* Reads text/event-stream off fetch(). Returns a promise that resolves with the
+   final payload, so the caller's .catch() keeps working unchanged. */
+function streamSearch(q,onPhase1,onDone){
+  var url='/api/search/stream?q='+encodeURIComponent(q);
+  var opts=searchCtl?{signal:searchCtl.signal}:{};
+  var canStream=(typeof ReadableStream!=='undefined'&&typeof TextDecoder!=='undefined');
+  if(!canStream)return plainSearch(q).then(onDone);
+
+  return fetch(url,opts).then(function(r){
+    if(!r.ok||!r.body){
+      /* 429 and 5xx resolve too. Without this the error body would render as a
+         confident report reading "0 posts from 0 sources". */
+      if(r.status===429)throw new Error('HTTP 429 — rate limited, wait a moment');
+      if(!r.body)return plainSearch(q).then(onDone);
+      throw new Error('HTTP '+r.status);
+    }
+    var reader=r.body.getReader(),dec=new TextDecoder(),buf='',finished=false;
+    function pump(){
+      return reader.read().then(function(res){
+        if(res.done){
+          if(!finished)throw new Error('the connection closed before the analysis finished');
+          return;
+        }
+        buf+=dec.decode(res.value,{stream:true});
+        /* Frames are separated by a blank line. Anything after the last blank
+           line is a partial frame and must stay in the buffer — splitting on
+           every newline instead is the classic way to lose half a payload. */
+        var parts=buf.split('\n\n');
+        buf=parts.pop();
+        for(var i=0;i<parts.length;i++){
+          var frame=parts[i];
+          if(frame.charAt(0)===':')continue;        // keepalive comment
+          var m=/^event: (\w+)\ndata: ([\s\S]*)$/.exec(frame);
+          if(!m)continue;
+          var data;
+          try{data=JSON.parse(m[2]);}catch(e){continue;}
+          if(m[1]==='phase1'){onPhase1(data);}
+          else if(m[1]==='phase2'){finished=true;onDone(data);}
+          else if(m[1]==='error'){throw new Error(data.error||'search failed');}
+        }
+        return pump();
+      });
+    }
+    return pump();
+  });
+}
+
+function plainSearch(q){
+  return fetch('/api/search?q='+encodeURIComponent(q),
+               searchCtl?{signal:searchCtl.signal}:undefined)
+    .then(function(r){
+      if(!r.ok)throw new Error('HTTP '+r.status+(r.status===429?' — rate limited, wait a moment':''));
+      return r.json();
+    });
+}
+
+/* What the report pane shows between phase 1 and phase 2. It states plainly
+   that the documents are real and the assessment is not ready, because the one
+   thing this pane must never do is show a number that is still being computed
+   as though it were final. */
+function reportPending(data){
+  var t=data.totals||{},r=data.relevance||{};
+  var kept=t.mentions||0, dropped=r.dropped||0;
+  var srcs=Object.keys(data.platforms||{}).filter(function(k){
+    return ((data.platforms[k]||{}).results||[]).length;}).length;
+  $('report').innerHTML=
+    '<div class="rp-pending">'+
+      '<div class="rp-pending-head">'+
+        '<span class="rp-spin" aria-hidden="true"></span>'+
+        '<span>Collected <b>'+kept+'</b> on-topic '+(kept===1?'document':'documents')+
+        ' from <b>'+srcs+'</b> '+(srcs===1?'source':'sources')+
+        (dropped?(' · <b>'+dropped+'</b> off-topic dropped'):'')+'</span>'+
+      '</div>'+
+      '<div class="rp-pending-note">The evidence on the right is complete and searchable now. '+
+      'Narratives, actors, events and the threat assessment are still being computed — '+
+      'no score is shown yet because none of it is final.</div>'+
+      '<div class="skel w90"></div><div class="skel w75"></div><div class="skel w60"></div>'+
+    '</div>';
+}
+
 function doSearch(){
   var q=($('q').value||'').trim();if(!q)return;
   if(searchCtl){try{searchCtl.abort();}catch(e){}}
@@ -1445,8 +2350,8 @@ function doSearch(){
   /* Filters were only reset by newSearch(), so a filter left on query A silently
      applied to query B — the grid could read "0 / 412 posts" with no explanation
      while the report above summarised all 412. */
-  filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
-  pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
+  filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+  pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
   updateToolbarState();
   $('hero').classList.add('hidden');
   $('split').classList.remove('landing');
@@ -1457,26 +2362,58 @@ function doSearch(){
   gridState('idle');
   $('gtQuery').textContent=q;
   $('gtCount').textContent='';
-  addHist(q);
+  restoredAt=null;entityFocus=null;gridTimeFocus=null;timeFocus=null;
+  currentCase=addHist(q);
+  var caseId=currentCase;
   showLoader();
-  fetch('/api/search?q='+encodeURIComponent(q),searchCtl?{signal:searchCtl.signal}:undefined)
-    .then(function(r){
-      /* fetch() resolves for 429 and 500 too. Without this check the error body
-         renders as a confident report reading "0 posts from 0 sources". */
-      if(!r.ok)throw new Error('HTTP '+r.status+(r.status===429?' — rate limited, wait a moment':''));
-      return r.json();
-    })
-    .then(function(data){
-      if(seq!==searchSeq)return;          // a newer search already won
-      hideLoader();lastData=data;
-      renderReport(data);
-      renderGrid(allItems());
-      requestBrief(data);
-    })
+  /* ── P2: two-phase read ────────────────────────────────────────────────
+     The server sends the corpus as soon as collection finishes and the
+     interpretation afterwards. Documents, platform mix, relevance and
+     sentiment are on screen in seconds; narratives, entities and the
+     assessment fill in underneath without a reload.
+
+     fetch + a stream reader rather than EventSource, for two reasons:
+     EventSource cannot send the X-XTag-Key header (it would force the key
+     into the query string) and cannot be aborted, so a superseded search
+     would keep running. Browsers without ReadableStream fall back to the
+     plain endpoint, which still works exactly as before. */
+  var gotPhase1=false;
+  function onPhase1(data){
+    if(seq!==searchSeq)return;
+    gotPhase1=true;
+    hideLoader();
+    lastData=data;
+    partialCase(caseId,data);
+    renderGrid(allItems());
+    reportPending(data);
+  }
+  function onComplete(data){
+    if(seq!==searchSeq)return;
+    hideLoader();lastData=data;
+    finishCase(caseId,data);
+    renderReport(data);
+    renderGrid(allItems());
+    requestBrief(data);
+  }
+  streamSearch(q,onPhase1,onComplete)
     .catch(function(e){
       if(seq!==searchSeq)return;
       if(e&&e.name==='AbortError')return;
       hideLoader();
+      /* If phase 1 landed, the documents on screen are real and collected —
+         only the interpretation failed. Tearing the grid down and showing "the
+         search failed" would be a lie about evidence the user can see. The case
+         stays saved as partial and reopenable. */
+      if(gotPhase1){
+        $('report').innerHTML='<div class="view-empty"><i class="ti ti-alert-triangle" style="color:var(--warn,#e0a800)" aria-hidden="true"></i>'+
+          '<div class="ve-title">Collection finished — the analysis did not</div>'+
+          '<div class="ve-text">'+esc(String(e&&e.message||e))+'<br><br>'+
+          'Every document in the grid was collected and passed the relevance gate, so it is real evidence. '+
+          'There is no threat score, narrative breakdown or actor map for this run, and none should be inferred.'+
+          '</div><button type="button" class="eg-retry" data-act="retry">Run the analysis again</button></div>';
+        return;
+      }
+      failCase(caseId,e&&e.message);
       gridState('error');
       $('gtCount').textContent='';
       $('report').innerHTML='<div class="view-empty"><i class="ti ti-alert-triangle" style="color:var(--neg)" aria-hidden="true"></i>'+
@@ -1490,16 +2427,20 @@ function loadQ(q){
   $('q').value=q;doSearch();
 }
 
-// "+" = start over. Previously this only blanked the input while the previous
-// query's results stayed on screen, which read as a dead button.
+/* "+" opens a NEW case. It does not destroy the previous one — that case is
+   still in the rail with its full payload, one click away. This used to clear
+   lastData and the screen with nothing retaining the result, which is what made
+   "New" feel like it deleted the search. */
 function newSearch(){
   $('q').value='';
-  lastQ='';lastData=null;
-  filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
-  pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
-  sortMode='newest';
+  lastQ='';lastData=null;currentCase=null;restoredAt=null;entityFocus=null;
+  gridTimeFocus=null;timeFocus=null;
+  filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+  pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+  sortMode='relevance';
   document.querySelectorAll('.sort-opt').forEach(function(e){
-    e.classList.toggle('on', e.dataset.sort==='newest');});
+    var on=e.dataset.sort==='relevance';
+    e.classList.toggle('on',on);e.setAttribute('aria-checked',on?'true':'false');});
   closeAll();
   var split=$('split');if(split)split.classList.remove('show-grid');
   var gtb=$('gridToggleBtn');
@@ -1536,28 +2477,96 @@ function riskLabel(k){
           operational:'Operational',physical_security:'Physical security'})[k]||k;
 }
 
+/* What each risk dimension actually MEANS, in the words of someone who has to
+   act on it. The backend already ships a `rationale` per dimension describing
+   how it is computed; this answers the prior question — why the dimension
+   exists at all, and whose problem it is. One aggregate threat number cannot be
+   acted on, because the person who owns a reputational problem is not the person
+   who owns a physical-security one. */
+/* What each dimension is, in the fewest words that still answer it. The long
+   version was three sentences of prose sitting permanently on screen; an
+   analyst needs the question it answers and who owns it, then nothing more
+   until they ask for it. */
+var RISK_EXPLAIN={
+  reputational:{q:'Is this damaging how we are seen?',who:'Comms',
+    d:'Hostile framing, geographic spread, and whether it is still accelerating.'},
+  information_integrity:{q:'Is this manufactured, or organic?',who:'Intelligence',
+    d:'Inauthentic amplification, coordination, state-media share. Real anger and a campaign look identical on volume alone and demand opposite responses.'},
+  operational:{q:'Is it disrupting something we run?',who:'Operations',
+    d:'Whether the narrative is attaching to services, staff or infrastructure rather than staying discursive.'},
+  physical_security:{q:'Should a human read these?',who:'Security',
+    d:'A lexical flag that violent language is present. It does not predict violence, and runs hot on any conflict topic by construction.'}
+};
+
+/* One factor row from the scoring layer. Unavailable factors are rendered, not
+   hidden: a reader who cannot see which signals went dark cannot tell a
+   well-evidenced score from a lucky one, and "no data" is not "no threat". */
+function factorRows(factors){
+  if(!factors||!factors.length)return'';
+  return factors.map(function(f){
+    if(!f.available){
+      return '<div class="fct off"><div class="fct-n">'+esc(f.label)+'</div>'+
+             '<div class="fct-s">—</div><div class="fct-w">'+nz(f.weight,'')+'</div>'+
+             '<div class="fct-miss"><i class="ti ti-alert-circle"></i><span>not measured — '+
+               esc(f.reason||'signal unavailable')+'</span></div></div>';
+    }
+    return '<div class="fct"><div class="fct-n">'+esc(f.label)+'</div>'+
+      '<div class="fct-s">'+nz(f.score)+'</div>'+
+      '<div class="fct-w" title="Configured weight '+nz(f.weight,'?')+
+        '; actually carried '+nz(f.contribution_pct,'?')+'% of this score">'+
+        nz(f.contribution_pct,'—')+'%</div>'+
+      '<div class="fct-bar"><i style="width:'+Math.max(0,Math.min(100,f.score||0))+'%"></i></div>'+
+      (f.detail?'<div class="fct-d">'+esc(f.detail)+'</div>':'')+
+    '</div>';
+  }).join('');
+}
+
+function xp(title, icon, bodyHtml, open){
+  if(!bodyHtml)return'';
+  return '<div class="xp'+(open?' on':'')+'">'+
+    '<button type="button" class="xp-head" data-act="xp" aria-expanded="'+(open?'true':'false')+'">'+
+      '<i class="ti '+icon+'" aria-hidden="true"></i><span>'+title+'</span>'+
+      '<i class="ti ti-chevron-right chev" aria-hidden="true"></i></button>'+
+    '<div class="xp-body">'+bodyHtml+'</div></div>';
+}
+
 function renderThreatBlock(data){
   var th=data.threat||{};
   if(th.score===undefined||th.score===null)return'';
   var cls=bandClass(th.band);
   var risk=(data.risk||{}).dimensions||{};
+  var rel=data.relevance||{};
   var h='<div class="threat-card '+cls+'">';
 
   // When the band is 'unknown' the computed number is an artefact of whichever
   // signals happened to be measurable, so showing it prominently would invite
   // exactly the false confidence the band exists to prevent. Show a dash.
+  // ── VERDICT ───────────────────────────────────────────────────────────
+  // One hero. The number carries the view; everything that qualifies it is a
+  // chip, a rule, or a disclosure — not a paragraph competing with it.
   var unknown=(th.band==='unknown');
-  h+='<div class="tc-head">'+
-       '<div class="tc-score"><div class="tc-score-val">'+(unknown?'—':th.score)+'</div>'+
-       '<div class="tc-score-max">'+(unknown?'NO DATA':'/ 100')+'</div></div>'+
-       '<div class="tc-meta">'+
-         '<div class="tc-band">'+(unknown?'Insufficient signal':esc(th.band||'')+' threat')+'</div>'+
-         '<div class="tc-sub">'+(unknown
-           ?'Not enough of the evidence base was available to make an assessment. This is not an all-clear.'
-           :'Composite of '+(th.factors||[]).length+' weighted signals · '+
-            (th.signal_coverage||0)+'% of intended signals available')+'</div>'+
-         '<div class="tc-conf conf-'+esc(th.confidence_band||'low')+'">'+
-           '<span class="cdot"></span>Confidence '+nz(th.confidence)+' ('+esc(th.confidence_band||'unknown')+')'+
+  h+='<div class="verdict">'+
+       '<div><span class="verdict-num">'+(unknown?'—':th.score)+
+         (unknown?'':'<span class="of">/100</span>')+'</span></div>'+
+       '<div class="verdict-meta">'+
+         '<div class="verdict-rule"></div>'+
+         '<div class="verdict-band">'+(unknown?'Insufficient signal':esc(th.band||'')+' threat')+'</div>'+
+         '<div class="verdict-line">'+(unknown
+           ?'Too little of the evidence base was available to assess. Not an all-clear.'
+           :(th.factors||[]).length+' weighted signals · '+(th.signal_coverage||0)+'% available')+'</div>'+
+         '<button type="button" class="vc conf-'+esc(th.confidence_band||'low')+'" data-act="xpconf">'+
+           '<span class="cdot"></span>Confidence '+nz(th.confidence)+
+           ' <i class="ti ti-help-circle" aria-hidden="true"></i>'+
+         '</button>'+
+         '<div class="conf-note" id="confNote" hidden>'+
+           'A claim about this <b>assessment</b>, not about the threat. '+
+           (th.inputs&&th.inputs.n_docs!==undefined
+             ? 'Computed from <b>'+th.inputs.n_docs+'</b> on-topic documents'+
+               (th.inputs.docs_collected?' of '+th.inputs.docs_collected+' collected':'')+
+               ', with <b>'+(th.signal_coverage||0)+'%</b> of signals available. '
+             : '')+
+           'Severity and confidence are never folded together: a confident low score and an '+
+           'unreliable high score demand opposite responses.'+
          '</div>'+
        '</div>'+
      '</div>';
@@ -1577,17 +2586,52 @@ function renderThreatBlock(data){
     h+='</div>';
   }
 
+  // The full factor breakdown. This is the actual output of the scoring layer —
+  // the headline number is only a summary of it — and it was being discarded.
+  if((th.factors||[]).length){
+    h+=xp('Signal breakdown','ti-list-details',
+      '<div class="xp-why">Each signal scores 0-100. The right-hand figure is what it '+
+      '<b>actually contributed</b> — unavailable signals are excluded and the rest renormalised, so a '+
+      'signal set at 20 can end up carrying half the score. Absent signals are listed, never scored '+
+      'as zero.</div>'+
+      factorRows(th.factors));
+  }
+
   var rk=Object.keys(risk);
   if(rk.length){
     h+='<div class="risk-grid">';
-    rk.forEach(function(k){
+    // Fixed order. Object key order is whatever Python emitted, and a grid that
+    // reshuffles between searches cannot be scanned by position.
+    var ORDER=['reputational','information_integrity','operational','physical_security'];
+    var keys=ORDER.filter(function(k){return risk[k];})
+                  .concat(rk.filter(function(k){return ORDER.indexOf(k)<0;}));
+    keys.forEach(function(k){
       var d=risk[k]||{};
-      h+='<div class="risk-cell '+bandClass(d.band)+'">'+
+      h+='<div class="risk-cell '+bandClass(d.band)+'" data-act="xprisk" data-v="'+esc(k)+'" '+
+           'role="button" tabindex="0" aria-label="'+esc(riskLabel(k))+' — open explanation">'+
+           '<i class="ti ti-info-circle rk-more" aria-hidden="true"></i>'+
            '<div class="risk-name">'+esc(riskLabel(k))+'</div>'+
            '<div class="risk-val"><span class="risk-num">'+(d.score!==undefined?d.score:'—')+'</span>'+
              '<span class="risk-band">'+esc(d.band||'')+'</span></div>'+
            '<div class="risk-track"><div class="risk-fill" style="width:'+(d.score||0)+'%"></div></div>'+
+           (d.coverage!==undefined?'<div class="rk-cov">'+d.coverage+'% of signals available</div>':'')+
          '</div>';
+    });
+    h+='</div>';
+    // One panel per dimension, revealed by its cell.
+    h+='<div class="rk-panel">';
+    keys.forEach(function(k){
+      var d=risk[k]||{},x=RISK_EXPLAIN[k]||{};
+      h+='<div class="xp on" id="rk-'+esc(k)+'" hidden>'+
+        '<button type="button" class="xp-head" data-act="xp" aria-expanded="true">'+
+          '<i class="ti ti-shield-half" aria-hidden="true"></i><span>'+esc(riskLabel(k))+
+          (x.who?' · '+x.who:'')+
+          (d.coverage!==undefined?' · '+d.coverage+'% of signals available':'')+'</span>'+
+          '<i class="ti ti-chevron-right chev" aria-hidden="true"></i></button>'+
+        '<div class="xp-body">'+
+          (x.q?'<div class="xp-why"><b>'+x.q+'</b> '+x.d+'</div>':'')+
+          factorRows(d.factors)+
+        '</div></div>';
     });
     h+='</div>';
   }
@@ -1601,6 +2645,100 @@ function renderThreatBlock(data){
   }
   h+='</div>';
   return h;
+}
+
+/* ── RELEVANCE AUDIT ────────────────────────────────────────────────────────
+   The gate removes most of what the sources return. Showing only the survivors
+   would replace one invisible failure (noise scored as evidence) with another
+   (evidence deleted without trace), so what was dropped and why is a first-class
+   panel, not a debug flag. */
+function renderRelevanceBlock(data){
+  var r=data.relevance||{};
+  if(!r.enabled){
+    if(r.enabled===false){
+      return '<div class="rel-card"><div class="rel-top"><span class="rel-h">Relevance</span></div>'+
+        '<div class="rel-sub" style="color:var(--warn)">Filtering is OFF for this search. Every document '+
+        'each source returned is included, on-topic or not — scores here are not comparable with a '+
+        'filtered assessment.</div></div>';
+    }
+    return '';
+  }
+  var kept=r.kept||0,drop=r.dropped||0,coll=r.collected||0;
+  var bp=r.by_platform||{};
+  var ver=0,unv=0;
+  Object.keys(bp).forEach(function(k){ver+=bp[k].verified||0;unv+=bp[k].unverified||0;});
+  var pc=function(n){return coll?(n/coll*100):0;};
+
+  var rows=Object.keys(bp).sort(function(a,b){return (bp[b].kept||0)-(bp[a].kept||0);})
+    .map(function(k){
+      return '<div class="rel-plat"><span class="p">'+esc(pm(k).n)+'</span>'+
+        '<span class="k">'+(bp[k].kept||0)+' kept</span>'+
+        '<span class="d">'+(bp[k].dropped||0)+' dropped</span></div>';
+    }).join('');
+
+  // A sample of what actually went, with the reason. This is the receipt.
+  var samples=[];
+  Object.keys(data.platforms||{}).forEach(function(pid){
+    (data.platforms[pid].filtered||[]).slice(0,3).forEach(function(f){
+      samples.push('<div class="rel-drop"><span class="t">['+esc(pm(pid).n)+'] '+
+        esc((f.title||f.excerpt||'untitled').slice(0,110))+'</span>'+
+        '<span class="r">'+esc(f.reason||'')+'</span></div>');
+    });
+  });
+
+  return '<div class="rel-card">'+
+    '<div class="rel-top"><span class="rel-h">Corpus</span>'+
+      '<span class="rel-n">'+kept+'</span>'+
+      '<span class="rel-sub">on-topic documents, filtered from '+coll+' collected</span></div>'+
+    '<div class="rel-meter">'+
+      '<i class="k" style="width:'+pc(ver)+'%"></i>'+
+      '<i class="u" style="width:'+pc(unv)+'%"></i>'+
+    '</div>'+
+    '<div class="rel-key">'+
+      '<span><b style="background:var(--pos)"></b>'+ver+' verified</span>'+
+      '<span><b style="background:var(--warn)"></b>'+unv+' snippet-only</span>'+
+      '<span><b style="background:var(--neg)"></b>'+drop+' off-topic</span>'+
+    '</div>'+
+    xp('What was dropped, and why','ti-filter-off',
+      '<div class="xp-why">Matched against <b>'+esc(r.canonical||'')+'</b>'+
+      (r.surface_forms&&r.surface_forms.length>1
+        ? ' and '+(r.surface_forms.length-1)+' other written forms'
+        : '')+'. A '+esc(r.query_kind||'query')+' is one identifier — <b>#covid1948</b> is never '+
+      'satisfied by "covid" or "1948" alone. To widen it, lower the threshold ('+
+      (r.threshold||0)+') or add <b>&amp;relevance=off</b> to the URL.</div>'+
+      rows+(samples.length?'<div style="margin-top:var(--s3)"><div class="rel-h" style="margin-bottom:6px">'+
+        'Removed, sampled</div>'+samples.join('')+'</div>':''))+
+  '</div>';
+}
+
+/* ── REAL-WORLD EVENTS ──────────────────────────────────────────────────────
+   Volume, sentiment and framing answer "what is being posted". This answers the
+   question an analyst actually has: did any of it do anything? */
+var EV_ICON={protest:'ti-flag',violence:'ti-alert-hexagon',official_action:'ti-gavel',
+             platform_action:'ti-shield-x',investigation:'ti-search',other:'ti-point'};
+function renderEventsBlock(data){
+  var ev=data.events||[];
+  if(!ev.length)return'';
+  return '<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-calendar-event"></i>Impact'+
+      '<span class="tb-badge" style="margin-left:8px">'+ev.length+'</span></div>'+
+    '<div class="method-note" style="margin-bottom:var(--s3)">Only events the corpus evidences. '+
+      'Each carries a quote from a source. Absence means no evidence, not no event.</div>'+
+    ev.map(function(e){
+      var k=(e.kind||'other');
+      return '<div class="ev-row"><div class="ev-kind '+esc(k)+'">'+
+          '<i class="ti '+(EV_ICON[k]||EV_ICON.other)+'"></i></div>'+
+        '<div class="ev-b"><div class="ev-l">'+esc(e.label)+'</div>'+
+          '<div class="ev-m">'+
+            (e.date?'<span>'+esc(e.date)+'</span>':'')+
+            (e.location?'<span>'+esc(e.location)+'</span>':'')+
+            '<span>'+esc(k.replace(/_/g,' '))+'</span>'+
+            '<span class="ev-c '+esc(e.confidence||'low')+'">'+esc(e.confidence||'low')+' confidence</span>'+
+          '</div>'+
+          (e.evidence?'<div class="ev-q">"'+esc(e.evidence)+'"</div>':'')+
+        '</div></div>';
+    }).join('')+
+  '</div>';
 }
 
 function renderInauthBlock(data){
@@ -1652,6 +2790,376 @@ function renderGeoBlock(data){
   return h;
 }
 
+/* ── COORDINATION (actor-trait v2) ──────────────────────────────────────────
+   The rebuilt detector clusters ACCOUNTS by shared posting behaviour — the same
+   links, the same hashtags, near-identical text, synchronised timing — and hands
+   back the documents each cluster produced. The clusters are therefore the
+   finding; the score is only a summary of them, and it is rendered second.
+
+   THE BAND IS THE HONESTY CONSTRAINT. A band is a comparison, and a comparison
+   needs something to compare against. When the backend could not build a matched
+   organic baseline it returns risk:"unbanded" and a caveat saying so. In that
+   state the UI must not print a band, must not tint the number red/amber/green,
+   and must not arrange the layout so a reader scanning for severity finds
+   anything at all: a 60 with no baseline is a magnitude, and dressing it as
+   "medium risk" invents a finding nobody measured. Only low/medium/high — which
+   the backend emits solely when a baseline ratio exists — earn a colour. */
+var CD_TRAIT={url:'shared links',hashtag:'shared hashtags',
+              text:'near-identical text',time:'synchronised timing'};
+
+function coordBanded(risk){return risk==='low'||risk==='medium'||risk==='high';}
+
+/* Long URLs blow out every row they sit in; the host and the tail are what an
+   analyst reads to decide whether to open it. */
+function shortUrl(u){
+  u=String(u||'').replace(/^https?:\/\//,'').replace(/^www\./,'');
+  return u.length>44?u.slice(0,44)+'…':u;
+}
+function urlList(urls,cap){
+  return '<div class="cd-ex">'+urls.slice(0,cap).map(function(u){
+    return '<a href="'+esc(u)+'" target="_blank" rel="noopener noreferrer" title="'+esc(u)+'">'+
+      esc(shortUrl(u))+'</a>';
+  }).join('')+'</div>';
+}
+
+/* ── Captured vs manufactured reach ─────────────────────────────────────────
+   "Is it coordinated" and "did it work" are different questions, and a noisy
+   botnet talking to itself is not the same problem as a quiet operation a real
+   audience picked up. */
+function renderReachBlock(reach){
+  if(!reach||typeof reach!=='object')return'';
+  var share=reach.manufactured_share;
+  var body;
+  // A null share is a DATA GAP, not a zero. Several sources carry no engagement
+  // metric at all, and drawing an empty bar off that would publish "0%
+  // manufactured" — a measurement nobody made. The bar is withheld and the
+  // verdict, which says why the split could not be computed, stands in its place.
+  if(share===null||share===undefined||share!==share){
+    body='<div class="rs-verdict">'+esc(reach.verdict||'reach could not be split')+'</div>'+
+      '<div class="cd-sub" style="margin-top:6px">No split is drawn because none was '+
+      'computed. That is missing engagement data, not a finding of zero.</div>';
+  }else{
+    var mp=Math.max(0,Math.min(100,share*100));
+    body='<div class="rs-bar"><i class="m" style="width:'+mp.toFixed(1)+'%"></i>'+
+        '<i class="c" style="width:'+(100-mp).toFixed(1)+'%"></i></div>'+
+      '<div class="rs-key">'+
+        '<span><b style="background:var(--warn)"></b>'+mp.toFixed(1)+'% manufactured · '+
+          num(reach.manufactured||0)+
+          (reach.cluster_documents!==undefined
+            ?' across '+reach.cluster_documents+' cluster documents':'')+'</span>'+
+        '<span><b style="background:var(--ink3)"></b>'+(100-mp).toFixed(1)+'% captured · '+
+          num(reach.captured||0)+
+          (reach.other_documents!==undefined
+            ?' across '+reach.other_documents+' other documents':'')+'</span>'+
+      '</div>'+
+      (reach.verdict?'<div class="rs-verdict">'+esc(reach.verdict)+'</div>':'');
+  }
+  return xp('Captured vs manufactured reach','ti-arrow-bounce',
+    '<div class="xp-why">Engagement in the corpus split into what the flagged accounts '+
+    'generated themselves and what came from everyone else. A high manufactured share means '+
+    'the operation is talking to itself; a low share on a large volume means the narrative '+
+    'escaped its originators. This is a <b>within-corpus ratio</b>, not a population estimate — '+
+    'it inherits whatever collection missed.'+
+    (reach.reference?' Reference: '+esc(reach.reference)+'.':'')+'</div>'+body);
+}
+
+function renderCoordinationBlock(data){
+  var c=data.coordination||{};
+  if(c.coordination_score===undefined||c.coordination_score===null)return'';
+  var score=c.coordination_score||0;
+  var risk=String(c.risk||'');
+  var banded=coordBanded(risk);
+  var clusters=c.clusters||[];
+  var signals=c.signals||[];
+  var tp=c.trait_pairs||{};
+  var fl=c.flagged_urls||[];
+
+  var h='<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-radar"></i>Coordination'+
+      (clusters.length?'<span class="tb-badge" style="margin-left:8px">'+clusters.length+'</span>':'')+
+    '</div>';
+
+  // The number, then what it can and cannot be compared against. The band slot
+  // always renders, so an unbanded result is a visible absence rather than a
+  // missing element a reader never notices.
+  h+='<div class="cd-head">'+
+      '<div class="cd-score">'+score+'<span class="of">/100</span></div>'+
+      '<div>'+
+        '<div class="cd-band '+(banded?esc(risk):'nb')+'">'+
+          (banded?esc(risk)+' risk':'Magnitude only — not banded')+'</div>'+
+        '<div class="cd-sub">'+
+          (banded&&c.baseline_ratio!==null&&c.baseline_ratio!==undefined
+            ?'<b>'+c.baseline_ratio+'×</b> a matched organic baseline · ':'')+
+          (c.method?esc(c.method):'')+
+          (c.actors!==undefined?(c.method?' · ':'')+c.actors+' accounts compared':'')+
+        '</div>'+
+      '</div>'+
+    '</div>';
+
+  // Verbatim, always, and never paraphrased: the caveat is the sentence that
+  // stops the number being read as a verdict.
+  if(c.caveat){
+    h+='<div class="tc-caveats"><div class="cv"><i class="ti ti-alert-triangle"></i>'+
+       '<span>'+esc(c.caveat)+'</span></div></div>';
+  }
+
+  var tkeys=Object.keys(tp).filter(function(k){return tp[k];});
+  if(tkeys.length){
+    h+='<div class="cd-chips">'+tkeys.map(function(k){
+      return '<span class="cd-chip"><b>'+tp[k]+'</b> '+esc(CD_TRAIT[k]||k)+'</span>';
+    }).join('')+'</div>';
+  }
+
+  if(clusters.length){
+    h+='<div class="method-note" style="margin-bottom:var(--s2)">Each row is a set of accounts '+
+       'whose posting BEHAVIOUR matches more closely than the rest of the corpus does. '+
+       'Behaviour, not opinion — accounts agreeing with each other is not coordination.</div>';
+    clusters.forEach(function(cl){
+      var actors=cl.actors||[];
+      var traits=cl.traits||[];
+      var ex=cl.examples||[];
+      h+='<div class="cd-cl">'+
+        '<div class="cd-cl-top">'+
+          '<span class="cd-cl-n">'+(cl.actor_count||actors.length||0)+' accounts</span>'+
+          '<span class="cd-cl-m">'+(cl.documents||0)+' documents · cohesion '+
+            nz(cl.cohesion,'—')+'</span>'+
+        '</div>'+
+        (traits.length?'<div class="cd-traits">'+traits.map(function(t){
+            return '<span class="cd-trait">'+esc(CD_TRAIT[t]||t)+'</span>';}).join('')+'</div>':'')+
+        (actors.length?'<div class="cd-actors">'+
+            actors.slice(0,12).map(function(a){return esc(a);}).join(' · ')+
+            (actors.length>12?' +'+(actors.length-12)+' more':'')+'</div>':'')+
+        (ex.length?urlList(ex,6):'')+
+      '</div>';
+    });
+  }
+
+  if(signals.length){
+    h+=xp('Signals','ti-antenna-bars-5',
+      signals.map(function(sg){
+        return '<div class="ia-sig"><div class="ia-sev '+esc(sg.severity||'low')+'"></div>'+
+          '<div class="ia-body">'+
+            '<div class="ia-type">'+esc(String(sg.type||'').replace(/_/g,' '))+'</div>'+
+            '<div class="ia-desc">'+esc(sg.description||'')+'</div>'+
+            ((sg.examples||[]).length?urlList(sg.examples,4):'')+
+          '</div></div>';
+      }).join(''));
+  }
+
+  // The documents themselves. A coordination score that points at nothing
+  // cannot be checked, and an unverifiable score is not evidence.
+  if(fl.length){
+    h+=xp('Flagged documents','ti-link',
+      '<div class="xp-why">The <b>'+fl.length+'</b> documents the clusters above actually '+
+      'produced. Open them: the clustering is a behavioural claim, and it should survive '+
+      'reading what these accounts posted.</div>'+
+      urlList(fl,40)+
+      (fl.length>40?'<div class="cd-actors">+'+(fl.length-40)+' more not listed</div>':''));
+  }
+
+  h+=renderReachBlock(c.reach);
+  h+='</div>';
+  return h;
+}
+
+/* ── NARRATIVE IDENTITY ─────────────────────────────────────────────────────
+   Narratives now carry a stable id between searches, which is what turns a
+   grouping into a subject: an alert can say "this narrative doubled" and a case
+   file can refer to a story rather than to a row number.
+
+   The events are the payload here, and `drift` is the one that must not be
+   skimmed past — see below. */
+var NT_EV={birth:{i:'ti-seeding',l:'first observed'},
+           death:{i:'ti-circle-x',l:'gone'},
+           growth:{i:'ti-trending-up',l:'grew'},
+           contraction:{i:'ti-trending-down',l:'contracted'},
+           merge:{i:'ti-arrow-merge',l:'merged'},
+           split:{i:'ti-arrows-split-2',l:'split'},
+           drift:{i:'ti-arrow-bear-right',l:'subject drifted'}};
+
+/* Inline SVG rather than a chart library: this is 60 points at 58×18px, and a
+   dependency to draw a polyline is a dependency that can fail to load. */
+function ntSpark(hist,w,ht){
+  if(!hist||hist.length<2)return'';
+  var vals=[],i;
+  for(i=0;i<hist.length;i++)vals.push(Number(hist[i]&&hist[i].size)||0);
+  var max=Math.max.apply(null,vals),min=Math.min.apply(null,vals);
+  var span=(max-min)||1,step=(w-3)/(vals.length-1),pts=[];
+  function px(j){return (1.5+j*step).toFixed(1);}
+  function py(v){return (ht-1.5-((v-min)/span)*(ht-3)).toFixed(1);}
+  for(i=0;i<vals.length;i++)pts.push(px(i)+','+py(vals[i]));
+  return '<svg class="nt-spark" width="'+w+'" height="'+ht+'" viewBox="0 0 '+w+' '+ht+'" '+
+    'role="img" aria-label="size over '+vals.length+' observations, now '+vals[vals.length-1]+'">'+
+    '<polyline points="'+pts.join(' ')+'" fill="none" stroke="currentColor" stroke-width="1.25" '+
+      'stroke-linejoin="round" stroke-linecap="round"/>'+
+    '<circle cx="'+px(vals.length-1)+'" cy="'+py(vals[vals.length-1])+'" r="1.8" '+
+      'fill="currentColor"/></svg>';
+}
+
+function renderNarrativeTrackingBlock(data){
+  var nt=data.narrative_tracking;
+  if(!nt||typeof nt!=='object')return'';
+  var ns=nt.narratives||[],evs=nt.events||[];
+  if(!ns.length&&!evs.length&&!nt.error)return'';
+
+  var h='<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-fingerprint"></i>Narrative Identity'+
+      (ns.length?'<span class="tb-badge" style="margin-left:8px">'+ns.length+'</span>':'')+
+    '</div>';
+
+  if(nt.error){
+    // Tracking sits on top of the search and must never look like the search
+    // failed. Say precisely what was lost: continuity, not evidence.
+    h+='<div class="unavail-note">Narrative tracking failed on this run ('+esc(nt.error)+
+       '). The clusters elsewhere in this report are unaffected — only continuity with '+
+       'previous searches is missing.</div></div>';
+    return h;
+  }
+
+  var byId={},i;
+  for(i=0;i<ns.length;i++)byId[ns[i].id]=ns[i].label||'';
+
+  // "Seen once" is not a flat line, and a sparkline with one point drawn as one
+  // would read as a narrative that has been steady for weeks.
+  var firstRun=ns.length>0&&ns.every(function(n){return (n.observations||1)<=1;});
+  if(firstRun){
+    h+='<div class="method-note">First observation of this query. Every narrative below was '+
+       'created just now, so there is no history to plot yet — the trend appears from the '+
+       'second search onward, when there is something to compare against.</div>';
+  }else{
+    h+='<div class="method-note">Each narrative keeps the SAME id between searches, matched on '+
+       'document membership, so a row here is one story tracked over time rather than a fresh '+
+       'grouping that happens to look similar.</div>';
+  }
+  if(nt.persisted===false){
+    h+='<div class="unavail-note">This run could not be saved, so the next search will not '+
+       'recognise these narratives and will issue new ids for them. The events below are still '+
+       'correct for this run.</div>';
+  }
+
+  ns.slice(0,12).forEach(function(n){
+    var hist=n.history||[];
+    var size=(n.members||[]).length;
+    var obs=n.observations||1;
+    h+='<div class="nt-row">'+
+      '<div class="nt-l">'+esc(n.label||'(unlabelled)')+
+        '<span class="nt-id">'+esc(n.id||'')+
+          (n.first_seen?' · first seen '+esc(ago(n.first_seen))+' ago':'')+
+        '</span></div>'+
+      '<div class="nt-m">'+size+' docs'+
+        ((n.peak_size&&n.peak_size>size)?' · peak '+n.peak_size:'')+'<br/>'+
+        obs+(obs===1?' observation':' observations')+
+        ((n.misses||0)?' · missed '+n.misses:'')+'</div>'+
+      (hist.length>1
+        ? ntSpark(hist,58,18)
+        : '<span class="nt-nohist">no history</span>')+
+    '</div>';
+  });
+  if(ns.length>12){
+    h+='<div class="cd-actors">+'+(ns.length-12)+' further narratives not listed</div>';
+  }
+
+  if(evs.length){
+    h+='<div class="tc-lbl" style="margin-top:var(--s5)">Since the last observation</div>';
+    evs.slice(0,24).forEach(function(e){
+      var k=String(e.kind||'other');
+      var m=NT_EV[k]||{i:'ti-point',l:esc(k)};
+      var lbl=byId[e.narrative]||'';
+      h+='<div class="nt-ev '+esc(k)+'"><i class="ti '+m.i+'" aria-hidden="true"></i>'+
+        '<div class="nt-ev-b">'+
+          '<div class="nt-ev-k">'+m.l+'</div>'+
+          (e.detail?'<div class="nt-ev-d">'+esc(e.detail)+'</div>':'')+
+          // DRIFT. Identity is defined by membership, so a narrative can keep
+          // its documents, its id and its trend line while what it is ABOUT
+          // moves. Anyone reading "this has grown for three weeks" needs the
+          // before and after spelled out, not folded into one sentence.
+          (k==='drift'
+            ? '<span class="nt-drift-arrow">Was <b>'+esc(e.from||'—')+'</b><br/>'+
+              'Now <b>'+esc(e.to||'—')+'</b></span>'+
+              '<div class="nt-ev-t">Same documents, same id — every trend drawn on this '+
+              'narrative stayed continuous while its subject changed underneath.</div>'
+            : '')+
+          (k==='merge'&&e.into?'<div class="nt-ev-t">into: '+esc(e.into)+'</div>':'')+
+          (lbl?'<div class="nt-ev-t">'+esc(lbl)+'</div>':'')+
+          (e.at?'<div class="nt-ev-t">'+esc(ago(e.at))+' ago</div>':'')+
+        '</div></div>';
+    });
+  }
+
+  h+='</div>';
+  return h;
+}
+
+/* ── PROPAGATION ────────────────────────────────────────────────────────────
+   The chain is useful and the word "origin" is dangerous, so they ship together.
+   `origin_caveat` states that "origin" is the earliest document COLLECTED and
+   that coverage is uneven by platform; it is printed WITH the chain rather than
+   under a disclosure, because a reader who never opens the disclosure would
+   otherwise walk away with a bare claim about where a narrative started. */
+function renderPropagationBlock(data){
+  var prop=data.propagation||{};
+  var chain=prop.propagation_chain||[];
+  if(!chain.length&&!prop.origin_caveat)return'';
+  var h='<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-arrows-transfer-up"></i>Propagation</div>';
+  if(chain.length>1){
+    h+='<div class="prop-row">'+
+      chain.map(function(step,i){
+        var isO=step.platform===prop.origin;
+        // Per-platform dating, on the node: a platform whose "first seen" rests
+        // on two dated documents out of ninety is not evidence of an origin.
+        var dd=step.dated_docs,ud=step.undated_docs;
+        var dateLine=(dd!==undefined||ud!==undefined)
+          ? '<span class="prop-dated">'+(dd||0)+' dated'+((ud||0)?' · '+ud+' undated':'')+'</span>'
+          : '';
+        return'<div style="display:flex;align-items:flex-start;gap:0;">'+
+          '<div><div class="prop-node'+(isO?' origin':'')+'">'+esc(pm(step.platform).n)+'</div>'+
+          (i>0&&step.lag_hours?'<span class="prop-lag">+'+durH(step.lag_hours)+'</span>'
+                              :'<span class="prop-lag">earliest collected</span>')+
+          dateLine+
+          '</div>'+
+          (i<chain.length-1?'<span class="prop-arr">→</span>':'')+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }
+  // `undated` is a total on the normal path but a per-platform map on the
+  // "nothing carried a timestamp" early return. Both are read, because the
+  // second shape is exactly the case where the count matters most.
+  var und=prop.undated, undTotal=0, k;
+  var ubp=prop.undated_by_platform||{};
+  if(typeof und==='number'&&und===und){undTotal=und;}
+  else if(und&&typeof und==='object'){
+    for(k in und){if(Object.prototype.hasOwnProperty.call(und,k))undTotal+=Number(und[k])||0;}
+    if(!Object.keys(ubp).length)ubp=und;
+  }
+  if(prop.sampled_from!==undefined){
+    h+='<div class="cd-chips">'+
+      '<span class="cd-chip"><b>'+(prop.sampled_from||0)+'</b> documents sampled</span>'+
+      (prop.dated!==undefined?'<span class="cd-chip"><b>'+prop.dated+'</b> usably dated</span>':'')+
+      (undTotal?'<span class="cd-chip"><b>'+undTotal+'</b> undated, excluded</span>':'')+
+      (prop.spread_hours?'<span class="cd-chip">spread <b>'+durH(prop.spread_hours)+'</b></span>':'')+
+    '</div>';
+  }
+  if(prop.origin_caveat){
+    h+='<div class="tc-caveats"><div class="cv"><i class="ti ti-alert-triangle"></i>'+
+       '<span>'+esc(prop.origin_caveat)+'</span></div></div>';
+  }
+  var uk=Object.keys(ubp).filter(function(x){return ubp[x];});
+  if(uk.length){
+    h+=xp('Undated documents by platform','ti-calendar-off',
+      '<div class="xp-why">These documents are in the corpus and count everywhere else, but '+
+      'carry no usable timestamp and so are excluded from the chain entirely. A platform that '+
+      'is mostly undated cannot be placed in it.</div>'+
+      uk.sort(function(a,b){return ubp[b]-ubp[a];}).map(function(x){
+        return '<div class="rel-plat"><span class="p">'+esc(pm(x).n)+'</span>'+
+          '<span class="d">'+ubp[x]+' undated</span></div>';
+      }).join(''));
+  }
+  h+='</div>';
+  return h;
+}
+
 function renderReport(data){
   // every branch below replaces #report wholesale; kill the previous map's
   // rAF loop and observers before its canvas is thrown away
@@ -1662,8 +3170,22 @@ function renderReport(data){
   // Query bubble
   html+='<div class="report-query">'+esc(data.query)+'</div>';
 
-  // Source meta
+  // A restored case is a record, not a live reading. Say when it was taken and
+  // offer the re-run, because the difference matters for anything time-sensitive.
+  if(restoredAt){
+    html+='<div class="restored-bar">'+
+      '<i class="ti ti-history" aria-hidden="true"></i>'+
+      '<span>Captured '+esc(new Date(restoredAt).toLocaleString())+' · '+esc(relTime(restoredAt))+
+        '. Restored exactly as collected — nothing was re-fetched.</span>'+
+      '<button type="button" class="rb-btn" data-act="rerun">Re-run now</button>'+
+    '</div>';
+  }
+
+  // Source meta. Suppressed when the corpus strip is rendering, which states
+  // the same count with more information — the same number twice in 40px of
+  // each other is the exact density problem this pass exists to remove.
   var total=t.mentions||0;var pw=t.platforms_with_results||0;
+  if(!((data.relevance||{}).enabled))
   html+='<div class="report-meta">'+
     '<div class="report-meta-dot"><i class="ti ti-check" style="font-size:10px;"></i></div>'+
     '<span class="report-source-count">'+total+' posts</span>'+
@@ -1673,8 +3195,16 @@ function renderReport(data){
     '</span>'+
   '</div>';
 
+  // Corpus quality before the judgement. How much of what was collected is
+  // actually about the query determines how much any number below is worth,
+  // so it is stated before the numbers rather than in a footnote after them.
+  html+=renderRelevanceBlock(data);
+
   // Threat assessment — the headline judgement, above the evidence.
   html+=renderThreatBlock(data);
+
+  // What happened offline.
+  html+=renderEventsBlock(data);
 
   // Brief placeholder (filled by /api/brief)
   html+='<div class="report-section">'+
@@ -1688,12 +3218,34 @@ function renderReport(data){
     '<div class="istat state"><div class="istat-val">'+num(t.state_media||0)+'</div><div class="istat-label">State Media</div></div>'+
   '</div>';
 
+  // Engagement and views, side by side and never added together. An impression
+  // is not an act: views were folded into `engagement` until one autoplaying
+  // video outweighed every deliberate interaction in the corpus. The backend
+  // now keeps them apart, and so does this — same row for comparison, separate
+  // figures, and the labels say which is which.
+  if(t.engagement||t.views){
+    html+='<div class="eng-split">'+
+      (t.engagement!==undefined&&t.engagement!==null
+        ? '<div class="eng-fig"><div class="eng-v">'+num(t.engagement)+'</div>'+
+          '<div class="eng-l">Engagement</div>'+
+          '<div class="eng-d">deliberate actions: '+num(t.reactions||0)+' reactions · '+
+            num(t.comments||0)+' comments · '+num(t.shares||0)+' shares</div></div>'
+        : '')+
+      (t.views
+        ? '<div class="eng-fig"><div class="eng-v">'+num(t.views)+'</div>'+
+          '<div class="eng-l">Views</div>'+
+          '<div class="eng-d">impressions, not actions — excluded from engagement '+
+          'on purpose</div></div>'
+        : '')+
+    '</div>';
+  }
+
   // Sentiment bar
   if(s.scored){
     var tot=s.scored;
     var pw_=function(n){return Math.round((n/tot)*100);};
     html+='<div class="report-section">'+
-      '<div class="report-section-title"><i class="ti ti-chart-pie"></i>Sentiment Distribution</div>'+
+      '<div class="report-section-title"><i class="ti ti-chart-pie"></i>Sentiment</div>'+
       '<div class="sent-bar-wrap">'+
         '<div class="sent-bar">'+
           '<div class="sent-seg pos" style="width:'+pw_(s.positive||0)+'%"></div>'+
@@ -1706,6 +3258,35 @@ function renderReport(data){
           '<div class="sent-lbl"><div class="sent-dot" style="background:var(--neg)"></div>Negative '+pw_(s.negative||0)+'%</div>'+
         '</div>'+
       '</div>'+
+      // How the labels are produced. Without this the three words are just
+      // three words — and the unscored/neutral distinction, which is the one
+      // that matters, is invisible.
+      xp('How labels are assigned','ti-scale',
+        '<div class="xp-why">Scored <b>in the source language</b>, never in translation.'+
+        ((s.engines||[]).length>1
+          ? ' Two engines score independently ('+s.engines.map(esc).join(' and ')+
+            ') and their verdicts are averaged'+
+            (s.agreement!==null&&s.agreement!==undefined
+              ? '; they agree <b>'+Math.round(s.agreement*100)+'%</b> of the time, and disagreement is '+
+                'itself a signal that the text is ambiguous or ironic'
+              : '')+'.'
+          : ' Scored by '+((s.engines||[])[0]?esc(s.engines[0]):'a single engine')+'.')+
+        ' Averaged -1 to +1: above <b>+0.25</b> positive, below <b>-0.25</b> negative, '+
+        'between is neutral.</div>'+
+        '<div class="fct"><div class="fct-n">Scored</div><div class="fct-s">'+(s.scored||0)+'</div>'+
+          '<div class="fct-w"></div><div class="fct-d">Documents that produced a verdict.</div></div>'+
+        '<div class="fct'+((s.unscored||0)?'':' off')+'"><div class="fct-n">Unscored</div>'+
+          '<div class="fct-s">'+(s.unscored||0)+'</div><div class="fct-w"></div>'+
+          '<div class="fct-d">Had text, produced no verdict. <b>Kept separate from neutral on '+
+          'purpose</b> — counting these as neutral is how an average drifts to zero and stays there.</div></div>'+
+        ((s.by_language&&Object.keys(s.by_language).length>1)
+          ? Object.keys(s.by_language).map(function(lg){
+              var b=s.by_language[lg];
+              return '<div class="fct"><div class="fct-n">'+esc(lg.toUpperCase())+'</div>'+
+                '<div class="fct-s">'+(b.scored||0)+'</div><div class="fct-w"></div>'+
+                '<div class="fct-d">+'+(b.positive||0)+' · ~'+(b.neutral||0)+' · -'+(b.negative||0)+'</div></div>';
+            }).join('')
+          : ''))+
     '</div>';
     // Framing
     var fc=s.framing_counts||{};
@@ -1719,7 +3300,7 @@ function renderReport(data){
   var langs=data.languages||{};
   if(langs.distribution&&langs.distribution.length>1){
     html+='<div class="report-section">'+
-      '<div class="report-section-title"><i class="ti ti-language"></i>Languages Detected</div>'+
+      '<div class="report-section-title"><i class="ti ti-language"></i>Languages</div>'+
       '<div class="lang-row">'+
         langs.distribution.map(function(l){
           return'<div class="lang-pill'+(l.lang!=='en'?' nonEn':'')+'">'+
@@ -1729,8 +3310,7 @@ function renderReport(data){
         }).join('')+
       '</div>'+
       (langs.non_english_docs?'<div class="lang-note">'+langs.non_english_docs+' of '+langs.total_docs+
-        ' documents are non-English. Sentiment and framing analysed in the <b>source language</b>; '+
-        'translations shown for display only.</div>':'')+
+        ' non-English · analysed in the <b>source language</b>, translated only for display</div>':'')+
     '</div>';
   }
 
@@ -1777,6 +3357,11 @@ function renderReport(data){
     '</div>';
   }
 
+  // Narrative identity. Sits immediately under the clusters because it is the
+  // same objects seen across time — the clusters answer "what is being said
+  // now", this answers "is it the same thing that was being said last time".
+  html+=renderNarrativeTrackingBlock(data);
+
   // Entities
   var ents=(data.entities||{}).entities||[];
   if(ents.length){
@@ -1795,56 +3380,46 @@ function renderReport(data){
     '</div>';
   }
 
-  // Coordination + Velocity
-  var coord=data.coordination||{};var vel=data.velocity||{};
-  if(coord.coordination_score!==undefined||vel.windows){
+  // Coordination — its own section now. The rebuilt detector returns clusters,
+  // signals, flagged documents and a reach split, none of which fit in half of
+  // a two-up mini-card, and the band rules need room to be stated honestly.
+  html+=renderCoordinationBlock(data);
+
+  // Velocity
+  var vel=data.velocity||{};
+  if(vel.windows){
     html+='<div class="report-section">'+
       '<div class="report-section-title"><i class="ti ti-radar"></i>Intelligence Signals</div>'+
-      '<div class="intel-pair">';
-    if(coord.coordination_score!==undefined){
-      var risk=coord.risk||'low';var score=coord.coordination_score||0;
-      html+='<div class="mini-card">'+
-        '<div class="mini-title"><i class="ti ti-alert-triangle"></i>Coordination</div>'+
-        '<div class="coord-score-num '+risk+'">'+score+'<span style="font-size:12px;color:var(--ink3)">/100</span></div>'+
-        '<div class="coord-risk-label '+risk+'">'+risk.toUpperCase()+' RISK</div>'+
-        '<div class="coord-detail">'+
-          (coord.near_duplicate_pairs?coord.near_duplicate_pairs+' near-dupes · ':'')+
-          (coord.peak_burst_30min?'peak '+coord.peak_burst_30min+'/30m':'no burst')+
-        '</div>'+
-      '</div>';
+      '<div class="intel-pair one">';
+    var w=vel.windows||{};var ac=vel.acceleration||'stable';
+    var acIcon={accelerating:'<i class="ti ti-trending-up"></i>',stable:'<i class="ti ti-minus"></i>',declining:'<i class="ti ti-trending-down"></i>'};
+    html+='<div class="mini-card">'+
+      '<div class="mini-title"><i class="ti ti-trending-up"></i>Velocity</div>'+
+      '<div class="vel-grid">'+
+        ['1h','6h','24h'].map(function(k){return'<div class="vw"><div class="vw-n">'+num(w[k]||0)+'</div><div class="vw-l">'+k+'</div></div>';}).join('')+
+      '</div>'+
+      '<div class="vel-accel '+ac+'">'+acIcon[ac]+' '+ac+'</div>'+
+    '</div>';
+    html+='</div>';
+    // A rate is only a rate over the documents that carried a date. A corpus
+    // that is largely undated produces windows computed from a minority of it,
+    // and the previous UI stated the verdict with no hint of that. Reported
+    // whenever it is a meaningful share rather than a rounding error.
+    var vTot=vel.total_docs||0, vUnd=vel.undated_docs||0, vFrom=vel.rate_computed_from;
+    if(vTot&&vUnd&&(vUnd/vTot)>=0.1){
+      html+='<div class="method-note">The counts above were computed from <b>'+
+        (vFrom!==undefined&&vFrom!==null?vFrom:(vTot-vUnd))+' of '+vTot+'</b> documents — '+
+        Math.round((vUnd/vTot)*100)+'% carry no usable timestamp and could not enter any '+
+        'window. The trend describes the dated remainder, not the corpus.</div>';
+    }else if(vUnd){
+      html+='<div class="method-note">'+vUnd+' of '+(vTot||vUnd)+' documents carry no usable '+
+        'timestamp and are excluded from these windows.</div>';
     }
-    if(vel.windows){
-      var w=vel.windows||{};var ac=vel.acceleration||'stable';
-      var acIcon={accelerating:'<i class="ti ti-trending-up"></i>',stable:'<i class="ti ti-minus"></i>',declining:'<i class="ti ti-trending-down"></i>'};
-      html+='<div class="mini-card">'+
-        '<div class="mini-title"><i class="ti ti-trending-up"></i>Velocity</div>'+
-        '<div class="vel-grid">'+
-          ['1h','6h','24h'].map(function(k){return'<div class="vw"><div class="vw-n">'+num(w[k]||0)+'</div><div class="vw-l">'+k+'</div></div>';}).join('')+
-        '</div>'+
-        '<div class="vel-accel '+ac+'">'+acIcon[ac]+' '+ac+'</div>'+
-      '</div>';
-    }
-    html+='</div></div>';
+    html+='</div>';
   }
 
-  // Propagation
-  var prop=data.propagation||{};
-  if(prop.propagation_chain&&prop.propagation_chain.length>1){
-    html+='<div class="report-section">'+
-      '<div class="report-section-title"><i class="ti ti-arrows-transfer-up"></i>Propagation</div>'+
-      '<div class="prop-row">'+
-        prop.propagation_chain.map(function(step,i){
-          var isO=step.platform===prop.origin;
-          return'<div style="display:flex;align-items:flex-start;gap:0;">'+
-            '<div><div class="prop-node'+(isO?' origin':'')+'">'+esc(pm(step.platform).n)+'</div>'+
-            (i>0&&step.lag_hours?'<span class="prop-lag">+'+step.lag_hours+'h</span>':'<span class="prop-lag">origin</span>')+
-            '</div>'+
-            (i<prop.propagation_chain.length-1?'<span class="prop-arr">→</span>':'')+
-          '</div>';
-        }).join('')+
-      '</div>'+
-    '</div>';
-  }
+  // Propagation — chain, per-platform dating, and the origin caveat with it.
+  html+=renderPropagationBlock(data);
 
   // Source mix
   var mix=data.source_mix||[];
@@ -1970,7 +3545,7 @@ var EMAP=(function(){
     inst=null;
   }
 
-  function mount(hostId,ents,edgeList,query){
+  function mount(hostId,ents,edgeList,query,SRC){
     destroy();
     var wrap=document.getElementById(hostId);if(!wrap)return null;
     var cv=wrap.querySelector('canvas');if(!cv)return null;
@@ -1996,6 +3571,9 @@ var EMAP=(function(){
     nodes=ents.map(function(e){
       return{id:e.name,name:e.name||'',type:(e.type||'other').toLowerCase(),
         sentiment:(e.sentiment||'neutral').toLowerCase(),mentions:e.mentions||0,
+        // srcs = the actual documents this actor was found in; quote = the
+        // engine's own supporting line, when it returned one.
+        srcs:(SRC&&SRC[e.name])||[], quote:e.quote||null,
         hop:0,degree:0,ghost:false,x:0,y:0,vx:0,vy:0,fx:null,fy:null,radius:8,placed:false};
     });
     nodes.forEach(function(n){byName[n.id]=n;adj[n.id]=[];});
@@ -2354,7 +3932,11 @@ var EMAP=(function(){
       hovered=hn?hn.id:null;hoverEdge=he;
       cv.className=(hn||he)?'pointing':'';
       if(hn&&tip){
-        tip.innerHTML=esc(hn.name)+'<span class="t">'+esc(hn.type)+' · '+hn.mentions+' · '+esc(hn.sentiment)+'</span>';
+        // The source count is the whole point of the hover: it turns a dot
+        // into something you can go and read.
+        tip.innerHTML=esc(hn.name)+'<span class="t">'+esc(hn.type)+' · '+hn.mentions+' · '+esc(hn.sentiment)+
+          (hn.srcs&&hn.srcs.length?'<b class="src">'+hn.srcs.length+' source'+(hn.srcs.length===1?'':'s')+'</b>':'')+
+          '</span>';
         tip.style.left=sx(hn)+'px';tip.style.top=(sy(hn)-hn.radius*cam.zoom-9)+'px';tip.classList.add('on');
       }else if(tip)tip.classList.remove('on');
       if(changed)asleep=false;
@@ -2404,6 +3986,34 @@ var EMAP=(function(){
       if(ins.length){h+='<div class="em-rl">Acted on by</div>'+ins.map(function(r){
         return '<div class="em-r"><span class="dr">&larr;</span><span class="vb">'+esc(r.v.replace(/_/g,' '))+'</span><span class="wh" data-em-go="'+esc(r.w)+'">'+esc(r.w)+'</span></div>';}).join('');}
       if(!out.length&&!ins.length){h+='<div class="em-r" style="color:var(--ink3);display:block">Extracted from the corpus, but the analysis engine returned no relationship for this actor.</div>';}
+
+      // ── Backlinks. Where this actor was actually found. ──────────────────
+      if(n.quote){
+        h+='<div class="em-rl">Why it was extracted</div>'+
+           '<div class="em-quote">"'+esc(n.quote)+'"</div>';
+      }
+      var srcs=n.srcs||[];
+      if(srcs.length){
+        h+='<div class="em-rl">Sources <span class="em-cnt">'+srcs.length+'</span></div>';
+        h+='<div class="em-srcs">';
+        h+=srcs.slice(0,12).map(function(d){
+          var m=pm(d._p);
+          return '<a class="em-src" href="'+esc(d.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
+            '<span class="dot" style="background:'+platCol(d._p)+'"></span>'+
+            '<span class="b"><span class="tt">'+
+              esc(((d.title||d.title_en||d.excerpt||d.excerpt_en||'untitled')+'').slice(0,90))+'</span>'+
+              '<span class="mm">'+esc(m.n)+(d.timestamp?' · '+esc(fmtTs(d.timestamp)):'')+'</span></span>'+
+            '<i class="ti ti-external-link"></i></a>';
+        }).join('')+'</div>';
+        if(srcs.length>12)h+='<div class="em-more">+'+(srcs.length-12)+' more — '+
+          '<button type="button" class="em-lnk" data-em-grid="'+esc(n.name)+'">show all in results</button></div>';
+        else h+='<div class="em-more"><button type="button" class="em-lnk" data-em-grid="'+esc(n.name)+'">'+
+          'Show these in the results grid</button></div>';
+      } else {
+        h+='<div class="em-rl">Sources</div>'+
+          '<div class="em-r" style="color:var(--ink3);display:block">No document names this actor '+
+          'literally — inferred from context, or referred to only by paraphrase.</div>';
+      }
       dosb.innerHTML=h;dos.classList.add('on');
       // the panel covers the right of the stage, so slide the actor it
       // describes into the strip that is still visible
@@ -2414,6 +4024,10 @@ var EMAP=(function(){
       }
     }
     if(dosb)dosb.addEventListener('click',function(ev){
+      var g=ev.target.closest('[data-em-grid]');
+      if(g){ev.preventDefault();
+        if(window.showEntityInGrid)window.showEntityInGrid(g.getAttribute('data-em-grid'));
+        return;}
       var t=ev.target.closest('[data-em-go]');if(!t)return;
       var n=byName[t.getAttribute('data-em-go')];
       if(n){select(n.id);var z=Math.max(cam.tzoom,1.2);cam.tzoom=z;cam.tx=W/2-n.x*z;cam.ty=H/2-n.y*z;}
@@ -2499,13 +4113,60 @@ var EMAP=(function(){
 /* Called from renderReport() after the Entities view is written into the DOM —
    the view is built as an HTML string, so the canvas can only be wired once it
    actually exists. Also tears down the previous instance's rAF loop. */
+/* ── ENTITY → SOURCE BACKLINKS ──────────────────────────────────────────────
+   The analysis engine returns actors as {name, type, mentions, sentiment} and
+   nothing else — there is no join key from an actor back to the posts it was
+   extracted from. So an analyst could see that "Iran" appears 14 times and had
+   no way to read one of those 14, which makes the graph a picture rather than
+   an instrument.
+
+   Two mechanisms, deliberately: the engine is asked for a supporting quote
+   (curated, but incomplete and lost whenever the call truncates — which the
+   backend already reports happening), and every actor name is matched against
+   the corpus locally (complete and instant, but literal). Local matching is the
+   floor; the quote is the gloss. Neither alone is enough.
+
+   Obsidian's backlink pane is the model: the count is always visible, and the
+   sources themselves are one click away, never a search away. */
+function entNorm(x){
+  return ' '+String(x||'').toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^0-9a-z؀-ۿ֐-׿Ѐ-ӿ]+/g,' ').trim()+' ';
+}
+var _entSrcCache={q:null,map:null};
+function buildEntitySources(data){
+  var key=(data&&data.query)||lastQ;
+  if(_entSrcCache.q===key&&_entSrcCache.map)return _entSrcCache.map;
+  var ents=((data.entities||{}).entities)||[];
+  var docs=allItems();
+  var pre=docs.map(function(d){
+    return{d:d,t:entNorm((d.title||'')+' '+(d.title_en||'')+' '+(d.excerpt||'')+' '+
+                         (d.excerpt_en||'')+' '+(d.author||''))};
+  });
+  var map={};
+  ents.forEach(function(e){
+    var n=entNorm(e.name);
+    if(n.length<4){map[e.name]=[];return;}          // too short to match safely
+    var hits=[];
+    for(var i=0;i<pre.length;i++){
+      if(pre[i].t.indexOf(n.slice(1,-1))>=0)hits.push(pre[i].d);
+    }
+    hits.sort(function(a,b){
+      return ((b.relevance||0)-(a.relevance||0))||((b.engagement||0)-(a.engagement||0));
+    });
+    map[e.name]=hits;
+  });
+  _entSrcCache={q:key,map:map};
+  return map;
+}
+
 function wireEntityMap(data){
   EMAP.destroy();
   if(activeMode!=='entities')return;
   var e=(data.entities||{});
   var ents=e.entities||[],edg=e.edges||[];
   if(!ents.length)return;
-  EMAP.mount('emWrap',ents,edg,data.query||lastQ);
+  EMAP.mount('emWrap',ents,edg,data.query||lastQ,buildEntitySources(data));
 }
 
 /* ══ ENTITIES VIEW ══
@@ -2594,69 +4255,310 @@ function renderEntitiesView(data){
    Two time axes: this search's own posts over time (immediate), and the
    persisted snapshot history for the query (longitudinal, from /api/history).
    The second is what the Supabase work exists to enable. */
+/* ── TIMELINE ───────────────────────────────────────────────────────────────
+   The old timeline was three disconnected pictures: a velocity strip, a bar
+   chart of posts per day whose values existed only in a title attribute, and a
+   second bar chart of tracked history on its own separate axis. Nothing was
+   clickable, nothing linked to anything, and the two charts could not be
+   compared because they did not share a scale. You could see that volume moved.
+   You could not see what moved it, where it moved, or read one of the posts.
+
+   This is built around the question an analyst actually asks a timeline: what
+   happened HERE. So the chart is the control surface — drag across it to focus a
+   window, and the platform lanes, the event markers and the stream below all
+   answer for that window. Cross-platform migration is the thing the lanes exist
+   to show: a narrative that starts on X and appears on TikTok four days later is
+   two bright rows offset in time, which no single stacked chart can render. */
+
+var timeFocus=null;   /* {from,to,label} — set by brushing the chart */
+
+var tlFullRange=false;   /* user override for the trimmed default window */
+
+function tlBuckets(items){
+  var ts=items.map(function(i){var d=parseTs(i.timestamp);return d?d.getTime():null;})
+              .filter(function(x){return x;});
+  if(!ts.length)return null;
+  ts.sort(function(a,b){return a-b;});
+  var min=ts[0],max=ts[ts.length-1],outside=0,trimmed=false;
+  /* A handful of stray documents can stretch the axis across years and squash
+     the period that actually matters into a single bar — the same signal-lost-
+     in-noise failure as the corpus itself, in the time dimension. On the live
+     #covid1948 corpus, 13 documents scattered to 2026 compressed 65 May-2020
+     documents into one column.
+
+     So the default window is the dense core (2nd-98th percentile) and the
+     outliers are DISCLOSED, never silently dropped: the count is shown and one
+     click restores the full range. Trimming only engages when it actually buys
+     a tighter window, so a genuinely spread-out corpus is left alone. */
+  if(!tlFullRange&&ts.length>=20){
+    // The tightest window containing 90% of documents, not a fixed percentile
+    // pair. On this corpus 15% of documents are outliers, so a 2/98 trim keeps
+    // them and the axis still spans four years; the shortest-interval version
+    // finds the actual burst regardless of how the strays are distributed.
+    var k=Math.ceil(ts.length*0.90),bi=0,bw2=Infinity;
+    for(var q=0;q+k-1<ts.length;q++){
+      var wd=ts[q+k-1]-ts[q];
+      if(wd<bw2){bw2=wd;bi=q;}
+    }
+    var lo=ts[bi],hi=ts[bi+k-1];
+    if(bw2<(max-min)*0.6){
+      outside=ts.length-k;
+      min=lo;max=hi;trimmed=true;
+    }
+  }
+  var span=max-min;
+  // Bucket width follows the span. A three-day story bucketed by day is three
+  // bars and tells you nothing; a six-month one bucketed by hour is unreadable.
+  var HOUR=3600000,DAY=86400000;
+  var w = span<=2*DAY ? HOUR : span<=14*DAY ? 6*HOUR : span<=120*DAY ? DAY : 7*DAY;
+  var start=Math.floor(min/w)*w, n=Math.max(1,Math.min(240,Math.ceil((max-start)/w)+1));
+  var B=[];
+  for(var k=0;k<n;k++)B.push({t0:start+k*w,t1:start+(k+1)*w,n:0,pos:0,neg:0,neu:0,unk:0,plats:{}});
+  items.forEach(function(i){
+    var d=parseTs(i.timestamp);if(!d)return;
+    // Clamp rather than discard: a document just outside the trimmed window
+    // still belongs to the edge of the picture, and dropping it would make the
+    // bar totals disagree with the corpus count.
+    var k=Math.floor((d.getTime()-start)/w);
+    if(k<0)k=0; if(k>=B.length)k=B.length-1;
+    var b=B[k];b.n++;
+    var sm=i.sentiment;
+    if(sm==='positive')b.pos++;else if(sm==='negative')b.neg++;else if(sm==='neutral')b.neu++;else b.unk++;
+    b.plats[i._p]=(b.plats[i._p]||0)+1;
+  });
+  return {b:B,w:w,start:start,end:start+n*w,trimmed:trimmed,outside:outside,
+          max:Math.max.apply(null,B.map(function(x){return x.n;}).concat([1]))};
+}
+
+function tlLabel(t,w){
+  var d=new Date(t);
+  if(w<86400000)return d.toISOString().slice(5,16).replace('T',' ');
+  return d.toISOString().slice(0,10);
+}
+
 function renderTimelineView(data){
   var items=allItems().filter(function(i){return parseTs(i.timestamp);});
+  var vel=data.velocity||{},w=vel.windows||{};
+  var events=(data.events||[]).filter(function(e){return e.date;});
   var html='';
 
-  var vel=data.velocity||{};var w=vel.windows||{};
+  // ── Velocity ──────────────────────────────────────────────────────────────
+  var accelIcon={accelerating:'ti-trending-up',declining:'ti-trending-down',stable:'ti-minus'};
   html+='<div class="report-section"><div class="report-section-title">'+
     '<i class="ti ti-activity"></i>Velocity</div><div class="vel-grid">'+
     '<div class="vw"><div class="vw-n">'+(w['6h']||0)+'</div><div class="vw-l">6H</div></div>'+
     '<div class="vw"><div class="vw-n">'+(w['24h']||0)+'</div><div class="vw-l">24H</div></div>'+
     '<div class="vw"><div class="vw-n">'+(w['7d']||0)+'</div><div class="vw-l">7D</div></div>'+
     '</div>'+
-    (vel.acceleration?'<div class="vel-accel '+esc(vel.acceleration)+'"><i class="ti ti-trending-up"></i>'+esc(vel.acceleration)+'</div>':'')+
+    // The icon used to be a hardcoded trending-up arrow even when the verdict
+    // was "declining", which is a chart that contradicts its own label.
+    (vel.acceleration?'<div class="vel-accel '+esc(vel.acceleration)+'">'+
+      '<i class="ti '+(accelIcon[vel.acceleration]||'ti-minus')+'"></i>'+esc(vel.acceleration)+'</div>':'')+
   '</div>';
 
-  // Day histogram of this result set
-  if(items.length){
-    var buckets={};
-    items.forEach(function(i){
-      var d=parseTs(i.timestamp);if(!d)return;
-      var k=d.toISOString().slice(0,10);
-      buckets[k]=(buckets[k]||0)+1;
+  if(!items.length){
+    return html+'<div class="report-section"><div class="ve-text">No document in this corpus carries a '+
+      'usable timestamp, so no timeline can be drawn. This is a source limitation, not an absence of activity.</div></div>';
+  }
+
+  var BK=tlBuckets(items);
+  var B=BK.b,W=1000,H=150,PAD=26;
+  var bw=W/B.length;
+
+  // ── Main chart: volume, split by sentiment ────────────────────────────────
+  var bars=B.map(function(b,k){
+    if(!b.n)return'';
+    var x=k*bw, h=(b.n/BK.max)*(H-PAD-10), y=H-PAD-h;
+    var segs='',acc=0;
+    [['neg','var(--neg)'],['neu','var(--neu)'],['pos','var(--pos)'],['unk','var(--ink4)']].forEach(function(sc){
+      var v=b[sc[0]];if(!v)return;
+      var sh=h*(v/b.n);
+      segs+='<rect x="'+(x+bw*0.16).toFixed(2)+'" y="'+(y+acc).toFixed(2)+'" '+
+            'width="'+(bw*0.68).toFixed(2)+'" height="'+Math.max(0.6,sh).toFixed(2)+'" fill="'+sc[1]+'" />';
+      acc+=sh;
     });
-    var days=Object.keys(buckets).sort();
-    var maxB=Math.max.apply(null,days.map(function(k){return buckets[k];}).concat([1]));
-    html+='<div class="report-section"><div class="report-section-title">'+
-      '<i class="ti ti-chart-bar"></i>Posts per day · '+items.length+' dated</div>'+
-      '<div class="tl-hist">'+days.map(function(k){
-        var h=Math.max(3,Math.round((buckets[k]/maxB)*76));
-        return '<div class="tl-col" title="'+esc(k)+': '+buckets[k]+'">'+
-          '<div class="tl-bar" style="height:'+h+'px"></div>'+
-          '<div class="tl-day">'+esc(k.slice(5))+'</div></div>';
+    return '<g class="tlb" data-k="'+k+'">'+segs+
+      '<rect class="hit" x="'+x.toFixed(2)+'" y="0" width="'+bw.toFixed(2)+'" height="'+(H-PAD)+'" />'+
+      '</g>';
+  }).join('');
+
+  // Event markers, positioned on the same axis as the bars they explain.
+  var marks=events.map(function(e,ei){
+    var d=parseTs(e.date)||parseTs(e.date+'-01');
+    if(!d)return'';
+    var k=Math.floor((d.getTime()-BK.start)/BK.w);
+    if(k<0||k>=B.length)return'';
+    var x=(k*bw+bw/2).toFixed(2);
+    return '<g class="tlev" data-e="'+ei+'">'+
+      '<line x1="'+x+'" y1="6" x2="'+x+'" y2="'+(H-PAD)+'" />'+
+      '<circle cx="'+x+'" cy="6" r="4.5" />'+
+      '</g>';
+  }).join('');
+
+  // Axis ticks — roughly six, never overlapping.
+  var step=Math.max(1,Math.round(B.length/6));
+  var ticks='';
+  for(var k=0;k<B.length;k+=step){
+    ticks+='<text class="tlx" x="'+(k*bw+bw/2).toFixed(2)+'" y="'+(H-8)+'">'+
+      esc(tlLabel(B[k].t0,BK.w))+'</text>';
+  }
+
+  html+='<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-chart-histogram"></i>Volume'+
+      '<span class="tl-hint">drag to focus a window</span></div>'+
+    '<div class="tl-chart">'+
+      '<svg id="tlSvg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" role="img" '+
+        'aria-label="Document volume over time, coloured by sentiment">'+
+        '<rect id="tlBrush" x="0" y="0" width="0" height="'+(H-PAD)+'" />'+
+        bars+marks+ticks+
+      '</svg>'+
+      '<div class="tl-tip" id="tlTip" hidden></div>'+
+    '</div>'+
+    '<div class="tl-legend">'+
+      '<span><b style="background:var(--neg)"></b>negative</span>'+
+      '<span><b style="background:var(--neu)"></b>neutral</span>'+
+      '<span><b style="background:var(--pos)"></b>positive</span>'+
+      '<span><b style="background:var(--ink4)"></b>unscored</span>'+
+      (events.length?'<span><b class="evdot"></b>real-world event</span>':'')+
+    '</div>'+
+    '<div class="tl-focus" id="tlFocus" hidden></div>'+
+    (BK.trimmed
+      ? '<div class="tl-trim"><b>'+esc(tlLabel(BK.start,BK.w))+'</b> – <b>'+
+        esc(tlLabel(BK.end,BK.w))+'</b> · <b>'+BK.outside+'</b> outside, stacked on the end bars · '+
+        '<button type="button" class="em-lnk" data-act="tlfull">full range</button></div>'
+      : (tlFullRange
+          ? '<div class="tl-trim">Full range. <button type="button" class="em-lnk" data-act="tlfull">'+
+            'Back to the dense window</button></div>' : ''))+
+  '</div>';
+
+  // ── Platform lanes — where cross-platform migration becomes visible ───────
+  var plats={};
+  items.forEach(function(i){plats[i._p]=(plats[i._p]||0)+1;});
+  var order=Object.keys(plats).sort(function(a,b){return plats[b]-plats[a];});
+  if(order.length>1){
+    html+='<div class="report-section">'+
+      '<div class="report-section-title"><i class="ti ti-layout-rows"></i>Lanes'+
+        '<span class="tl-hint">an offset between rows is migration</span></div>'+
+      '<div class="lanes">'+order.map(function(pid){
+        var m=pm(pid);
+        var lmax=Math.max.apply(null,B.map(function(b){return b.plats[pid]||0;}).concat([1]));
+        var lc=platCol(pid);
+        return '<div class="lane"><div class="lane-n"><span class="dot" style="background:'+lc+'"></span>'+
+          esc(m.n)+'</div><div class="lane-c">'+B.map(function(b,k){
+            var v=b.plats[pid]||0;
+            return '<i style="opacity:'+(v?(0.18+0.82*(v/lmax)).toFixed(2):0)+';background:'+lc+'" '+
+              'title="'+esc(tlLabel(b.t0,BK.w))+': '+v+'"></i>';
+          }).join('')+'</div><div class="lane-t">'+plats[pid]+'</div></div>';
       }).join('')+'</div></div>';
   }
 
-  // Longitudinal history (persisted snapshots)
+  // ── Events, listed against the chart they annotate ────────────────────────
+  if(events.length){
+    html+='<div class="report-section">'+
+      '<div class="report-section-title"><i class="ti ti-flag"></i>Events</div>'+
+      events.map(function(e,ei){
+        return '<div class="ev-row" data-ev="'+ei+'"><div class="ev-kind '+esc(e.kind||'other')+'">'+
+          '<i class="ti '+(EV_ICON[e.kind||'other']||EV_ICON.other)+'"></i></div>'+
+          '<div class="ev-b"><div class="ev-l">'+esc(e.label)+'</div>'+
+          '<div class="ev-m"><span>'+esc(e.date||'')+'</span>'+
+            (e.location?'<span>'+esc(e.location)+'</span>':'')+
+            '<span class="ev-c '+esc(e.confidence||'low')+'">'+esc(e.confidence||'low')+'</span></div>'+
+          (e.evidence?'<div class="ev-q">"'+esc(e.evidence)+'"</div>':'')+
+          '</div></div>';
+      }).join('')+'</div>';
+  }
+
+  // ── Tracked history, on the same visual language ─────────────────────────
   html+='<div class="report-section"><div class="report-section-title">'+
     '<i class="ti ti-history"></i>Tracked history</div>'+
     '<div id="histBody"><div class="skel w90"></div><div class="skel w60"></div></div></div>';
 
-  // Chronological stream
-  if(items.length){
-    var sorted=items.slice().sort(function(a,b){return parseTs(b.timestamp)-parseTs(a.timestamp);});
-    html+='<div class="report-section"><div class="report-section-title">'+
-      '<i class="ti ti-timeline"></i>Chronological stream</div><div class="tl-stream">'+
-      sorted.slice(0,60).map(function(i){
-        var m=pm(i._p);
-        return '<a class="tl-item" href="'+esc(i.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
-          '<div class="tl-dot" style="background:'+m.c+'"></div>'+
-          '<div class="tl-content">'+
-            '<div class="tl-meta"><span class="tl-plat">'+esc(m.n)+'</span>'+
-              '<span class="tl-time">'+esc(fmtTs(i.timestamp))+'</span>'+
-              (i.sentiment?'<span class="mpill '+esc(i.sentiment)+'">'+esc(i.sentiment)+'</span>':'')+'</div>'+
-            '<div class="tl-title">'+esc((i.title_en||i.title||i.excerpt_en||i.excerpt||'').slice(0,140))+'</div>'+
-          '</div></a>';
-      }).join('')+'</div></div>';
-  }
+  // ── Stream, grouped by day so scrolling has structure ────────────────────
+  var sorted=items.slice().sort(function(a,b){return parseTs(b.timestamp)-parseTs(a.timestamp);});
+  var lastDay='';
+  html+='<div class="report-section"><div class="report-section-title">'+
+    '<i class="ti ti-timeline"></i>Stream<span class="tl-hint" id="tlStreamN">'+
+    Math.min(120,sorted.length)+' of '+sorted.length+'</span></div><div class="tl-stream" id="tlStream">'+
+    sorted.slice(0,120).map(function(i){
+      var m=pm(i._p),d=parseTs(i.timestamp),day=d.toISOString().slice(0,10);
+      var head='';
+      if(day!==lastDay){lastDay=day;head='<div class="tl-day-h">'+esc(day)+'</div>';}
+      return head+'<a class="tl-item" data-t="'+d.getTime()+'" href="'+esc(i.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
+        '<div class="tl-dot" style="background:'+platCol(i._p)+'"></div>'+
+        '<div class="tl-content">'+
+          '<div class="tl-meta"><span class="tl-plat">'+esc(m.n)+'</span>'+
+            '<span class="tl-time">'+esc(fmtTs(i.timestamp))+'</span>'+
+            (i.sentiment&&i.sentiment!=='unscored'?'<span class="mpill '+esc(i.sentiment)+'">'+esc(i.sentiment)+'</span>':'')+
+            (i.relevance!==undefined?'<span class="rl-pill '+(i.relevance>=0.65?'v':'u')+'">'+
+              (i.relevance>=0.65?'match':'snippet')+'</span>':'')+'</div>'+
+          '<div class="tl-title">'+esc((i.title_en||i.title||i.excerpt_en||i.excerpt||'').slice(0,150))+'</div>'+
+        '</div></a>';
+    }).join('')+'</div></div>';
+
+  window._TLB=BK; window._TLEV=events;
   return html;
+}
+
+/* Brushing, hovering and the focus link into the grid. Wired after the view is
+   in the DOM because the whole report is built as a string. */
+function wireTimelineChart(){
+  var svg=$('tlSvg'),BK=window._TLB;
+  if(!svg||!BK)return;
+  var B=BK.b,tip=$('tlTip'),brush=$('tlBrush'),focus=$('tlFocus');
+  var bw=1000/B.length,dragFrom=null;
+
+  function kFromEvent(ev){
+    var r=svg.getBoundingClientRect();
+    var x=(ev.clientX-r.left)/r.width*1000;
+    return Math.max(0,Math.min(B.length-1,Math.floor(x/bw)));
+  }
+  function paintBrush(a,b){
+    if(a===null){brush.setAttribute('width',0);return;}
+    var lo=Math.min(a,b),hi=Math.max(a,b);
+    brush.setAttribute('x',(lo*bw).toFixed(2));
+    brush.setAttribute('width',((hi-lo+1)*bw).toFixed(2));
+  }
+  function showFocus(a,b){
+    var lo=Math.min(a,b),hi=Math.max(a,b);
+    timeFocus={from:B[lo].t0,to:B[hi].t1,
+               label:tlLabel(B[lo].t0,BK.w)+(lo===hi?'':' → '+tlLabel(B[hi].t0,BK.w))};
+    var n=0;B.slice(lo,hi+1).forEach(function(x){n+=x.n;});
+    focus.hidden=false;
+    focus.innerHTML='<span><b>'+esc(timeFocus.label)+'</b> · '+n+' documents</span>'+
+      '<button type="button" class="rb-btn" data-act="tlgrid">Show these in results</button>'+
+      '<button type="button" class="rb-btn" data-act="tlclear">Clear</button>';
+    paintBrush(lo,hi);
+  }
+
+  svg.addEventListener('pointerdown',function(ev){
+    dragFrom=kFromEvent(ev);svg.setPointerCapture(ev.pointerId);paintBrush(dragFrom,dragFrom);
+  });
+  svg.addEventListener('pointermove',function(ev){
+    var k=kFromEvent(ev),b=B[k];
+    if(dragFrom!==null)paintBrush(dragFrom,k);
+    if(tip&&b){
+      tip.hidden=false;
+      tip.innerHTML='<b>'+esc(tlLabel(b.t0,BK.w))+'</b>'+
+        '<span>'+(b.n?b.n+' document'+(b.n===1?'':'s'):'nothing collected in this period')+'</span>'+
+        (b.n?'<span class="s">+'+b.pos+' · ~'+b.neu+' · -'+b.neg+(b.unk?' · '+b.unk+' unscored':'')+'</span>':'')+
+        (b.n?'<span class="p">'+Object.keys(b.plats).sort(function(x,y){return b.plats[y]-b.plats[x];})
+              .slice(0,4).map(function(pid){return esc(pm(pid).n)+' '+b.plats[pid];}).join(' · ')+'</span>':'');
+      var r=svg.getBoundingClientRect();
+      tip.style.left=Math.max(4,Math.min(r.width-150,(k*bw+bw/2)/1000*r.width))+'px';
+    }
+  });
+  svg.addEventListener('pointerleave',function(){if(tip)tip.hidden=true;});
+  svg.addEventListener('pointerup',function(ev){
+    if(dragFrom===null)return;
+    var k=kFromEvent(ev);showFocus(dragFrom,k);dragFrom=null;
+  });
 }
 
 /* Fetch persisted history for the timeline view. Separate call because it hits
    the DB rather than the live search payload. */
 function wireTimeline(data){
   if(activeMode!=='timeline')return;
+  wireTimelineChart();
   var el=$('histBody');if(!el)return;
   fetch('/api/history?q='+encodeURIComponent(data.query||lastQ))
     .then(function(r){return r.json();})
@@ -2678,6 +4580,7 @@ function wireTimeline(data){
       var c=h.change||{};
       out+='<div class="hist-change">'+
         chgChip('Mentions',c.mentions)+chgChip('Coordination',c.coordination_score)+chgChip('Sentiment',c.sentiment_net)+
+
       '</div>';
       var nar=h.narratives||[];
       if(nar.length){
@@ -2776,7 +4679,25 @@ function allItems(){
 }
 
 function filterItems(items){
+  var ef=entityFocus?entNorm(entityFocus):null;
+  var efc=ef?ef.slice(1,-1):null;
   return items.filter(function(it){
+    if(efc){
+      var blob=entNorm((it.title||'')+' '+(it.title_en||'')+' '+(it.excerpt||'')+' '+
+                       (it.excerpt_en||'')+' '+(it.author||''));
+      if(blob.indexOf(efc)<0)return false;
+    }
+    if(gridTimeFocus){
+      var td=parseTs(it.timestamp);
+      if(!td)return false;
+      var tv=td.getTime();
+      if(tv<gridTimeFocus.from||tv>=gridTimeFocus.to)return false;
+    }
+    // Relevance band. The gate already removed the noise; this lets an analyst
+    // narrow to documents that literally contain the query, separating them from
+    // the long-form sources admitted on the strength of a snippet.
+    if(filterState.rel==='verified'&&!((it.relevance||0)>=0.65))return false;
+    if(filterState.rel==='unverified'&&!((it.relevance||0)>0&&(it.relevance||0)<0.65))return false;
     if(!filterState.platforms.has('all')&&!filterState.platforms.has(it._p))return false;
     if(!filterState.srcTypes.has('all')&&!filterState.srcTypes.has(it.source_type||'social'))return false;
     if(filterState.dateRange!=='all'){
@@ -2792,8 +4713,12 @@ function sortItems(items){
   function ts(it){var d=parseTs(it.timestamp);return d?d.getTime():-Infinity;}
   function eng(it){return it.engagement||0;}
   var sr={positive:0,neutral:1,negative:2};
+  function rel(it){return it.relevance===undefined?-1:it.relevance;}
   var out=items.slice();
-  if(sortMode==='newest')out.sort(function(a,b){return ts(b)-ts(a);});
+  // Relevance is the default because it answers the question the grid is for:
+  // what is this actually about. Newest answers a different one.
+  if(sortMode==='relevance')out.sort(function(a,b){var d=rel(b)-rel(a);return d||(eng(b)-eng(a));});
+  else if(sortMode==='newest')out.sort(function(a,b){return ts(b)-ts(a);});
   else if(sortMode==='oldest')out.sort(function(a,b){var x=ts(a),y=ts(b);if(x===-Infinity)return 1;if(y===-Infinity)return-1;return x-y;});
   else if(sortMode==='eng_desc')out.sort(function(a,b){return eng(b)-eng(a);});
   else if(sortMode==='pos')out.sort(function(a,b){return(sr[a.sentiment]==null?9:sr[a.sentiment])-(sr[b.sentiment]==null?9:sr[b.sentiment]);});
@@ -2803,6 +4728,25 @@ function sortItems(items){
 }
 
 var GRID_CAP=300;
+/* Engagement and views on a document card, kept apart for the same reason the
+   totals keep them apart — labelling an impression count "eng" would report a
+   video nobody interacted with as the most engaged item in the corpus.
+   `engagement_breakdown` fills the tooltip when the source supplied one. */
+function docReach(it){
+  var eb=it.engagement_breakdown||null;
+  var parts='';
+  if(it.engagement){
+    var tip=eb?('reactions '+(eb.reactions||0)+' · comments '+(eb.comments||0)+
+                ' · shares '+(eb.shares||0)):'reactions, comments and shares';
+    parts+='<span class="mc-eng" title="'+esc(tip)+'">'+num(it.engagement)+' eng</span>';
+  }
+  if(it.views){
+    parts+='<span class="mc-eng views" title="impressions — not counted as engagement">'+
+      num(it.views)+' views</span>';
+  }
+  return parts?'<div class="mc-engs">'+parts+'</div>':'';
+}
+
 function renderGrid(rawItems){
   var items=sortItems(filterItems(rawItems));
   var grid=$('mediaGrid');
@@ -2853,9 +4797,17 @@ function renderGrid(rawItems){
         '<div class="mc-foot">'+
           '<span class="mc-author">'+esc(it.author||m.n)+'</span>'+
           '<span class="mc-time">'+ago(it.timestamp)+'</span>'+
+          // Why this document is in the corpus, on the document itself. The
+          // gate is a judgement about each card, so it belongs on the card.
+          (it.relevance===undefined?''
+            :'<span class="rl-pill '+(it.relevance>=0.65?'v':'u')+'" title="'+
+              esc(it.relevance_basis||'')+'">'+
+              (it.relevance>=0.65?'match':'snippet')+'</span>')+
         '</div>'+
         (pills?'<div class="mc-pills">'+pills+'</div>':'')+
-        (it.engagement?'<div class="mc-eng">'+num(it.engagement)+' eng</div>':'')+
+        // Same separation on the card as in the totals: an impression count
+        // rendered as "eng" would misreport a video with no interactions at all.
+        (docReach(it))+
       '</div>'+
     '</a>';
   }).join('')+(items.length>GRID_CAP
@@ -2873,10 +4825,10 @@ function buildFilterPanel(){
   var plats=Object.entries(platCounts).sort(function(a,b){return b[1]-a[1];});
   var fpP=$('fpPlatforms');
   if(fpP){
-    var allPlatOn=pendingFilter.platforms.has('all');
+    var allPlatOn=filterState.platforms.has('all');
     fpP.innerHTML='<button type="button" class="fp-pill'+(allPlatOn?' on':'')+'" data-act="fpp" data-v="all" aria-pressed="'+allPlatOn+'">All <span class="fpn">'+items.length+'</span></button>'+
       plats.map(function(kv){
-        var on=pendingFilter.platforms.has(kv[0])&&!pendingFilter.platforms.has('all');
+        var on=filterState.platforms.has(kv[0])&&!filterState.platforms.has('all');
         return'<button type="button" class="fp-pill'+(on?' on':'')+'" data-act="fpp" data-v="'+esc(kv[0])+'" aria-pressed="'+on+'">'+esc(pm(kv[0]).n)+' <span class="fpn">'+kv[1]+'</span></button>';
       }).join('');
   }
@@ -2885,55 +4837,91 @@ function buildFilterPanel(){
   items.forEach(function(it){var st=it.source_type||'social';stCounts[st]=(stCounts[st]||0)+1;});
   var fpS=$('fpSrcTypes');
   if(fpS){
-    var allSrcOn=pendingFilter.srcTypes.has('all');
+    var allSrcOn=filterState.srcTypes.has('all');
     fpS.innerHTML='<button type="button" class="fp-pill'+(allSrcOn?' on':'')+'" data-act="fps" data-v="all" aria-pressed="'+allSrcOn+'">All</button>'+
       Object.entries(stCounts).map(function(kv){
-        var on=pendingFilter.srcTypes.has(kv[0])&&!allSrcOn;
+        var on=filterState.srcTypes.has(kv[0])&&!allSrcOn;
         return'<button type="button" class="fp-pill'+(on?' on':'')+'" data-act="fps" data-v="'+esc(kv[0])+'" aria-pressed="'+on+'">'+esc(SRC_LABELS[kv[0]]||kv[0])+' <span class="fpn">'+kv[1]+'</span></button>';
       }).join('');
+  }
+  // Relevance band — only offered when the gate actually ran and produced a mix.
+  var fpR=$('fpRelevance');
+  if(fpR){
+    var nv=0,nu=0;
+    items.forEach(function(it){var r=it.relevance;if(r===undefined)return;if(r>=0.65)nv++;else if(r>0)nu++;});
+    if(nu||nv){
+      $('fpRelWrap').hidden=false;
+      fpR.innerHTML=[['all','Any','',items.length],
+                     ['verified','Query in the text','v',nv],
+                     ['unverified','Snippet only','u',nu]].map(function(o){
+        var on=filterState.rel===o[0];
+        return'<button type="button" class="fp-pill'+(on?' on':'')+'" data-act="fpr" data-v="'+o[0]+'" '+
+          'aria-pressed="'+on+'">'+esc(o[1])+' <span class="fpn">'+o[3]+'</span></button>';
+      }).join('');
+    } else { $('fpRelWrap').hidden=true; }
   }
   // Dates
   var fpD=$('fpDates');
   if(fpD){
     fpD.innerHTML=['all','24h','7d','30d'].map(function(v){
       var label=v==='all'?'All time':v==='24h'?'Last 24h':v==='7d'?'Last 7 days':'Last 30 days';
-      return'<button type="button" class="date-pill'+(pendingFilter.dateRange===v?' on':'')+'" data-act="fpd" data-v="'+v+'" aria-pressed="'+(pendingFilter.dateRange===v)+'">'+label+'</button>';
+      return'<button type="button" class="date-pill'+(filterState.dateRange===v?' on':'')+'" data-act="fpd" data-v="'+v+'" aria-pressed="'+(filterState.dateRange===v)+'">'+label+'</button>';
     }).join('');
   }
 }
-function toggleFpPlatform(v){
-  if(v==='all'){pendingFilter.platforms=new Set(['all']);}
-  else{
-    pendingFilter.platforms.delete('all');
-    if(pendingFilter.platforms.has(v))pendingFilter.platforms.delete(v);
-    else pendingFilter.platforms.add(v);
-    if(!pendingFilter.platforms.size)pendingFilter.platforms.add('all');
-  }
+/* Filter used to be deferred behind an Apply button while Sort applied
+   instantly — two opposite commit models in one toolbar, so the same click
+   meant different things two buttons apart. Worse, Reset only reset the pending
+   copy, and dismissing the popover by clicking outside silently discarded edits
+   with no visual reversion. Everything commits immediately now; the grid is the
+   feedback, and Reset is the undo. */
+function commit(){
+  pendingFilter={platforms:new Set(filterState.platforms),
+                 srcTypes:new Set(filterState.srcTypes),
+                 dateRange:filterState.dateRange,rel:filterState.rel};
+  renderGrid(allItems());
   buildFilterPanel();
+  updateToolbarState();
+}
+function toggleFpPlatform(v){
+  if(v==='all'){filterState.platforms=new Set(['all']);}
+  else{
+    filterState.platforms.delete('all');
+    if(filterState.platforms.has(v))filterState.platforms.delete(v);
+    else filterState.platforms.add(v);
+    if(!filterState.platforms.size)filterState.platforms.add('all');
+  }
+  commit();
 }
 function toggleFpSrcType(v){
-  if(v==='all'){pendingFilter.srcTypes=new Set(['all']);}
+  if(v==='all'){filterState.srcTypes=new Set(['all']);}
   else{
-    pendingFilter.srcTypes.delete('all');
-    if(pendingFilter.srcTypes.has(v))pendingFilter.srcTypes.delete(v);
-    else pendingFilter.srcTypes.add(v);
-    if(!pendingFilter.srcTypes.size)pendingFilter.srcTypes.add('all');
+    filterState.srcTypes.delete('all');
+    if(filterState.srcTypes.has(v))filterState.srcTypes.delete(v);
+    else filterState.srcTypes.add(v);
+    if(!filterState.srcTypes.size)filterState.srcTypes.add('all');
   }
-  buildFilterPanel();
+  commit();
 }
-function setPendingDate(v){pendingFilter.dateRange=v;buildFilterPanel();}
+function setPendingDate(v){filterState.dateRange=v;commit();}
+function setRelFilter(v){filterState.rel=v;commit();}
 function resetFilters(){
-  pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all'};
-  setTimeout(updateToolbarState,0);
-  buildFilterPanel();
+  filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
+  entityFocus=null;gridTimeFocus=null;timeFocus=null;
+  commit();
 }
-function applyFilters(){
-  filterState.platforms=new Set(pendingFilter.platforms);
-  filterState.srcTypes=new Set(pendingFilter.srcTypes);
-  filterState.dateRange=pendingFilter.dateRange;
-  closeAll();
-  renderGrid(allItems());
-  updateToolbarState();
+/* Kept so any remaining caller is harmless — Apply is now a no-op close. */
+function applyFilters(){closeAll();}
+
+/* Remove one active filter from the toolbar chip, without opening the panel. */
+function dropFilter(kind,v){
+  if(kind==='p'){filterState.platforms.delete(v);if(!filterState.platforms.size)filterState.platforms.add('all');}
+  else if(kind==='s'){filterState.srcTypes.delete(v);if(!filterState.srcTypes.size)filterState.srcTypes.add('all');}
+  else if(kind==='d'){filterState.dateRange='all';}
+  else if(kind==='r'){filterState.rel='all';}
+  else if(kind==='e'){entityFocus=null;}
+  else if(kind==='t'){gridTimeFocus=null;timeFocus=null;}
+  commit();
 }
 
 // Reflect active filter/sort on the toolbar buttons. Without this the grid
@@ -2943,45 +4931,91 @@ function activeFilterCount(){
   if(!filterState.platforms.has('all'))n+=filterState.platforms.size;
   if(!filterState.srcTypes.has('all'))n+=filterState.srcTypes.size;
   if(filterState.dateRange!=='all')n+=1;
+  if(filterState.rel&&filterState.rel!=='all')n+=1;
+  if(entityFocus)n+=1;
+  if(gridTimeFocus)n+=1;
   return n;
 }
-var SORT_LABELS={newest:'Newest',oldest:'Oldest',eng_desc:'Most engaged',
-                 pos:'Most positive',neg:'Most negative',platform:'By platform'};
+var SORT_LABELS={relevance:'Most relevant',newest:'Newest',oldest:'Oldest',
+                 eng_desc:'Most engaged',pos:'Most positive',neg:'Most negative',
+                 platform:'By platform'};
+/* Active filters are shown as removable chips in the toolbar rather than as a
+   count on a closed button. A badge reading "3" tells you something is hidden
+   but not what, so the grid looks broken; a chip reading "TikTok ×" tells you
+   what you did and undoes it in one click. */
+function renderActiveChips(){
+  var el=$('gtChips');if(!el)return;
+  var out=[];
+  if(!filterState.platforms.has('all'))
+    filterState.platforms.forEach(function(v){
+      out.push('<button type="button" class="ac-chip" data-act="dropf" data-k="p" data-v="'+esc(v)+'">'+
+        esc(pm(v).n)+'<i class="ti ti-x"></i></button>');});
+  if(!filterState.srcTypes.has('all'))
+    filterState.srcTypes.forEach(function(v){
+      out.push('<button type="button" class="ac-chip" data-act="dropf" data-k="s" data-v="'+esc(v)+'">'+
+        esc(SRC_LABELS[v]||v)+'<i class="ti ti-x"></i></button>');});
+  if(filterState.dateRange!=='all')
+    out.push('<button type="button" class="ac-chip" data-act="dropf" data-k="d" data-v="">'+
+      esc(filterState.dateRange)+'<i class="ti ti-x"></i></button>');
+  if(filterState.rel&&filterState.rel!=='all')
+    out.push('<button type="button" class="ac-chip rel" data-act="dropf" data-k="r" data-v="">'+
+      (filterState.rel==='verified'?'query in text':'snippet only')+'<i class="ti ti-x"></i></button>');
+  if(entityFocus)
+    out.push('<button type="button" class="ac-chip ent" data-act="dropf" data-k="e" data-v="">'+
+      '<i class="ti ti-affiliate"></i>'+esc(entityFocus)+'<i class="ti ti-x"></i></button>');
+  if(gridTimeFocus)
+    out.push('<button type="button" class="ac-chip tm" data-act="dropf" data-k="t" data-v="">'+
+      '<i class="ti ti-clock"></i>'+esc(gridTimeFocus.label||'window')+'<i class="ti ti-x"></i></button>');
+  el.innerHTML=out.join('');
+  el.hidden=!out.length;
+}
 function updateToolbarState(){
   var fb=document.querySelector('.filter-btn');
   if(fb){
     var n=activeFilterCount();
-    fb.innerHTML='<i class="ti ti-adjustments-horizontal" aria-hidden="true"></i> Filter'+
-      (n?' <span class="tb-badge">'+n+'</span>':'');
+    fb.innerHTML='<i class="ti ti-adjustments-horizontal" aria-hidden="true"></i> Filter';
     fb.classList.toggle('active',n>0);
   }
   var sb=document.querySelector('.sort-btn');
   if(sb)sb.innerHTML='<i class="ti ti-arrows-sort" aria-hidden="true"></i> '+(SORT_LABELS[sortMode]||'Sort');
+  renderActiveChips();
+}
+/* aria-expanded was written once in the markup as "false" and never updated,
+   so a screen reader was told the popovers were permanently closed. */
+function setExpanded(sel,on){
+  var b=document.querySelector(sel);
+  if(b)b.setAttribute('aria-expanded',on?'true':'false');
 }
 function toggleFilter(){
   var fp=$('filterPanel');var sp=$('sortPanel');
   if(sp)sp.classList.remove('show');
+  setExpanded('.sort-btn',false);
   buildFilterPanel();
-  if(fp)fp.classList.toggle('show');
+  if(fp){var on=fp.classList.toggle('show');setExpanded('.filter-btn',on);}
 }
 function toggleSort(){
   var fp=$('filterPanel');var sp=$('sortPanel');
   if(fp)fp.classList.remove('show');
-  if(sp)sp.classList.toggle('show');
+  setExpanded('.filter-btn',false);
+  if(sp){var on=sp.classList.toggle('show');setExpanded('.sort-btn',on);}
 }
 function closeAll(){
   var fp=$('filterPanel');var sp=$('sortPanel');
   if(fp)fp.classList.remove('show');
   if(sp)sp.classList.remove('show');
+  setExpanded('.filter-btn',false);setExpanded('.sort-btn',false);
 }
 document.addEventListener('click',function(e){
   if(!e.target.closest('.filter-btn')&&!e.target.closest('.filter-panel'))$('filterPanel')&&$('filterPanel').classList.remove('show');
   if(!e.target.closest('.sort-btn')&&!e.target.closest('.sort-panel'))$('sortPanel')&&$('sortPanel').classList.remove('show');
 });
 function pickSort(el){
-  document.querySelectorAll('.sort-opt').forEach(function(e){e.classList.remove('on');});
-  el.classList.add('on');
   sortMode=el.dataset.sort;
+  document.querySelectorAll('.sort-opt').forEach(function(e){
+    var on=e===el;
+    e.classList.toggle('on',on);
+    e.setAttribute('aria-checked',on?'true':'false');   // was never updated
+  });
   closeAll();
   renderGrid(allItems());
   updateToolbarState();
@@ -3217,6 +5251,19 @@ window.toggleFilter = toggleFilter;
 window.toggleFpPlatform = toggleFpPlatform;
 window.toggleFpSrcType = toggleFpSrcType;
 window.toggleSort = toggleSort;
+/* The backlink's return leg: from an actor in the graph to the actual posts
+   in the results grid. A one-way link from graph to document list is only half
+   the Obsidian pattern — the value is being able to move between the two views
+   without losing your place. */
+window.showEntityInGrid=function(name){
+  if(!lastData)return;
+  entityFocus=name;
+  var split=$('split');
+  if(split&&!split.classList.contains('show-grid')&&window.innerWidth<860)toggleGridView();
+  renderGrid(allItems());
+  updateToolbarState();
+  var g=$('mediaGrid');if(g)g.scrollIntoView({behavior:'smooth',block:'start'});
+};
 window.toggleTheme = toggleTheme;
 
 /* ══ EVENT DELEGATION ══
@@ -3229,7 +5276,8 @@ var ACTS={
   rail:function(){expandRail();},
   'new':function(){newSearch();},
   go:function(el){loadQ(el.getAttribute('data-v'));},
-  hist:function(el){var h=loadHist(),i=+el.getAttribute('data-i');if(h[i])loadQ(h[i].q);},
+  hist:function(el){var h=loadHist(),i=+el.getAttribute('data-i');if(h[i])openCase(h[i]);},
+  rerun:function(){if(lastQ){$('q').value=lastQ;doSearch();}},
   histdel:function(el){delHist(+el.getAttribute('data-i'));},
   mode:function(el){
     var m=el.getAttribute('data-v');
@@ -3239,6 +5287,26 @@ var ACTS={
       var on=b.getAttribute('data-v')===m;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
   },
   narr:function(el){filterByNarrative(el.getAttribute('data-v'));},
+  /* Disclosure toggle used by every explainer panel. */
+  xp:function(el){
+    var box=el.closest('.xp');if(!box)return;
+    var on=box.classList.toggle('on');
+    el.setAttribute('aria-expanded',on?'true':'false');
+  },
+  xpconf:function(){
+    var n=$('confNote');if(n)n.hidden=!n.hidden;
+  },
+  /* A risk cell reveals its own panel and scrolls it into view. Only one is
+     open at a time — four open panels is a wall, not an explanation. */
+  xprisk:function(el){
+    var k=el.getAttribute('data-v'),box=$('rk-'+k);if(!box)return;
+    var wasOpen=!box.hidden;
+    document.querySelectorAll('.rk-panel .xp').forEach(function(x){x.hidden=true;});
+    document.querySelectorAll('.risk-cell').forEach(function(c){c.classList.remove('on');});
+    if(wasOpen)return;
+    box.hidden=false;box.classList.add('on');el.classList.add('on');
+    box.scrollIntoView({block:'nearest',behavior:'smooth'});
+  },
   gridview:function(){toggleGridView();},
   watch:function(){openWatch();},
   closewatch:function(){closeWatch();},
@@ -3249,6 +5317,28 @@ var ACTS={
   fpp:function(el){toggleFpPlatform(el.getAttribute('data-v'));},
   fps:function(el){toggleFpSrcType(el.getAttribute('data-v'));},
   fpd:function(el){setPendingDate(el.getAttribute('data-v'));},
+  fpr:function(el){setRelFilter(el.getAttribute('data-v'));},
+  dropf:function(el){dropFilter(el.getAttribute('data-k'),el.getAttribute('data-v'));},
+  tlgrid:function(){
+    if(!timeFocus)return;
+    gridTimeFocus={from:timeFocus.from,to:timeFocus.to,label:timeFocus.label};
+    renderGrid(allItems());updateToolbarState();
+    var split=$('split');
+    if(split&&!split.classList.contains('show-grid')&&window.innerWidth<860)toggleGridView();
+    var g=$('mediaGrid');if(g)g.scrollIntoView({behavior:'smooth',block:'start'});
+  },
+  tlfull:function(){
+    tlFullRange=!tlFullRange;
+    timeFocus=null;gridTimeFocus=null;
+    if(lastData)renderReport(lastData);
+    renderGrid(allItems());updateToolbarState();
+  },
+  tlclear:function(){
+    timeFocus=null;gridTimeFocus=null;
+    var f=$('tlFocus');if(f)f.hidden=true;
+    var b=$('tlBrush');if(b)b.setAttribute('width',0);
+    renderGrid(allItems());updateToolbarState();
+  },
   fpreset:function(){resetFilters();},
   fpapply:function(){applyFilters();},
   pick:function(el){pickSort(el);},

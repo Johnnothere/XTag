@@ -67,6 +67,10 @@ _SENT_COLOR = {"positive": "#0d9669", "negative": "#dc2626", "neutral": "#71717a
 _FRAME_COLOR = {"fear": "#f97316", "anger": "#ef4444", "threat": "#dc2626",
                 "disinformation": "#ec4899", "hope": "#0d9669", "pride": "#7c3aed",
                 "grief": "#64748b", "neutral": "#71717a"}
+# Only the three real bands get a colour. "unbanded" and "unknown" are not
+# risk levels and must never be painted like one — see the coordination block
+# in render_report().
+_RISK_COLOR = {"high": "#dc2626", "medium": "#f97316", "low": "#0d9669"}
 
 
 def render_report(query: str, payload: dict, brief: str | None = None,
@@ -84,6 +88,26 @@ def render_report(query: str, payload: dict, brief: str | None = None,
     net_txt = f"{net:+.2f}" if isinstance(net, (int, float)) else "—"
     net_col = "#0d9669" if isinstance(net, (int, float)) and net > 0 else \
               "#dc2626" if isinstance(net, (int, float)) and net < 0 else "#71717a"
+
+    # Coordination has three genuinely different states and an email someone
+    # acts on must not make them look alike:
+    #   1. never assessed — no coordination block at all (an upstream failure,
+    #      or a report generated before detection ran).
+    #   2. scored but UNBANDED — coordination.detect() returns risk "unbanded"
+    #      (or "unknown" on too few documents) whenever there is no matched
+    #      organic baseline, which is the default because no baseline is
+    #      configured. A raw score with nothing to compare it against cannot
+    #      honestly be called low/medium/high.
+    #   3. scored AND banded — the only state where a risk band may be shown.
+    # The stat tile used to render coord.get("coordination_score", 0), so state
+    # 1 printed a confident "0" — "we looked and found nothing" — for a report
+    # where nothing had been looked at, and the band and caveat that detect()
+    # returns never reached the reader at all.
+    coord_score = coord.get("coordination_score")
+    coord_assessed = isinstance(coord_score, (int, float)) and not isinstance(coord_score, bool)
+    coord_band = str(coord.get("risk") or "").strip().lower()
+    coord_banded = coord_band in _RISK_COLOR
+    coord_caveat = (coord.get("caveat") or "").strip() or None
 
     def stat(label, value, color="#18181f"):
         return (f'<td align="center" style="padding:14px 8px;background:#f7f6f2;'
@@ -107,7 +131,7 @@ def render_report(query: str, payload: dict, brief: str | None = None,
     <table width="100%" cellpadding="0" cellspacing="6"><tr>
       {stat("Mentions", f"{mentions:,}")}
       {stat("Net sentiment", net_txt, net_col)}
-      {stat("Coordination", coord.get("coordination_score", 0))}
+      {stat("Coordination", coord_score if coord_assessed else "—")}
       {stat("State media", totals.get("state_media", 0), "#7c3aed")}
     </tr></table>
   </td></tr>''')
@@ -148,12 +172,60 @@ def render_report(query: str, payload: dict, brief: str | None = None,
   <div>{chips}</div>
 </td></tr>''')
 
+    # Rendered unconditionally. Dropping the section when coordination is zero
+    # or absent left the reader with a bare "0" tile and no way to tell a
+    # measured absence from a measurement that never happened — and printing
+    # "no coordination detected" for the latter would be an outright false
+    # finding. Say which of the two it is, every time.
+    if not coord_assessed:
+        coord_lines = ['<div style="font-size:13.5px;color:#4a4a60;line-height:1.6;">'
+                       'Not assessed for this report — no coordination analysis is '
+                       'attached to these results. This is not a finding of zero.</div>']
+    else:
+        headline = ("No coordinated actor clusters were found in this window."
+                    if not coord_score else
+                    f"Coordination score {_e(coord_score)}.")
+        coord_lines = [f'<div style="font-size:13.5px;color:#4a4a60;line-height:1.6;">{headline}</div>']
+        if coord_banded:
+            col = _RISK_COLOR[coord_band]
+            coord_lines.append(
+                f'<div style="margin-top:7px;"><span style="display:inline-block;font-size:10px;'
+                f'font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:{col};'
+                f'background:{col}1a;border-radius:9px;padding:3px 10px;">{_e(coord_band)} risk</span></div>')
+        else:
+            # risk is "unbanded"/"unknown": there is no matched organic baseline,
+            # so any band would be invented. Say that plainly instead of
+            # silently omitting it, which would read as "low".
+            coord_lines.append(
+                '<div style="font-size:12.5px;color:#88889a;line-height:1.6;margin-top:7px;">'
+                'No risk band: there is no matched organic baseline for this query, '
+                'so this score has nothing to be compared against.</div>')
+        if coord_caveat:
+            coord_lines.append(
+                f'<div style="font-size:12.5px;color:#88889a;line-height:1.6;margin-top:7px;">'
+                f'{_e(coord_caveat)}</div>')
+    parts.append(f'''<tr><td style="padding:22px 26px 0;">
+  <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#88889a;margin-bottom:8px;">Coordination</div>
+  {''.join(coord_lines)}
+</td></tr>''')
+
     if history and (history.get("points") or 0) >= 2:
         c = history.get("change") or {}
         def delta(label, v):
             if v is None: return ""
             arrow = "&#9650;" if v > 0 else "&#9660;" if v < 0 else "&bull;"
-            col = "#dc2626" if (label != "Sentiment" and v > 0) else "#0d9669" if v < 0 else "#71717a"
+            # Sentiment is the one metric here where UP is the good direction;
+            # for mentions and coordination, up is the adverse one. The single
+            # expression this replaces tested `label != "Sentiment" and v > 0`
+            # for red and then fell through to `v < 0` for green, which got
+            # sentiment exactly backwards: a collapse in net sentiment was
+            # painted green ("good"), and a recovery matched neither branch and
+            # came out neutral grey. The two moves a reader most needs to see
+            # were the two the colour lied about.
+            good_is_up = (label == "Sentiment")
+            improving = (v > 0) if good_is_up else (v < 0)
+            worsening = (v < 0) if good_is_up else (v > 0)
+            col = "#0d9669" if improving else "#dc2626" if worsening else "#71717a"
             return (f'<span style="display:inline-block;font-size:11.5px;color:{col};'
                     f'background:#f7f6f2;border-radius:12px;padding:3px 10px;margin-right:5px;">'
                     f'{label} {arrow} {v:+g}</span>')
