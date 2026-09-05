@@ -203,6 +203,7 @@ TRANSLATE_BUDGET = int(os.environ.get("TRANSLATE_BUDGET", "6"))
 SENTIMENT_BUDGET = int(os.environ.get("SENTIMENT_BUDGET", "35"))
 SOURCE_DEADLINE  = float(os.environ.get("SOURCE_DEADLINE", "8"))
 SSE_HEARTBEAT = float(os.environ.get("SSE_HEARTBEAT", "10"))   # comment frame cadence
+GDELT_SNAPSHOT_WAIT = float(os.environ.get("GDELT_SNAPSHOT_WAIT", "6"))
 
 # P4/P3-2: the matched organic baseline a coordination score is expressed
 # against. Unset means UNBANDED — coordination.detect() will return a magnitude
@@ -3489,7 +3490,13 @@ def _run_full_search(q: str, use_cache: bool = True,
     # request budget and no more.
     with budget.stage("gdelt_snapshot_wait"):
         try:
-            gdelt_snapshot=gdelt_future.result(timeout=budget.slice(20, reserve=5))
+            # 6, not 20. The snapshot is submitted at t=0 precisely so it runs
+            # inside collection for free; if it has not finished by the time
+            # collection ends it is not worth a further 20 seconds of the
+            # request — measured spending exactly its full 20s cap while GDELT
+            # was in the degraded list for that same search.
+            gdelt_snapshot=gdelt_future.result(
+                timeout=budget.slice(GDELT_SNAPSHOT_WAIT, reserve=5))
         except Exception as e:
             app.logger.warning("GDELT snapshot unavailable for q=%r: %s", q, e)
             gdelt_snapshot={"degraded":[f"snapshot unavailable: {str(e)[:80]}"]}
