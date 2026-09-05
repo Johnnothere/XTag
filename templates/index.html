@@ -1590,41 +1590,118 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
 .rs-key b{width:7px;height:7px;border-radius:2px;display:inline-block;}
 .rs-verdict{font-size:var(--fs-cap);color:var(--ink2);line-height:1.6;margin-top:7px;}
 
-/* ── Narrative identity ───────────────────────────────────────────────── */
-.nt-row{display:grid;grid-template-columns:1fr auto auto;gap:4px var(--s4);
-  align-items:center;padding:var(--s3) 0;border-bottom:1px solid var(--line2);}
-.nt-row:last-child{border-bottom:0;}
-.nt-l{font-size:var(--fs-sm);color:var(--ink);line-height:1.4;min-width:0;}
-.nt-id{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--ink4);
-  display:block;margin-top:3px;}
+/* ── Narrative identity ───────────────────────────────────────────────────
+   A stable id is the only thing in the product that lets a sentence start with
+   "this narrative" and mean the same object as last week, so this block is
+   built to be READ over time rather than glanced at: a real chart per line, an
+   explicit delta against the previous observation, and an events feed that
+   says what changed in words.
+
+   Flat like the rest of the report body — hairlines, ink, mono numerals, no
+   boxes. Severity hue only where the data earned it: a first observation, an
+   absent history and an unknown size are ink, never green or amber. */
+
+/* Header strip: the shape of the run before any individual line. */
+.nt-strip{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s5);margin-bottom:var(--s3);}
+.nt-stat{font-size:var(--fs-cap);color:var(--ink3);white-space:nowrap;}
+.nt-stat b{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:14px;font-weight:400;color:var(--ink);margin-right:4px;}
+.nt-stat.drift{color:var(--accent2);}
+.nt-stat.drift b{color:var(--accent2);}
+
+/* One tracked line. Label and identity, then the numbers, then the chart. */
+.nt-row{display:grid;grid-template-columns:1fr auto auto;gap:var(--s2) var(--s5);
+  align-items:center;padding:var(--s4) 0;border-bottom:1px solid var(--line2);}
+.nt-row:last-of-type{border-bottom:0;}
+.nt-l{font-size:var(--fs-sm);color:var(--ink);line-height:1.45;min-width:0;
+  word-break:break-word;}
+.nt-id{display:block;margin-top:5px;font-size:9px;color:var(--ink4);
+  letter-spacing:.04em;line-height:1.6;}
+.nt-id .h{font-family:var(--mono);letter-spacing:.06em;color:var(--ink3);
+  border-bottom:1px dotted var(--line);cursor:help;}
+.nt-id .sep{opacity:.5;margin:0 5px;}
+/* A line carried forward from an earlier search is NOT a fresh measurement,
+   and its size is last observation's, not this one's. Said, not implied. */
+.nt-id .miss{color:var(--warn);opacity:.85;}
 .nt-m{font-size:10.5px;color:var(--ink3);font-family:var(--mono);
-  font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
-.nt-spark{color:var(--ink3);display:block;}
-.nt-spark.new{color:var(--ink4);}
-.nt-nohist{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4);
-  white-space:nowrap;}
+  font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;
+  line-height:1.75;}
+.nt-m b{color:var(--ink);font-weight:400;font-size:12.5px;}
+.nt-m .u{color:var(--ink4);}
+
+/* Change since the PREVIOUS OBSERVATION — the whole reason identity is stable.
+   Direction is a magnitude here, not a verdict: amber and blue read as
+   movement, and a line with nothing to compare against gets neither. */
+.nt-d{display:inline-flex;align-items:baseline;gap:5px;font-family:var(--mono);
+  font-variant-numeric:tabular-nums;font-size:10.5px;white-space:nowrap;}
+.nt-d .n{font-size:12px;}
+.nt-d .lb{font-family:var(--sans);font-size:9px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink4);}
+.nt-d.up .n{color:var(--warn);}
+.nt-d.dn .n{color:var(--academic);}
+.nt-d.flat .n{color:var(--ink3);}
+.nt-d.none .n{color:var(--ink4);}
+
+/* The chart. Small multiple, not decoration — see ntChart(). */
+.nt-c{display:block;color:var(--ink3);overflow:visible;}
+.nt-c .ar{fill:currentColor;opacity:.09;stroke:none;}
+.nt-c .ln{fill:none;stroke:currentColor;stroke-width:1.3;
+  stroke-linejoin:round;stroke-linecap:round;}
+.nt-c .bl{stroke:var(--hair);stroke-width:1;}
+.nt-c .pk{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3;}
+.nt-c .ob{fill:currentColor;opacity:.55;}
+.nt-c .ep{fill:var(--accent2);}
+.nt-c text{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  fill:var(--ink4);font-size:8px;letter-spacing:.02em;}
+.nt-c text.v{fill:var(--ink);font-size:11px;}
+/* One observation is not a trend, and an empty chart in its place reads as a
+   broken panel rather than as an honest absence. Words go here instead. */
+.nt-nohist{font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink4);white-space:nowrap;text-align:right;display:block;}
+
+/* ── Events ───────────────────────────────────────────────────────────── */
 .nt-ev{display:flex;gap:var(--s3);align-items:flex-start;padding:9px 0;
   border-bottom:1px solid var(--line2);}
 .nt-ev:last-child{border-bottom:0;}
-.nt-ev i{font-size:13px;line-height:1.4;flex:none;color:var(--ink3);}
-.nt-ev.birth i{color:var(--pos);}
-.nt-ev.death i{color:var(--ink4);}
-.nt-ev.growth i{color:var(--warn);}
-.nt-ev.contraction i{color:var(--academic);}
-.nt-ev.merge i,.nt-ev.split i{color:var(--state);}
-/* Drift is the one an analyst must not skim past: the id and the documents
-   held, so every trend line drawn on it stayed continuous, while the subject
-   underneath moved. It gets the accent rail the other kinds do not. */
-.nt-ev.drift{border-left:2px solid var(--accent);padding-left:var(--s3);}
-.nt-ev.drift i{color:var(--accent2);}
+.nt-ev>i{font-size:13px;line-height:1.4;flex:none;color:var(--ink3);}
+.nt-ev.birth>i{color:var(--pos);}
+.nt-ev.death>i{color:var(--ink4);}
+.nt-ev.growth>i{color:var(--warn);}
+.nt-ev.contraction>i{color:var(--academic);}
+.nt-ev.merge>i,.nt-ev.split>i{color:var(--state);}
 .nt-ev-b{min-width:0;flex:1;}
 .nt-ev-k{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink4);}
-.nt-ev-d{font-size:var(--fs-cap);color:var(--ink2);line-height:1.6;margin-top:2px;
+.nt-ev-d{font-size:var(--fs-cap);color:var(--ink2);line-height:1.6;margin-top:3px;
+  word-break:break-word;max-width:74ch;}
+.nt-ev-t{font-size:10.5px;color:var(--ink4);margin-top:4px;line-height:1.6;
   word-break:break-word;}
-.nt-ev-t{font-size:10.5px;color:var(--ink4);margin-top:3px;}
-.nt-drift-arrow{display:block;font-size:var(--fs-cap);color:var(--ink3);
-  line-height:1.7;margin-top:4px;}
-.nt-drift-arrow b{color:var(--ink);font-weight:500;}
+.nt-ev-t .h{font-family:var(--mono);letter-spacing:.05em;}
+
+/* ── Drift ────────────────────────────────────────────────────────────────
+   The event that must not be skimmed past. Identity is defined by MEMBERSHIP,
+   so a narrative can keep its documents, its id, its chart and its delta while
+   what it is ABOUT moves onto something else. Every trend line in this section
+   stays continuous through that. So drift is hoisted out of the feed entirely,
+   given the section's only accent-coloured heading, and prints the old and new
+   subject as two labelled lines rather than folding them into a sentence. */
+.nt-drift{border-left:2px solid var(--accent);padding:var(--s3) 0 var(--s3) var(--s4);
+  margin-bottom:var(--s2);}
+.nt-drift:last-of-type{margin-bottom:0;}
+.nt-drift-h{display:flex;align-items:center;gap:7px;font-size:9.5px;
+  letter-spacing:.18em;text-transform:uppercase;font-weight:600;color:var(--accent2);}
+.nt-drift-h i{font-size:13px;}
+.nt-dp{display:grid;grid-template-columns:auto 1fr;gap:5px var(--s3);
+  margin-top:var(--s2);align-items:baseline;}
+.nt-dp .k{font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink4);white-space:nowrap;}
+.nt-dp .v{font-size:var(--fs-sm);color:var(--ink3);line-height:1.5;
+  word-break:break-word;}
+.nt-dp .v.now{color:var(--ink);}
+.nt-dp .v.miss{color:var(--ink4);font-style:italic;}
+.nt-drift-why{font-size:10.5px;color:var(--ink4);line-height:1.65;
+  margin-top:var(--s2);max-width:72ch;}
+.nt-drift-why b{color:var(--ink3);font-weight:500;}
+.nt-ev-t b{color:var(--ink3);font-weight:500;}
 
 /* ── Engagement vs views ──────────────────────────────────────────────── */
 .eng-split{display:flex;flex-wrap:wrap;gap:var(--s8);padding:0 0 var(--s5);}
@@ -1641,8 +1718,14 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
   font-family:var(--mono);font-variant-numeric:tabular-nums;}
 
 @media(max-width:760px){
+  /* The chart drops to its own row rather than shrinking: a 150px small
+     multiple squeezed into 60px stops being readable, which is the only thing
+     it is for. */
   .nt-row{grid-template-columns:1fr auto;}
-  .nt-spark,.nt-nohist{grid-column:2;}
+  .nt-c,.nt-nohist{grid-column:1 / -1;justify-self:start;}
+  .nt-nohist{text-align:left;}
+  .nt-dp{grid-template-columns:1fr;gap:2px;}
+  .nt-dp .k{margin-top:5px;}
   .eng-split{gap:var(--s6);}
 }
 
@@ -2965,41 +3048,327 @@ function renderCoordinationBlock(data){
 /* ── NARRATIVE IDENTITY ─────────────────────────────────────────────────────
    Narratives now carry a stable id between searches, which is what turns a
    grouping into a subject: an alert can say "this narrative doubled" and a case
-   file can refer to a story rather than to a row number.
+   file can refer to a story rather than to a row number. This section is the
+   only place in the product where a claim is made ACROSS runs, so it is built
+   to be read over time — a chart per line, an explicit delta against the
+   previous observation, and an events feed that says what changed in words.
 
-   The events are the payload here, and `drift` is the one that must not be
-   skimmed past — see below. */
-var NT_EV={birth:{i:'ti-seeding',l:'first observed'},
-           death:{i:'ti-circle-x',l:'gone'},
-           growth:{i:'ti-trending-up',l:'grew'},
-           contraction:{i:'ti-trending-down',l:'contracted'},
-           merge:{i:'ti-arrow-merge',l:'merged'},
-           split:{i:'ti-arrows-split-2',l:'split'},
-           drift:{i:'ti-arrow-bear-right',l:'subject drifted'}};
+   Three rules run through all of it, and they are the same rules the rest of
+   the report is held to:
 
-/* Inline SVG rather than a chart library: this is 60 points at 58×18px, and a
-   dependency to draw a polyline is a dependency that can fail to load. */
-function ntSpark(hist,w,ht){
-  if(!hist||hist.length<2)return'';
-  var vals=[],i;
-  for(i=0;i<hist.length;i++)vals.push(Number(hist[i]&&hist[i].size)||0);
+     • A GAP IS NEVER A ZERO. A history point exists only for a search in which
+       the narrative was actually seen. Missing history renders as missing, not
+       as a flat line at the bottom of a chart.
+     • NEVER INVENT A TREND FROM ONE POINT. A single observation gets words,
+       not a chart, and no delta at all.
+     • THE FAILURE MODES ARE NAMED. Tracking sits on top of the search; when it
+       breaks, what was lost is CONTINUITY, and the evidence elsewhere in the
+       report is untouched. Say that, rather than letting the run read as
+       failed.
+
+   `drift` is the event that must not be skimmed past — see ntDriftCard(). */
+
+var NT_EV={
+  birth:       {i:'ti-seeding',        l:'new narrative'},
+  death:       {i:'ti-circle-x',       l:'tracking stopped'},
+  growth:      {i:'ti-trending-up',    l:'grew'},
+  contraction: {i:'ti-trending-down',  l:'contracted'},
+  merge:       {i:'ti-arrow-merge',    l:'merged'},
+  split:       {i:'ti-arrows-split-2', l:'split'},
+  drift:       {i:'ti-arrow-bear-right',l:'subject changed'}
+};
+/* Plain English, once, in one place. The backend `detail` string is printed
+   verbatim underneath — these say what the KIND means, which a detail string
+   describing one instance cannot. */
+var NT_SAY={
+  birth:'Not present in the previous observation of this query. It starts with '+
+        'no history, so there is nothing to compare it against yet.',
+  death:'Absent from three consecutive searches, so tracking has stopped. The id '+
+        'is retired rather than reused — if the story returns it comes back as a '+
+        'new line, and the gap between them is real.',
+  growth:'More documents than at the previous observation. A larger cluster is '+
+         'not by itself a larger story: collection volume moves too.',
+  contraction:'Fewer documents than at the previous observation. This can be the '+
+         'story fading or the collection thinning — the two look identical from here.',
+  merge:'Separately tracked narratives now resemble each other closely enough to '+
+        'be one. Their earlier histories belong to different ids and do not '+
+        'continue into this line.',
+  split:'This narrative now matches more than one current cluster, so a single '+
+        'tracked line is describing more than one story.',
+  drift:''   /* drift gets its own card and its own sentence */
+};
+
+function ntArr(v){return Object.prototype.toString.call(v)==='[object Array]'?v:[];}
+/* Anything that is not text is an absence here, not a value to print. A label
+   that arrived as an object rendered as "[object Object]" on the page, which is
+   worse than the empty string it was standing in for. */
+function ntStr(v){return(typeof v==='string'||typeof v==='number')?String(v):'';}
+
+/* A short monospace handle. The full id stays in the title attribute and in the
+   downloaded dossier — 14 hex characters in a 9px face is a wall, and the point
+   of showing it at all is that the reader can recognise the SAME line next week. */
+function ntHandle(id){
+  var s=String(id||'');
+  if(!s)return'';
+  return s.length>10?s.slice(0,10)+'…':s;
+}
+
+/* first_seen wants an absolute date: "first seen 12 Sep 26" survives being read
+   a week later, "first seen 6d ago" does not. */
+function ntDate(ts){
+  var d=parseTs(ts);if(!d)return'';
+  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'});
+}
+/* ago() returns a bare date once something is older than a week, and "12 Sep ago"
+   is not a phrase. Only the elapsed forms get the suffix. */
+function ntWhen(ts){
+  var a=ago(ts);
+  if(!a)return'';
+  return /^\d+[smhd]$/.test(a)?a+' ago':a;
+}
+
+/* Usable history points only. A malformed point is dropped rather than coerced
+   to zero — a zero would draw a collapse that never happened. `t` is null when
+   the point carries no parseable timestamp, which the chart checks before it
+   dares to use a time axis. */
+function ntPoints(hist){
+  var out=[],i,p,v,d;
+  hist=ntArr(hist);
+  for(i=0;i<hist.length;i++){
+    p=hist[i];
+    if(!p||typeof p!=='object')continue;
+    v=Number(p.size);
+    if(!isFinite(v))continue;
+    d=parseTs(p.ts);
+    out.push({v:v,t:d?d.getTime():null});
+  }
+  return out;
+}
+
+/* Current size. `members` is the live membership; history's last point is the
+   fallback for a payload that shipped one without the other. Neither present
+   means UNKNOWN, and unknown is null all the way to the renderer, never 0. */
+function ntSize(n,pts){
+  if(n&&Object.prototype.toString.call(n.members)==='[object Array]')return n.members.length;
+  if(pts.length)return pts[pts.length-1].v;
+  return null;
+}
+
+/* Change since the PREVIOUS OBSERVATION — the whole point of a stable id, and
+   the one number here that a fresh grouping could never produce.
+   Returns null, not 0, whenever there is nothing to compare against: a first
+   observation, or a history too short to hold two points. */
+function ntDelta(n,pts){
+  if((Number(n.observations)||1)<2)return null;
+  if(pts.length<2)return null;
+  return pts[pts.length-1].v-pts[pts.length-2].v;
+}
+
+/* `reason` distinguishes the two ways a delta can be missing, because they mean
+   different things to a reader: a line seen once has nothing to compare against
+   yet, while a line seen five times with no usable history has lost something. */
+function ntDeltaChip(d,reason){
+  if(d===null){
+    return '<span class="nt-d none"><span class="n">—</span>'+
+           '<span class="lb">'+(reason||'no prior observation')+'</span></span>';
+  }
+  var cls=d>0?'up':d<0?'dn':'flat';
+  var arrow=d>0?'▲':d<0?'▼':'•';
+  var txt=d>0?'+'+d:String(d);
+  return '<span class="nt-d '+cls+'"><span class="n">'+arrow+' '+esc(txt)+'</span>'+
+         '<span class="lb">since last</span></span>';
+}
+
+/* A small multiple, not a decorative sparkline. It carries a baseline the line
+   is actually measured against, a mark on every real observation, a filled
+   endpoint, the current value printed, and the scale floor printed — because
+   the scale is NOT zero-based (sixty points between 41 and 44 documents drawn
+   on a zero axis is a flat line, which is a different claim).
+
+   Spaced by TIME when every point carries a usable, ordered timestamp, so three
+   weeks between observations looks like three weeks rather than like one step.
+   Falls back to index spacing the moment a timestamp is missing or out of
+   order: an axis the data cannot support is worse than no axis.
+
+   Inline SVG rather than a chart library — this is sixty points in 150px, and a
+   dependency that draws a polyline is a dependency that can fail to load.
+
+   Never called with fewer than two points. That case is words, not a chart. */
+function ntChart(pts){
+  if(!pts||pts.length<2)return'';
+  var W=150,H=46,PL=1,PR=34,PT=8,PB=13;
+  var plotW=W-PL-PR,plotH=H-PT-PB,base=PT+plotH;
+  var n=pts.length,i,vals=[];
+  for(i=0;i<n;i++)vals.push(pts[i].v);
   var max=Math.max.apply(null,vals),min=Math.min.apply(null,vals);
-  var span=(max-min)||1,step=(w-3)/(vals.length-1),pts=[];
-  function px(j){return (1.5+j*step).toFixed(1);}
-  function py(v){return (ht-1.5-((v-min)/span)*(ht-3)).toFixed(1);}
-  for(i=0;i<vals.length;i++)pts.push(px(i)+','+py(vals[i]));
-  return '<svg class="nt-spark" width="'+w+'" height="'+ht+'" viewBox="0 0 '+w+' '+ht+'" '+
-    'role="img" aria-label="size over '+vals.length+' observations, now '+vals[vals.length-1]+'">'+
-    '<polyline points="'+pts.join(' ')+'" fill="none" stroke="currentColor" stroke-width="1.25" '+
-      'stroke-linejoin="round" stroke-linecap="round"/>'+
-    '<circle cx="'+px(vals.length-1)+'" cy="'+py(vals[vals.length-1])+'" r="1.8" '+
-      'fill="currentColor"/></svg>';
+  var span=(max-min)||1;
+
+  var timed=true,t0=pts[0].t,t1=pts[n-1].t;
+  for(i=0;i<n;i++){
+    if(pts[i].t===null){timed=false;break;}
+    if(i&&pts[i].t<pts[i-1].t){timed=false;break;}
+  }
+  if(timed&&!(t1>t0))timed=false;
+
+  function px(j){
+    var f=timed?((pts[j].t-t0)/(t1-t0)):(n>1?j/(n-1):0);
+    return (PL+f*plotW).toFixed(1);
+  }
+  function py(v){return (PT+plotH-((v-min)/span)*plotH).toFixed(1);}
+
+  var line=[];
+  for(i=0;i<n;i++)line.push(px(i)+','+py(vals[i]));
+  var last=vals[n-1],ey=Number(py(last)),ex=Number(px(n-1));
+
+  var svg='<svg class="nt-c" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" '+
+    'role="img" aria-label="'+esc(vals.length+' observations, from '+vals[0]+' to '+last+
+      ' documents, peak '+max+', floor of scale '+min)+'">';
+  // Area first, then the peak rule, then the line on top of both.
+  svg+='<path class="ar" d="M'+px(0)+','+base+' L'+line.join(' L')+' L'+px(n-1)+','+base+' Z"/>';
+  if(max>min&&last!==max){
+    svg+='<line class="pk" x1="'+PL+'" y1="'+py(max)+'" x2="'+(PL+plotW)+'" y2="'+py(max)+'"/>';
+  }
+  svg+='<polyline class="ln" points="'+line.join(' ')+'"/>';
+  // One mark per real observation, while they can still be told apart. Sixty
+  // dots is texture, not information.
+  if(n<=14){
+    for(i=0;i<n-1;i++)svg+='<circle class="ob" cx="'+px(i)+'" cy="'+py(vals[i])+'" r="1.5"/>';
+  }
+  svg+='<line class="bl" x1="'+PL+'" y1="'+base+'" x2="'+(PL+plotW)+'" y2="'+base+'"/>';
+  svg+='<circle class="ep" cx="'+ex+'" cy="'+ey+'" r="2.4"/>';
+  svg+='<text class="v" x="'+(PL+plotW+6)+'" y="'+
+       Math.min(H-1,Math.max(9,ey+3.8)).toFixed(1)+'">'+esc(String(last))+'</text>';
+  svg+='<text x="'+PL+'" y="'+(H-2)+'">'+esc(String(min))+'</text>';
+  svg+='<text x="'+(PL+plotW)+'" y="'+(H-2)+'" text-anchor="end">'+
+       esc(n+' obs'+(timed?'':' · unevenly dated'))+'</text>';
+  return svg+'</svg>';
+}
+
+/* One tracked line. */
+function ntRow(n){
+  var pts=ntPoints(n.history);
+  var size=ntSize(n,pts);
+  var obs=Number(n.observations)||1;
+  var peak=Number(n.peak_size);
+  var misses=Number(n.misses)||0;
+  var fs=ntDate(n.first_seen);
+  var id=ntStr(n.id);
+  var label=ntStr(n.label);
+
+  var h='<div class="nt-row">';
+  h+='<div class="nt-l">'+esc(label||'(unlabelled)')+
+     '<span class="nt-id">'+
+       (id?'<span class="h" title="'+esc(id)+'">'+esc(ntHandle(id))+'</span>':
+           '<span class="h">no id</span>')+
+       (fs?'<span class="sep">·</span>first seen '+esc(fs):'')+
+       // Carried forward is not re-measured. An analyst comparing this size
+       // against today's corpus needs to know it was not taken from it.
+       (misses?'<span class="sep">·</span><span class="miss">not seen in the last '+
+         misses+(misses===1?' search':' searches')+' — size carried forward</span>':'')+
+     '</span></div>';
+
+  h+='<div class="nt-m">'+
+       '<b>'+(size===null?'—':esc(String(size)))+'</b> <span class="u">'+
+         (size===1?'doc':'docs')+'</span><br/>'+
+       (isFinite(peak)&&peak>0
+         ? '<span class="u">peak</span> '+esc(String(peak))+' <span class="u">·</span> '
+         : '')+
+       esc(String(obs))+' <span class="u">'+(obs===1?'observation':'observations')+'</span><br/>'+
+       ntDeltaChip(ntDelta(n,pts),
+         obs>1&&pts.length<2?'history unavailable':'no prior observation')+
+     '</div>';
+
+  h+=(pts.length>1
+        ? ntChart(pts)
+        : '<span class="nt-nohist">'+(obs>1?'history unavailable':'no trend yet')+'</span>');
+  return h+'</div>';
+}
+
+/* DRIFT. Identity is defined by MEMBERSHIP, so a narrative can keep its
+   documents, its id, its chart and its delta while what it is ABOUT moves onto
+   something else — one observation at a time, with every trend line drawn on it
+   staying perfectly continuous through the change.
+
+   That is the single most misleading thing this section can do to a reader, so
+   drift is not left in the feed to be scrolled past: it is hoisted above every
+   other event, given the only accent-coloured heading in the section, and
+   prints the old and the new subject on separate labelled lines instead of
+   folding them into one sentence. */
+function ntDriftCard(e,label){
+  var from=e&&e.from,to=e&&e.to;
+  // `from` is a label string on drift and an array of ids on merge. Anything
+  // that is not a usable string here is an absence, and prints as one.
+  var fromTxt=esc(ntStr(from));
+  var toTxt=esc(ntStr(to));
+  var when=ntWhen(e&&e.at);
+  return '<div class="nt-drift">'+
+    '<div class="nt-drift-h"><i class="ti ti-arrow-bear-right" aria-hidden="true"></i>'+
+      '<span>Subject changed — same id, same documents</span></div>'+
+    '<div class="nt-dp">'+
+      '<span class="k">Was</span>'+
+      (fromTxt?'<span class="v">'+fromTxt+'</span>'
+              :'<span class="v miss">previous subject not recorded</span>')+
+      '<span class="k">Now</span>'+
+      (toTxt?'<span class="v now">'+toTxt+'</span>'
+            :(label?'<span class="v now">'+esc(label)+'</span>'
+                   :'<span class="v miss">new subject not recorded</span>'))+
+    '</div>'+
+    '<div class="nt-drift-why">This narrative kept its documents, so it kept its id, '+
+      'its chart and its delta — the line above did not break. What it is about moved '+
+      'underneath. Any sentence of the form "this narrative has grown for three weeks" '+
+      'is now describing two different subjects.'+
+      (label?' Tracked line: <b>'+esc(label)+'</b>.':'')+
+      (when?' Recorded '+esc(when)+'.':'')+
+    '</div></div>';
+}
+
+/* Everything except drift. `into` is polymorphic on purpose in the payload — a
+   COUNT on split, a label STRING on merge — so it is read per kind rather than
+   printed blind. `from` is likewise a list of ids on merge. */
+function ntEventRow(e,byId){
+  var k=ntStr(e.kind)||'other';
+  var m=NT_EV[k]||{i:'ti-point',l:k.replace(/_/g,' ')};
+  var lbl=ntStr(byId[e.narrative]);
+  var when=ntWhen(e.at);
+  var detail=ntStr(e.detail);
+  var extra='';
+
+  if(k==='split'){
+    var c=Number(e.into);
+    if(isFinite(c)&&c>1)extra='<div class="nt-ev-t">Now matches <b>'+c+'</b> distinct clusters.</div>';
+  }else if(k==='merge'){
+    var into=ntStr(e.into);
+    if(into)extra+='<div class="nt-ev-t">Converged on: '+esc(into)+'</div>';
+    var srcs=ntArr(e.from);
+    if(srcs.length){
+      extra+='<div class="nt-ev-t">From: '+srcs.slice(0,6).map(function(sid){
+        var sl=ntStr(byId[sid]);
+        return sl?esc(sl)+' (<span class="h">'+esc(ntHandle(sid))+'</span>)'
+                 :'<span class="h">'+esc(ntHandle(sid))+'</span>';
+      }).join(' · ')+(srcs.length>6?' +'+(srcs.length-6)+' more':'')+'</div>';
+    }
+  }
+
+  return '<div class="nt-ev '+esc(k)+'"><i class="ti '+m.i+'" aria-hidden="true"></i>'+
+    '<div class="nt-ev-b">'+
+      '<div class="nt-ev-k">'+esc(m.l)+'</div>'+
+      (detail?'<div class="nt-ev-d">'+esc(detail)+'</div>':'')+
+      (NT_SAY[k]?'<div class="nt-ev-t">'+NT_SAY[k]+'</div>':'')+
+      extra+
+      // A death event refers to a narrative that has already been dropped from
+      // the list above, so there is no label to resolve. Print the handle so the
+      // line can still be matched against an earlier report.
+      (lbl?'<div class="nt-ev-t">Tracked line: '+esc(lbl)+'</div>'
+          :(ntStr(e.narrative)?'<div class="nt-ev-t">Tracked line: <span class="h">'+
+              esc(ntHandle(e.narrative))+'</span> — no longer in the list above</div>':''))+
+      (when?'<div class="nt-ev-t">'+esc(when)+'</div>':'')+
+    '</div></div>';
 }
 
 function renderNarrativeTrackingBlock(data){
   var nt=data.narrative_tracking;
   if(!nt||typeof nt!=='object')return'';
-  var ns=nt.narratives||[],evs=nt.events||[];
+  var ns=ntArr(nt.narratives),evs=ntArr(nt.events);
   if(!ns.length&&!evs.length&&!nt.error)return'';
 
   var h='<div class="report-section">'+
@@ -3011,84 +3380,98 @@ function renderNarrativeTrackingBlock(data){
     // Tracking sits on top of the search and must never look like the search
     // failed. Say precisely what was lost: continuity, not evidence.
     h+='<div class="unavail-note">Narrative tracking failed on this run ('+esc(nt.error)+
-       '). The clusters elsewhere in this report are unaffected — only continuity with '+
-       'previous searches is missing.</div></div>';
+       '). The clusters, coordination and propagation elsewhere in this report are '+
+       'unaffected — what is missing is only the link back to previous searches of this '+
+       'query, so nothing below can be compared against last time.</div></div>';
     return h;
   }
 
   var byId={},i;
-  for(i=0;i<ns.length;i++)byId[ns[i].id]=ns[i].label||'';
+  for(i=0;i<ns.length;i++)if(ns[i]&&ns[i].id)byId[ns[i].id]=ntStr(ns[i].label);
 
-  // "Seen once" is not a flat line, and a sparkline with one point drawn as one
-  // would read as a narrative that has been steady for weeks.
-  var firstRun=ns.length>0&&ns.every(function(n){return (n.observations||1)<=1;});
+  // Sorted by CURRENT size, largest first. An unknown size is not a small one,
+  // so it sorts to the bottom rather than being drawn as a zero.
+  var rows=ns.slice().sort(function(a,b){
+    var sa=ntSize(a,ntPoints(a&&a.history)),sb=ntSize(b,ntPoints(b&&b.history));
+    if(sa===null&&sb===null)return 0;
+    if(sa===null)return 1;
+    if(sb===null)return -1;
+    return sb-sa;
+  });
+
+  var drifts=[],rest=[],counts={},maxObs=0;
+  for(i=0;i<evs.length;i++){
+    if(!evs[i]||typeof evs[i]!=='object')continue;
+    var kk=ntStr(evs[i].kind)||'other';
+    counts[kk]=(counts[kk]||0)+1;
+    if(kk==='drift')drifts.push(evs[i]);else rest.push(evs[i]);
+  }
+  for(i=0;i<ns.length;i++)maxObs=Math.max(maxObs,Number(ns[i]&&ns[i].observations)||1);
+
+  // "Seen once" is not a flat line, and a chart drawn from one point would read
+  // as a narrative that has been steady for weeks.
+  var firstRun=ns.length>0&&maxObs<=1;
+
+  // The shape of the run, before any individual line.
+  h+='<div class="nt-strip">'+
+    '<span class="nt-stat"><b>'+ns.length+'</b>'+(ns.length===1?'narrative tracked':'narratives tracked')+'</span>'+
+    (firstRun?'':'<span class="nt-stat"><b>'+maxObs+'</b>observations at most</span>')+
+    (counts.birth?'<span class="nt-stat"><b>'+counts.birth+'</b>new</span>':'')+
+    (counts.growth?'<span class="nt-stat"><b>'+counts.growth+'</b>grew</span>':'')+
+    (counts.contraction?'<span class="nt-stat"><b>'+counts.contraction+'</b>contracted</span>':'')+
+    (counts.merge?'<span class="nt-stat"><b>'+counts.merge+'</b>merged</span>':'')+
+    (counts.split?'<span class="nt-stat"><b>'+counts.split+'</b>split</span>':'')+
+    (counts.death?'<span class="nt-stat"><b>'+counts.death+'</b>stopped</span>':'')+
+    (counts.drift?'<span class="nt-stat drift"><b>'+counts.drift+'</b>'+
+      (counts.drift===1?'subject change':'subject changes')+'</span>':'')+
+  '</div>';
+
   if(firstRun){
-    h+='<div class="method-note">First observation of this query. Every narrative below was '+
-       'created just now, so there is no history to plot yet — the trend appears from the '+
-       'second search onward, when there is something to compare against.</div>';
+    h+='<div class="method-note"><b>First observation of this query — tracking starts now.</b> '+
+       'Every narrative below was created on this run, so there is no history to chart and '+
+       'nothing to compare against. Each one has been given an id that will survive the next '+
+       'search: from the second search onward this section shows what happened to them.</div>';
   }else{
     h+='<div class="method-note">Each narrative keeps the SAME id between searches, matched on '+
        'document membership, so a row here is one story tracked over time rather than a fresh '+
-       'grouping that happens to look similar.</div>';
+       'grouping that happens to look similar. Sizes are document counts within this corpus, '+
+       'and a search that collected less will shrink a line that did not actually shrink.</div>';
   }
   if(nt.persisted===false){
-    h+='<div class="unavail-note">This run could not be saved, so the next search will not '+
-       'recognise these narratives and will issue new ids for them. The events below are still '+
-       'correct for this run.</div>';
+    h+='<div class="unavail-note">This run\'s state could not be saved, so the next search will '+
+       'not recognise these narratives and will issue new ids for them — the line ends here and '+
+       'a new one starts next time. Everything on this page is still correct for this run.</div>';
   }
 
-  ns.slice(0,12).forEach(function(n){
-    var hist=n.history||[];
-    var size=(n.members||[]).length;
-    var obs=n.observations||1;
-    h+='<div class="nt-row">'+
-      '<div class="nt-l">'+esc(n.label||'(unlabelled)')+
-        '<span class="nt-id">'+esc(n.id||'')+
-          (n.first_seen?' · first seen '+esc(ago(n.first_seen))+' ago':'')+
-        '</span></div>'+
-      '<div class="nt-m">'+size+' docs'+
-        ((n.peak_size&&n.peak_size>size)?' · peak '+n.peak_size:'')+'<br/>'+
-        obs+(obs===1?' observation':' observations')+
-        ((n.misses||0)?' · missed '+n.misses:'')+'</div>'+
-      (hist.length>1
-        ? ntSpark(hist,58,18)
-        : '<span class="nt-nohist">no history</span>')+
-    '</div>';
-  });
-  if(ns.length>12){
-    h+='<div class="cd-actors">+'+(ns.length-12)+' further narratives not listed</div>';
+  // DRIFT FIRST. Above the lines, above the feed, above everything: a reader who
+  // sees only the top of this section must still see it.
+  if(drifts.length){
+    h+='<div class="tc-lbl" style="margin-top:var(--s5)">Subject '+
+       (drifts.length===1?'change':'changes')+'</div>';
+    for(i=0;i<drifts.length;i++)h+=ntDriftCard(drifts[i],ntStr(byId[drifts[i].narrative]));
   }
 
-  if(evs.length){
+  if(rows.length){
+    h+='<div class="tc-lbl" style="margin-top:var(--s5)">Tracked narratives</div>';
+    for(i=0;i<Math.min(rows.length,12);i++)h+=ntRow(rows[i]);
+    if(rows.length>12){
+      h+='<div class="cd-actors">+'+(rows.length-12)+' further narratives tracked and not '+
+         'listed — the full set, with ids and history, is in the downloaded dossier.</div>';
+    }
+  }
+
+  if(rest.length){
     h+='<div class="tc-lbl" style="margin-top:var(--s5)">Since the last observation</div>';
-    evs.slice(0,24).forEach(function(e){
-      var k=String(e.kind||'other');
-      var m=NT_EV[k]||{i:'ti-point',l:esc(k)};
-      var lbl=byId[e.narrative]||'';
-      h+='<div class="nt-ev '+esc(k)+'"><i class="ti '+m.i+'" aria-hidden="true"></i>'+
-        '<div class="nt-ev-b">'+
-          '<div class="nt-ev-k">'+m.l+'</div>'+
-          (e.detail?'<div class="nt-ev-d">'+esc(e.detail)+'</div>':'')+
-          // DRIFT. Identity is defined by membership, so a narrative can keep
-          // its documents, its id and its trend line while what it is ABOUT
-          // moves. Anyone reading "this has grown for three weeks" needs the
-          // before and after spelled out, not folded into one sentence.
-          (k==='drift'
-            ? '<span class="nt-drift-arrow">Was <b>'+esc(e.from||'—')+'</b><br/>'+
-              'Now <b>'+esc(e.to||'—')+'</b></span>'+
-              '<div class="nt-ev-t">Same documents, same id — every trend drawn on this '+
-              'narrative stayed continuous while its subject changed underneath.</div>'
-            : '')+
-          (k==='merge'&&e.into?'<div class="nt-ev-t">into: '+esc(e.into)+'</div>':'')+
-          (lbl?'<div class="nt-ev-t">'+esc(lbl)+'</div>':'')+
-          (e.at?'<div class="nt-ev-t">'+esc(ago(e.at))+' ago</div>':'')+
-        '</div></div>';
-    });
+    for(i=0;i<Math.min(rest.length,20);i++)h+=ntEventRow(rest[i],byId);
+    if(rest.length>20){
+      h+='<div class="cd-actors">+'+(rest.length-20)+' further events not listed</div>';
+    }
   }
 
   h+='</div>';
   return h;
 }
+
 
 /* ── PROPAGATION ────────────────────────────────────────────────────────────
    The chain is useful and the word "origin" is dangerous, so they ship together.

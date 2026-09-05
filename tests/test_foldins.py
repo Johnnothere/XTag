@@ -155,5 +155,70 @@ chk("unbanded prints the caveat", "No matched organic baseline." in h2)
 band=dict(empty_d); band["coordination"]={"coordination_score":80,"risk":"high","baseline_ratio":9.1}
 chk("a real band IS shown", "high" in t.render(d=band))
 
+print("\n=== watchlist alerts from narrative tracking ===")
+import narratives as N
+rules = dict(app.DEFAULT_RULES)
+def fire(events, rules=rules):
+    """Run just the tracking-alert block against a synthetic payload."""
+    payload = {"narrative_tracking": {"events": events}, "coordination": {},
+               "velocity": {}, "totals": {}, "narratives": []}
+    alerts = []
+    nt = payload.get("narrative_tracking") or {}
+    for ev in (nt.get("events") or []):
+        if not isinstance(ev, dict): continue
+        kind = ev.get("kind"); label = ev.get("label") or "(unnamed narrative)"
+        if kind == "growth" and rules.get("narrative_growth_pct") is not None:
+            thr = float(rules["narrative_growth_pct"]) / 100.0
+            measured = ev.get("share_delta"); basis = "share of corpus"
+            if measured is None:
+                measured = ev.get("delta"); basis = "raw document count, no corpus size recorded"
+            if measured is not None and measured >= thr:
+                alerts.append({"type":"narrative_growth",
+                    "severity":"high" if measured >= thr*2 else "medium",
+                    "message":f"'{label}' grew {measured:+.0%} since the last check ({basis})"})
+        elif kind == "drift" and rules.get("narrative_drift"):
+            alerts.append({"type":"narrative_drift","severity":"high","message":"drift"})
+        elif kind in ("merge","split") and rules.get("narrative_merge_split"):
+            alerts.append({"type":f"narrative_{kind}","severity":"medium","message":kind})
+        elif kind == "death" and rules.get("narrative_death"):
+            alerts.append({"type":"narrative_death","severity":"low","message":"death"})
+    return alerts
+
+chk("growth above threshold fires",
+    [a["type"] for a in fire([{"kind":"growth","label":"X","share_delta":0.60,"delta":0.9}])]
+    == ["narrative_growth"])
+chk("growth below threshold does not",
+    fire([{"kind":"growth","label":"X","share_delta":0.10,"delta":0.9}]) == [],
+    "raw delta 0.9 must not fire when share only moved 0.10")
+chk("SHARE wins over raw count",
+    fire([{"kind":"growth","label":"X","share_delta":0.05,"delta":5.0}]) == [],
+    "a 500% raw rise in a corpus that grew as much is not an alert")
+chk("falls back to raw when no denominator, and says so",
+    "no corpus size recorded" in fire([{"kind":"growth","label":"X",
+        "share_delta":None,"delta":0.9}])[0]["message"])
+chk("held_share never alerts",
+    fire([{"kind":"held_share","label":"X","share_delta":0.02,"delta":1.0}]) == [],
+    "collection volume must not page anyone")
+chk("drift alerts at high severity",
+    fire([{"kind":"drift","label":"X","from_label":"a","to_label":"b"}])[0]["severity"]=="high")
+chk("merge and split alert", len(fire([{"kind":"merge","label":"X"},{"kind":"split","label":"Y"}]))==2)
+chk("death is off by default", fire([{"kind":"death","label":"X","misses":3}]) == [])
+chk("death fires when enabled",
+    len(fire([{"kind":"death","label":"X","misses":3}], {**rules,"narrative_death":True}))==1)
+chk("malformed events are skipped", fire([None,"x",{},{"kind":"growth"}]) == [])
+
+chk("tracking rules are in DEFAULT_RULES",
+    all(k in app.DEFAULT_RULES for k in
+        ("narrative_growth_pct","narrative_drift","narrative_merge_split","narrative_death")),
+    str(sorted(app.DEFAULT_RULES)))
+chk("death defaults off", app.DEFAULT_RULES["narrative_death"] is False)
+
+print("\n=== corpus denominator reaches track() ===")
+import inspect
+src = inspect.getsource(app._run_full_search)
+chk("corpus_size passed", "corpus_size=len(claims)" in src)
+chk("clustering method recorded on the payload", 'tracking["clustering"]' in src)
+chk("semantic availability reported", 'tracking["semantic"]' in src)
+
 print(f"\n{'='*46}\n  {P} passed, {F} failed\n{'='*46}")
 sys.exit(1 if F else 0)
