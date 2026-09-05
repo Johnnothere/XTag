@@ -66,7 +66,12 @@ for stage in ("collection","relevance","languages","sentiment","aggregates",
 print("\n=== F. every stage timeout is clamped to the budget ===")
 chk("collection clamped", "budget.slice(SEARCH_POOL_TIMEOUT" in src)
 chk("analysis clamped", "budget.slice(ANALYSIS_TIMEOUT" in src)
-chk("gdelt wait clamped", "budget.slice(20" in src)
+# Assert the property, not the literal — pinning "20" here broke the moment the
+# number was retuned from a real measurement, which is the test restating the
+# config rather than checking behaviour.
+chk("gdelt wait clamped to the budget", "budget.slice(GDELT_SNAPSHOT_WAIT" in src)
+chk("gdelt wait is short enough to stay off the critical path",
+    0 < app.GDELT_SNAPSHOT_WAIT <= 10, f"{app.GDELT_SNAPSHOT_WAIT}s")
 chk("analysis uses one shared deadline", "_an_end" in src and "analysis budget exhausted" in src)
 chk("no per-future analysis timeouts left", "f_narr,ANALYSIS_TIMEOUT" not in src)
 

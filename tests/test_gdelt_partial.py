@@ -169,5 +169,39 @@ chk("flags survive the cache round-trip",
 
 G._get = _REAL_GET
 
+print("\n=== the breaker must survive interleaved successes ===")
+# The measured failure: GDELT timed out on most calls but succeeded on some, so
+# _record_success() zeroed the counter every time and the breaker never fired —
+# every search paid 45s for a source that reported itself failed.
+import gdelt as G
+G._consecutive_failures = 0; G._breaker_open_until = 0.0
+for _ in range(3): G._record_failure(True)
+chk("3 straight failures open the breaker", G._breaker_is_open())
+
+G._consecutive_failures = 0; G._breaker_open_until = 0.0
+for _ in range(2): G._record_failure(True)
+G._record_success()
+for _ in range(2): G._record_failure(True)
+chk("fail,fail,ok,fail,fail STILL opens it", G._breaker_is_open(),
+    f"consecutive={G._consecutive_failures} — zeroing here is the bug")
+
+G._consecutive_failures = 0; G._breaker_open_until = 0.0
+for _ in range(2): G._record_failure(True)
+for _ in range(5): G._record_success()
+chk("a healthy source walks back to zero", G._consecutive_failures == 0,
+    str(G._consecutive_failures))
+G._record_failure(True)
+chk("...and does not trip on one later blip", not G._breaker_is_open())
+G._consecutive_failures = 0; G._breaker_open_until = 0.0
+
+print("\n=== interactive budget ===")
+chk("REQ_TIMEOUT bounded for the hot path", G.REQ_TIMEOUT <= 8, f"{G.REQ_TIMEOUT}s")
+chk("one window by default", G.ARTICLE_WINDOWS == 1, str(G.ARTICLE_WINDOWS))
+chk("worst case is one timeout, not three",
+    G.REQ_TIMEOUT * G.ARTICLE_WINDOWS <= 8,
+    f"{G.REQ_TIMEOUT * G.ARTICLE_WINDOWS}s was 36s")
+chk("depth still available on request",
+    "windows" in __import__("inspect").signature(G.articles).parameters)
+
 print(f"\n{'='*46}\n  {P} passed, {F} failed\n{'='*46}")
 sys.exit(1 if F else 0)

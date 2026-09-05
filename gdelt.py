@@ -107,13 +107,21 @@ ALLOW_HTTP        = os.environ.get("GDELT_ALLOW_HTTP", "1").lower() not in ("0",
 
 MIN_INTERVAL      = float(os.environ.get("GDELT_MIN_INTERVAL", "2.0"))
 TIMESPAN_HOURS    = int(os.environ.get("GDELT_TIMESPAN_HOURS", "168"))   # 7d (was hardcoded 72h)
-ARTICLE_WINDOWS   = int(os.environ.get("GDELT_ARTICLE_WINDOWS", "3"))    # time-slices for depth
+# Time-slicing exists to get past the API's 250-record ceiling, and each extra
+# window is another SEQUENTIAL request. At 3 windows that is three timeouts back
+# to back on the interactive path. Depth is a watchlist concern, not a
+# type-a-query-and-wait concern: callers that want it pass windows= explicitly.
+ARTICLE_WINDOWS   = int(os.environ.get("GDELT_ARTICLE_WINDOWS", "1"))
 MAX_RECORDS       = 250          # hard API cap per call — not configurable upstream
 # 20s was far too generous and turned a flaky transport into a budget killer:
 # a slow HTTPS attempt that eventually 429s costs 20s, and three of those exceed
 # the whole analytics budget before a single usable stage completes. Healthy
 # GDELT answers in ~5s over HTTP, so 12s is generous while capping the damage.
-REQ_TIMEOUT       = int(os.environ.get("GDELT_TIMEOUT", "12"))
+# 12s was affordable when GDELT ran last, alone, off the critical path. It now
+# runs inside collection, and MEASURED: 3 windows x 12s = 36s of a 78s request,
+# spent on a source that then reported itself failed. GDELT answers in about a
+# second when it is healthy; 6s is generous and bounds the damage when it is not.
+REQ_TIMEOUT       = int(os.environ.get("GDELT_TIMEOUT", "6"))
 ANALYTICS_TTL     = int(os.environ.get("GDELT_ANALYTICS_TTL", "3600"))   # 1h — hourly data
 BREAKER_THRESHOLD = int(os.environ.get("GDELT_BREAKER_THRESHOLD", "3"))
 BREAKER_COOLDOWN  = int(os.environ.get("GDELT_BREAKER_COOLDOWN", "180"))
@@ -259,9 +267,22 @@ def _record_failure(is_connection_error: bool) -> None:
 
 
 def _record_success() -> None:
+    """Decay the failure count rather than zeroing it.
+
+    Zeroing looks right and is why the breaker never fired in practice. GDELT
+    exposes several modes; a run where two time out and one succeeds reset the
+    counter to 0 every time, so `_consecutive_failures` never reached the
+    threshold of 3 and the breaker stayed shut while EVERY search paid the full
+    timeout. Measured: 45s of a 78s request spent on a source reporting itself
+    failed, indefinitely, with a circuit breaker installed and armed.
+
+    Decaying by one keeps the intended behaviour — a healthy GDELT walks the
+    count back to zero and never trips — while letting a persistently sick one
+    accumulate past the threshold even when it answers intermittently.
+    """
     global _consecutive_failures
     with _lock:
-        _consecutive_failures = 0
+        _consecutive_failures = max(0, _consecutive_failures - 1)
 
 
 def _cache_get(key: str, ttl: int):
