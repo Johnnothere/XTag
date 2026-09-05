@@ -141,5 +141,114 @@ chk("no drift when the label is unchanged",
     not any(e["kind"]=="drift" for e in
             N.track(a["narratives"],[{"label":"vaccine data was falsified","members":["u1","u2","u3","u4"]}],"t2")["events"]))
 
+print("\n=== growth is judged on SHARE, not raw count ===")
+g1=[{"label":"data falsified","members":["u%d"%i for i in range(10)]}]
+s_a=N.track(None,g1,"t1",corpus_size=100)
+g2=[{"label":"data falsified","members":["u%d"%i for i in range(20)]}]
+
+# corpus doubled AND narrative doubled: nothing happened to the narrative
+ev=N.track(s_a["narratives"],g2,"t2",corpus_size=200)["events"]
+kinds=[e["kind"] for e in ev]
+chk("corpus doubled with it -> held_share, not growth",
+    "held_share" in kinds and "growth" not in kinds, str(kinds))
+hs=[e for e in ev if e["kind"]=="held_share"][0]
+chk("held_share says it is collection volume", "collection volume" in hs["detail"])
+chk("held_share carries both deltas",
+    hs["delta"]==1.0 and abs(hs["corpus_delta"]-1.0)<1e-9, str((hs["delta"],hs["corpus_delta"])))
+
+# corpus flat, narrative doubled: real growth
+ev2=N.track(s_a["narratives"],g2,"t2",corpus_size=100)["events"]
+gr=[e for e in ev2 if e["kind"]=="growth"]
+chk("corpus flat -> real growth", len(gr)==1, str([e["kind"] for e in ev2]))
+chk("growth reports share movement", gr and gr[0]["share_delta"] is not None)
+chk("growth marked normalised", gr and gr[0]["normalised"] is True)
+
+# no corpus size: raw count, and it SAYS so
+ev3=N.track(s_a["narratives"],g2,"t2")["events"]
+gr3=[e for e in ev3 if e["kind"]=="growth"][0]
+chk("no denominator -> not normalised", gr3["normalised"] is False)
+chk("...and the caveat is in the text", "may reflect how much was collected" in gr3["detail"])
+chk("share_delta is None, not 0", gr3["share_delta"] is None)
+
+print("\n=== every event has one schema ===")
+allev=[]
+base=N.track(None,[{"label":"A","members":["a1","a2","a3","a4"]},
+                   {"label":"B","members":["b1","b2","b3"]}],"t1",corpus_size=50)
+allev+=base["events"]
+allev+=N.track(base["narratives"],[{"label":"A","members":["a1","a2","a3","a4","a5","a6"]}],
+               "t2",corpus_size=50)["events"]
+allev+=N.track(base["narratives"],[{"label":"A1","members":["a1","a2"]},
+                                   {"label":"A2","members":["a3","a4"]},
+                                   {"label":"B","members":["b1","b2","b3"]}],"t2",corpus_size=50)["events"]
+allev+=N.track(base["narratives"],[{"label":"everything","members":["a1","a2","a3","a4","b1","b2","b3"]}],
+               "t2",corpus_size=50)["events"]
+allev+=N.track(base["narratives"],[{"label":"totally other subject here","members":["a1","a2","a3","a4"]}],
+               "t2",corpus_size=50)["events"]
+d1=N.track(base["narratives"],[{"label":"A","members":["a1","a2","a3","a4"]}],"t2",corpus_size=50)
+d2=N.track(d1["narratives"],[{"label":"A","members":["a1","a2","a3","a4"]}],"t3",corpus_size=50)
+d3=N.track(d2["narratives"],[{"label":"A","members":["a1","a2","a3","a4"]}],"t4",corpus_size=50)
+allev+=d3["events"]
+seen_kinds={e["kind"] for e in allev}
+chk("exercised many kinds", len(seen_kinds)>=5, str(sorted(seen_kinds)))
+chk("every event has kind/at/detail", all(e.get("kind") and e.get("at") and e.get("detail") for e in allev))
+chk("every event has a label", all("label" in e for e in allev),
+    str([e["kind"] for e in allev if "label" not in e]))
+chk("merge sets narrative to None explicitly, not missing",
+    all("narrative" in e for e in allev),
+    str([e["kind"] for e in allev if "narrative" not in e]))
+chk("no polymorphic `into`", not any("into" in e for e in allev),
+    str([e["kind"] for e in allev if "into" in e]))
+chk("split uses into_count (an int)",
+    all(isinstance(e.get("into_count"), int) for e in allev if e["kind"]=="split"))
+chk("merge uses from_ids (a list) and into_label (a str)",
+    all(isinstance(e.get("from_ids"), list) and isinstance(e.get("into_label"), str)
+        for e in allev if e["kind"]=="merge"))
+chk("drift uses from_label/to_label",
+    all(isinstance(e.get("from_label"), str) and isinstance(e.get("to_label"), str)
+        for e in allev if e["kind"]=="drift"))
+
+print("\n=== a death is readable after the narrative is gone ===")
+deaths=[e for e in d3["events"] if e["kind"]=="death"]
+chk("death emitted", len(deaths)==1, str([e["kind"] for e in d3["events"]]))
+dd=deaths[0]
+chk("carries the label", dd.get("label")=="B", str(dd.get("label")))
+chk("carries peak and first_seen", dd.get("peak_size")==3 and dd.get("first_seen")=="t1")
+chk("label is NOT resolvable from the list", not any(x["id"]==dd["narrative"] for x in d3["narratives"]))
+
+print("\n=== a carried-forward size is marked stale ===")
+m1=N.track(base["narratives"],[{"label":"A","members":["a1","a2","a3","a4"]}],"t2",corpus_size=50)
+b_row=[x for x in m1["narratives"] if x["label"]=="B"][0]
+a_row=[x for x in m1["narratives"] if x["label"]=="A"][0]
+chk("missed narrative flagged stale", b_row["stale"] is True and b_row["misses"]==1)
+chk("present narrative not stale", a_row["stale"] is False)
+chk("history not extended while missing", len(b_row["history"])==1, str(b_row["history"]))
+chk("history_capped present and false", b_row["history_capped"] is False)
+chk("history_covers reported", a_row["history_covers"]==len(a_row["history"]))
+
+print("\n=== history cap is disclosed ===")
+st=N.track(None,[{"label":"L","members":["x"]}],"o0",corpus_size=10)
+for i in range(1,70):
+    st=N.track(st["narratives"],[{"label":"L","members":["x"]}],"o%d"%i,corpus_size=10)
+row=st["narratives"][0]
+chk("observations exceeds kept history", row["observations"]>len(row["history"]),
+    f"obs={row['observations']} hist={len(row['history'])}")
+chk("and it says so", row["history_capped"] is True)
+chk("history capped at HISTORY_CAP", len(row["history"])==N.HISTORY_CAP)
+
+print("\n=== corpus size on the return ===")
+r=N.track(None,[{"label":"Z","members":["z"]}],"t",corpus_size=42)
+chk("corpus_size echoed", r["corpus_size"]==42 and r["normalised"] is True)
+r0=N.track(None,[{"label":"Z","members":["z"]}],"t")
+chk("absent denominator reported", r0["corpus_size"] is None and r0["normalised"] is False)
+chk("history point carries the denominator",
+    r["narratives"][0]["history"][0]["corpus_size"]==42)
+
+print("\n=== clustering method is recorded ===")
+cl=N.cluster_claims([{"text":"the ministry falsified vaccine data","url":"a"},
+                     {"text":"vaccine data was falsified by the ministry","url":"b"}])
+chk("every cluster names its method", all("method" in c for c in cl), str(cl))
+chk("falls back to lexical with no backend", all(c["method"].startswith("lexical") for c in cl),
+    str([c["method"] for c in cl]))
+
 print(f"\n{'='*46}\n  {P} passed, {F} failed\n{'='*46}")
 sys.exit(1 if F else 0)

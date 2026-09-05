@@ -39,6 +39,8 @@ from __future__ import annotations
 import math
 import re
 import uuid
+
+import embeddings as emb
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -234,13 +236,24 @@ class Narrative:
     observations: int = 1
     misses: int = 0
     peak_size: int = 0
-    history: list = field(default_factory=list)   # [{ts, size}]
+    history: list = field(default_factory=list)   # [{ts, size, corpus_size}]
 
     def to_dict(self) -> dict:
+        h = self.history[-HISTORY_CAP:]
         return {"id": self.id, "label": self.label, "members": sorted(self.members),
                 "first_seen": self.first_seen, "last_seen": self.last_seen,
                 "observations": self.observations, "misses": self.misses,
-                "peak_size": self.peak_size, "history": self.history[-60:]}
+                "peak_size": self.peak_size, "history": h,
+                # A narrative that missed an observation keeps the members it had
+                # last time. Its "size" is therefore last run's, and a consumer
+                # plotting it as current would be plotting a stale number with
+                # nothing marking it as stale.
+                "stale": self.misses > 0,
+                # observations counts forever; history is capped. Without this a
+                # reader computes a floor and a peak over the last 60 points and
+                # presents them as the narrative's lifetime range.
+                "history_capped": len(self.history) > len(h),
+                "history_covers": len(h)}
 
     @staticmethod
     def from_dict(d: dict) -> "Narrative":
@@ -252,6 +265,7 @@ class Narrative:
                          history=list(d.get("history") or []))
 
 
+HISTORY_CAP = 60            # points kept per narrative; flagged when it bites
 MATCH_THRESHOLD = 0.30      # Greene et al. front-matching theta
 DEATH_AFTER = 3             # consecutive misses before a narrative is declared dead
 DRIFT_SIM = 0.15            # below this label similarity, a match is flagged as drift
@@ -265,11 +279,15 @@ def _jaccard(a: set, b: set) -> float:
 
 
 def track(previous: list[dict] | None, clusters: list[dict], timestamp: str,
-          threshold: float = MATCH_THRESHOLD) -> dict:
+          threshold: float = MATCH_THRESHOLD, corpus_size: int | None = None) -> dict:
     """Match this observation's clusters to living narratives and emit events.
 
     `clusters` is [{"label": str, "members": [url, ...]}] from this run.
     `previous` is the serialised state from the last run (or None to start).
+    `corpus_size` is how many documents this observation was drawn from. Pass it.
+    Without it, "this narrative grew 40%" cannot be told apart from "we collected
+    40% more documents this time" — the growth event is then a statement about
+    our own collection, presented as a statement about the world.
 
     Returns {"narratives": [...], "events": [...]}, where every narrative keeps
     the SAME id it had before. That id is the whole point: it is what lets a
@@ -299,17 +317,28 @@ def track(previous: list[dict] | None, clusters: list[dict], timestamp: str,
             others = [j for j in range(len(cur_members))
                       if j != ci and sim[li][j] >= threshold]
             if others:
+                # `into` used to be an integer here and a label string on
+                # merge — two meanings on one field name. Named explicitly.
                 events.append({"kind": "split", "narrative": live[li].id,
-                               "into": len(others) + 1, "at": timestamp,
+                               "label": live[li].label,
+                               "into_count": len(others) + 1, "at": timestamp,
                                "detail": f"'{live[li].label}' now matches "
                                          f"{len(others)+1} distinct clusters"})
         for ci in set(matched_live.values()):
             srcs = [i for i in range(len(live)) if sim[i][ci] >= threshold]
             if len(srcs) > 1:
-                events.append({"kind": "merge", "into": cur_labels[ci],
-                               "from": [live[i].id for i in srcs], "at": timestamp,
+                # A merge has no single subject, so `narrative` is null by
+                # design rather than absent — a consumer indexing by it must be
+                # able to tell "not applicable" from "field missing".
+                events.append({"kind": "merge", "narrative": None,
+                               "label": cur_labels[ci],
+                               "into_label": cur_labels[ci],
+                               "from_ids": [live[i].id for i in srcs],
+                               "from_labels": [live[i].label for i in srcs],
+                               "at": timestamp,
                                "detail": f"{len(srcs)} narratives converged on "
-                                         f"'{cur_labels[ci]}'"})
+                                         f"'{cur_labels[ci]}': "
+                                         + ", ".join(f"'{live[i].label}'" for i in srcs)})
 
     out: list[Narrative] = []
     used_clusters = set(matched_live.values())
@@ -319,13 +348,15 @@ def track(previous: list[dict] | None, clusters: list[dict], timestamp: str,
             ci = matched_live[li]
             before = len(n.members)
             prev_label = n.label
+            prev_corpus = (n.history[-1].get("corpus_size") if n.history else None)
             n.members = cur_members[ci]
             n.label = cur_labels[ci] or n.label
             n.last_seen = timestamp
             n.observations += 1
             n.misses = 0
             n.peak_size = max(n.peak_size, len(n.members))
-            n.history.append({"ts": timestamp, "size": len(n.members)})
+            n.history.append({"ts": timestamp, "size": len(n.members),
+                              "corpus_size": corpus_size})
             # SEMANTIC DRIFT. Greene defines identity by MEMBERSHIP, so a
             # narrative that keeps its documents keeps its id even if the
             # wording moves — which is usually right, because stories do evolve.
@@ -337,27 +368,85 @@ def track(previous: list[dict] | None, clusters: list[dict], timestamp: str,
             if prev_label and n.label and prev_label != n.label:
                 lv = tfidf([prev_label, n.label])
                 if cosine(lv[0], lv[1]) < DRIFT_SIM:
-                    events.append({"kind": "drift", "narrative": n.id, "at": timestamp,
-                                   "from": prev_label, "to": n.label,
+                    events.append({"kind": "drift", "narrative": n.id,
+                                   "label": n.label, "at": timestamp,
+                                   "from_label": prev_label, "to_label": n.label,
                                    "detail": (f"kept its documents but its subject changed: "
                                               f"'{prev_label[:60]}' -> '{n.label[:60]}'")})
             if before:
-                delta = (len(n.members) - before) / before
-                if delta > GROWTH_BAND:
-                    events.append({"kind": "growth", "narrative": n.id, "at": timestamp,
-                                   "detail": f"'{n.label}' grew {delta:+.0%} "
-                                             f"({before} -> {len(n.members)} documents)"})
+                now_n = len(n.members)
+                delta = (now_n - before) / before
+
+                # SHARE, not just count. A narrative that grew 40% in a corpus
+                # that grew 40% did not grow — we collected more. Reporting the
+                # raw count as growth turns a fact about our own collection into
+                # a claim about the world, which is the same defect class as an
+                # uncalibrated coordination score.
+                share_delta = None
+                corpus_delta = None
+                if corpus_size and prev_corpus and prev_corpus > 0 and corpus_size > 0:
+                    corpus_delta = (corpus_size - prev_corpus) / prev_corpus
+                    share_before = before / prev_corpus
+                    share_now = now_n / corpus_size
+                    if share_before > 0:
+                        share_delta = (share_now - share_before) / share_before
+
+                # When the corpus explains the move, the honest verdict is
+                # "held its share", not growth.
+                explained = (share_delta is not None
+                             and abs(share_delta) <= GROWTH_BAND
+                             and abs(delta) > GROWTH_BAND)
+
+                def _evt(kind, verb):
+                    d = {"kind": kind, "narrative": n.id, "label": n.label,
+                         "at": timestamp,
+                         "from_size": before, "to_size": now_n,
+                         "delta": round(delta, 4),
+                         "share_delta": (round(share_delta, 4)
+                                         if share_delta is not None else None),
+                         "corpus_delta": (round(corpus_delta, 4)
+                                          if corpus_delta is not None else None),
+                         "normalised": share_delta is not None}
+                    if share_delta is None:
+                        d["detail"] = (f"'{n.label}' {verb} {delta:+.0%} "
+                                       f"({before} -> {now_n} documents). No corpus size "
+                                       f"recorded, so this is a raw count change and may "
+                                       f"reflect how much was collected.")
+                    else:
+                        d["detail"] = (f"'{n.label}' {verb} {delta:+.0%} "
+                                       f"({before} -> {now_n} documents); its share of the "
+                                       f"corpus moved {share_delta:+.0%} while the corpus "
+                                       f"itself moved {corpus_delta:+.0%}.")
+                    events.append(d)
+
+                if explained:
+                    events.append({
+                        "kind": "held_share", "narrative": n.id, "label": n.label,
+                        "at": timestamp, "from_size": before, "to_size": now_n,
+                        "delta": round(delta, 4), "share_delta": round(share_delta, 4),
+                        "corpus_delta": round(corpus_delta, 4), "normalised": True,
+                        "detail": (f"'{n.label}' moved {delta:+.0%} in raw count, but the "
+                                   f"corpus moved {corpus_delta:+.0%} — its share is "
+                                   f"effectively unchanged. This is collection volume, "
+                                   f"not the narrative.")})
+                elif delta > GROWTH_BAND:
+                    _evt("growth", "grew")
                 elif delta < -GROWTH_BAND:
-                    events.append({"kind": "contraction", "narrative": n.id, "at": timestamp,
-                                   "detail": f"'{n.label}' shrank {delta:+.0%} "
-                                             f"({before} -> {len(n.members)} documents)"})
+                    _evt("contraction", "shrank")
             out.append(n)
         else:
             n.misses += 1
             if n.misses >= DEATH_AFTER:
-                events.append({"kind": "death", "narrative": n.id, "at": timestamp,
+                # The narrative is dropped from the returned list on this same
+                # pass, so a consumer can never look its label up. Carry it on
+                # the event or the death is unreadable — an id and a date.
+                events.append({"kind": "death", "narrative": n.id, "label": n.label,
+                               "at": timestamp, "misses": n.misses,
+                               "first_seen": n.first_seen, "last_seen": n.last_seen,
+                               "peak_size": n.peak_size,
                                "detail": f"'{n.label}' absent from {n.misses} consecutive "
-                                         f"observations"})
+                                         f"observations. Peak size {n.peak_size}; first seen "
+                                         f"{n.first_seen}."})
                 # Dropped from the returned state — but the death event is the
                 # record that it existed and stopped, which is itself a finding.
                 continue
@@ -373,13 +462,27 @@ def track(previous: list[dict] | None, clusters: list[dict], timestamp: str,
         out.append(Narrative(
             id=f"n_{uuid.uuid4().hex[:12]}", label=cur_labels[ci], members=members,
             first_seen=timestamp, last_seen=timestamp, peak_size=len(members),
-            history=[{"ts": timestamp, "size": len(members)}]))
-        events.append({"kind": "birth", "narrative": out[-1].id, "at": timestamp,
+            history=[{"ts": timestamp, "size": len(members),
+                      "corpus_size": corpus_size}]))
+        events.append({"kind": "birth", "narrative": out[-1].id,
+                       "label": cur_labels[ci], "at": timestamp,
+                       "to_size": len(members),
                        "detail": f"'{cur_labels[ci]}' first observed "
                                  f"({len(members)} documents)"})
 
     out.sort(key=lambda n: (-len(n.members), n.first_seen))
-    return {"narratives": [n.to_dict() for n in out], "events": events}
+    # EVERY event carries: kind, at, narrative (id or null), label, detail.
+    # Kind-specific extras are named for what they hold — into_count, from_ids,
+    # from_label/to_label — never reusing one name for two meanings.
+    return {"narratives": [n.to_dict() for n in out], "events": events,
+            "corpus_size": corpus_size,
+            "normalised": corpus_size is not None}
+
+
+#: Semantic backends and lexical ones do not live on the same scale. TF-IDF
+#: puts a genuine paraphrase at 0.14; an embedding model puts the same pair
+#: around 0.8. One threshold cannot serve both, so each carries its own.
+SEMANTIC_JOIN_SIM = float(__import__("os").environ.get("SEMANTIC_JOIN_SIM", "0.72"))
 
 
 def cluster_claims(claims: list[dict], join_sim: float = JOIN_SIM) -> list[dict]:
@@ -393,13 +496,29 @@ def cluster_claims(claims: list[dict], join_sim: float = JOIN_SIM) -> list[dict]
     claims = [c for c in claims if isinstance(c, dict) and (c.get("text") or "").strip()]
     if not claims:
         return []
-    vecs = tfidf([c["text"] for c in claims])
+    texts = [c["text"] for c in claims]
+
+    # Semantic first, lexical as the fallback — and the method is RECORDED on
+    # every cluster, because "these are two separate narratives" means something
+    # different depending on whether the thing that said so understands
+    # paraphrase. A silent downgrade would let an analyst read lexical
+    # fragmentation as two genuinely distinct stories.
+    dense, method = emb.embed(texts)
+    if dense:
+        vecs = [dict(enumerate(v)) for v in dense]
+        thresh = SEMANTIC_JOIN_SIM
+    else:
+        vecs = tfidf(texts)
+        thresh = join_sim
+        method = "lexical" if method in ("unavailable", "empty") else f"lexical ({method})"
+
     out = []
-    for idxs in dp_means(vecs, join_sim=join_sim):
+    for idxs in dp_means(vecs, join_sim=thresh):
         cen = _centroid([vecs[i] for i in idxs])
         best = max(idxs, key=lambda i: cosine(vecs[i], cen))
         sims = [cosine(vecs[i], cen) for i in idxs]
         out.append({
+            "method": method,
             "label": claims[best]["text"][:120],
             "members": sorted({claims[i].get("url") for i in idxs if claims[i].get("url")}),
             "size": len(idxs),

@@ -46,6 +46,7 @@ import db      # Supabase persistence; degrades to in-memory when unconfigured
 import mailer  # Resend email delivery; no-ops cleanly when unconfigured
 import gdelt   # GDELT collection + analytics; rate-limited and circuit-broken
 import coordination  # P4: actor-trait coordination detection (see harness.py)
+import embeddings          # Semantic backend for claim clustering (optional)
 import narratives as narr  # P5: persistent narrative identity across observations
 import intel   # Assessment layer: threat score, risk, audience, inauthenticity
 import relevance  # Query planning + per-document relevance gate (see module docstring)
@@ -2841,6 +2842,14 @@ DEFAULT_RULES = {
     "mentions_above": None,        # alert if raw mention count exceeds
     "state_media_above": None,     # alert if state media pickup exceeds
     "new_narrative": True,         # alert if a narrative cluster appears that wasn't there before
+    # P5 tracking rules. These are the ones that could not exist before
+    # narratives had a stable identity across observations — every rule above
+    # compares a single run against a threshold; these compare a run against
+    # what the SAME narrative did last time.
+    "narrative_growth_pct": 40,    # alert when a tracked narrative's SHARE grows this much
+    "narrative_drift": True,       # alert when a narrative's subject changes underneath it
+    "narrative_merge_split": True, # alert on convergence or fragmentation
+    "narrative_death": False,      # off by default: a story ending is rarely urgent
 }
 
 def evaluate_watchlist(query: str, rules: dict, baseline: dict | None = None) -> dict:
@@ -2871,6 +2880,70 @@ def evaluate_watchlist(query: str, rules: dict, baseline: dict | None = None) ->
                        f"({coord.get('risk','?')} risk) — threshold was {thresh}",
             "evidence": coord.get("signals", [])[:3],
         })
+
+    # ── Narrative-tracking alerts ────────────────────────────────────────────
+    # "This narrative grew 140% since your last check" is the alert a watchlist
+    # exists to send, and it was impossible until narratives kept an identity
+    # between runs. Growth is judged on SHARE where the corpus size is known,
+    # so a bigger collection cannot fire an alert on its own.
+    nt = payload.get("narrative_tracking") or {}
+    for ev in (nt.get("events") or []):
+        if not isinstance(ev, dict):
+            continue
+        kind = ev.get("kind")
+        label = ev.get("label") or "(unnamed narrative)"
+
+        if kind == "growth" and rules.get("narrative_growth_pct") is not None:
+            thr = float(rules["narrative_growth_pct"]) / 100.0
+            # Prefer share over raw count. Fall back to raw only when no corpus
+            # size was recorded, and say so in the alert rather than implying a
+            # measurement that was not taken.
+            measured = ev.get("share_delta")
+            basis = "share of corpus"
+            if measured is None:
+                measured = ev.get("delta")
+                basis = "raw document count, no corpus size recorded"
+            if measured is not None and measured >= thr:
+                alerts.append({
+                    "type": "narrative_growth",
+                    "severity": "high" if measured >= thr * 2 else "medium",
+                    "message": (f"'{label}' grew {measured:+.0%} since the last check "
+                                f"({basis}) — threshold was {rules['narrative_growth_pct']}%"),
+                    "evidence": [ev.get("detail")],
+                    "narrative": ev.get("narrative"),
+                })
+
+        elif kind == "drift" and rules.get("narrative_drift"):
+            alerts.append({
+                "type": "narrative_drift",
+                "severity": "high",
+                "message": (f"A tracked narrative changed subject while keeping its "
+                            f"documents: '{ev.get('from_label')}' is now "
+                            f"'{ev.get('to_label')}'"),
+                "evidence": [ev.get("detail")],
+                "narrative": ev.get("narrative"),
+            })
+
+        elif kind in ("merge", "split") and rules.get("narrative_merge_split"):
+            alerts.append({
+                "type": f"narrative_{kind}",
+                "severity": "medium",
+                "message": (f"{len(ev.get('from_ids') or [])} narratives converged on "
+                            f"'{label}'" if kind == "merge"
+                            else f"'{label}' split into {ev.get('into_count')} clusters"),
+                "evidence": [ev.get("detail")],
+                "narrative": ev.get("narrative"),
+            })
+
+        elif kind == "death" and rules.get("narrative_death"):
+            alerts.append({
+                "type": "narrative_death",
+                "severity": "low",
+                "message": (f"'{label}' has not appeared in {ev.get('misses')} consecutive "
+                            f"checks (peak size {ev.get('peak_size')})"),
+                "evidence": [ev.get("detail")],
+                "narrative": ev.get("narrative"),
+            })
 
     if rules.get("velocity_accelerating") and vel.get("acceleration") == "accelerating":
         w = vel.get("windows", {})
@@ -3471,7 +3544,12 @@ def _run_full_search(q: str, use_cache: bool = True,
                 except Exception:
                     prev = None
                 seen_at = datetime.now(timezone.utc).isoformat()
-                tracking = narr.track(prev, clusters, seen_at)
+                # corpus_size is what makes a growth event mean anything: a
+                # narrative that grew 40% in a corpus that grew 40% did not
+                # grow, and without the denominator the event would report our
+                # own collection volume as a finding about the world.
+                tracking = narr.track(prev, clusters, seen_at,
+                                      corpus_size=len(claims))
                 try:
                     db.cache_set(state_key, q, {"narratives": tracking["narratives"]},
                                  NARRATIVE_STATE_TTL)
@@ -3484,6 +3562,13 @@ def _run_full_search(q: str, use_cache: bool = True,
             app.logger.warning("narrative tracking failed for q=%r: %s", q, e)
             tracking = {"error": str(e)[:160], "narratives": [], "events": []}
 
+    if tracking is not None:
+        # Which method actually clustered the claims. A lexical run does not
+        # recognise paraphrase, so two "separate" narratives may be one story
+        # reworded — the reader has to be able to tell.
+        tracking["clustering"] = ((clusters[0].get("method") if clusters else None)
+                                  or ("lexical" if not embeddings.available() else None))
+        tracking["semantic"] = embeddings.available()
     payload["narrative_tracking"] = tracking
     payload.update({"narratives":narratives,"entities":entities,
                     "velocity":velocity,"coordination":coordination,
@@ -4249,6 +4334,10 @@ def api_status():
                                "telegram":bool(TELEGRAM_CHANNELS),"notebooklm":bool(NOTEBOOKLM_AUTH_ARCHIVE)},
                     "narrative_engine":"active","version":"2.1",
                     "persistence":db.health(),
+                    # Which method actually clusters claims. A lexical run cannot
+                    # recognise paraphrase, so "two narratives" may be one story
+                    # reworded — this is how an operator finds that out.
+                    "embeddings":embeddings.status(),
                     "telegram_channels":len(TELEGRAM_CHANNELS),
                     "state_media_feeds":len(ADVERSARY_RSS_FEEDS),
                     "podcast_watchlist":len(PODCAST_WATCHLIST)})
