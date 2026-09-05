@@ -203,5 +203,23 @@ chk("worst case is one timeout, not three",
 chk("depth still available on request",
     "windows" in __import__("inspect").signature(G.articles).parameters)
 
+print("\n=== the whole call is bounded, not each attempt ===")
+import requests as _rq, time as _t
+_real = G.requests.get
+def _hang(*a, **k):
+    _t.sleep(k.get("timeout", 99)); raise _rq.exceptions.Timeout("hung")
+G.requests.get = _hang
+_mi = G.MIN_INTERVAL; G.MIN_INTERVAL = 0
+G._consecutive_failures = 0; G._breaker_open_until = 0.0
+_t0 = _t.monotonic(); _d, _e = G._get("api.gdeltproject.org/api/v2/doc/doc", {"q":"x"})
+_el = _t.monotonic() - _t0
+G.requests.get = _real; G.MIN_INTERVAL = _mi
+G._consecutive_failures = 0; G._breaker_open_until = 0.0
+chk("N hanging attempts stay inside ONE budget", _el <= G.CALL_BUDGET + 1.5,
+    f"{_el:.1f}s vs budget {G.CALL_BUDGET}s "
+    f"(unbounded would be {G.RETRY_ATTEMPTS}*{G.REQ_TIMEOUT} + backoff)")
+chk("returns an error rather than data", _d is None and _e is not None)
+chk("budget is short enough for an interactive search", G.CALL_BUDGET <= 10)
+
 print(f"\n{'='*46}\n  {P} passed, {F} failed\n{'='*46}")
 sys.exit(1 if F else 0)
