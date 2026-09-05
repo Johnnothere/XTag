@@ -95,6 +95,18 @@ USER_AGENT = "web:xtag:2.0 (narrative-intelligence)"
 RETRY_ATTEMPTS    = int(os.environ.get("GDELT_RETRY_ATTEMPTS", "4"))
 RETRY_BACKOFF     = float(os.environ.get("GDELT_RETRY_BACKOFF", "3.0"))  # seconds, linear
 
+# TOTAL wall clock for one _get, across every retry and every backoff sleep.
+#
+# REQ_TIMEOUT bounds ONE ATTEMPT. With RETRY_ATTEMPTS=4 and a linear backoff of
+# 3s, 6s, 9s, a call carrying a "6 second timeout" can legitimately run
+# 4*6 + 18 = 42 SECONDS. Measured on the live deployment: GDELT was abandoned at
+# the 25s collection cap on every search while its per-attempt timeout was 6s,
+# and the discrepancy was entirely retries and sleeps.
+#
+# Retrying is right — one retry measurably took the analytical modes from 2/4 to
+# 4/4 — but it has to be spent inside a budget rather than on top of one.
+CALL_BUDGET       = float(os.environ.get("GDELT_CALL_BUDGET", "8"))
+
 # HTTPS is always tried first. Some environments (notably sandboxes whose egress
 # proxy intercepts TLS) get the connection reset at handshake time for this host
 # while plain HTTP works and returns identical data. Set GDELT_ALLOW_HTTP=0 to
@@ -356,12 +368,31 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
 
     last_err = None
     conn_failed = False
+    _deadline = time.monotonic() + CALL_BUDGET
     for attempt in range(max(1, RETRY_ATTEMPTS)):
+        # Every attempt must fit inside what is LEFT of the call budget, not
+        # start a fresh REQ_TIMEOUT of its own. Half a second is the floor below
+        # which a request cannot usefully complete, so stop rather than fire one
+        # that is certain to fail.
+        _left = _deadline - time.monotonic()
+        if _left <= 0.5:
+            last_err = last_err or GdeltError(
+                f"exhausted the {CALL_BUDGET}s call budget after "
+                f"{attempt} attempt(s)", "timeout")
+            conn_failed = True
+            break
         _throttle()
+        _left = _deadline - time.monotonic()
+        if _left <= 0.5:
+            last_err = last_err or GdeltError(
+                f"call budget spent waiting on the rate limiter", "timeout")
+            conn_failed = True
+            break
         url = f"{_scheme}://{path}"
         try:
             r = requests.get(url, params=params,
-                             headers={"User-Agent": USER_AGENT}, timeout=REQ_TIMEOUT)
+                             headers={"User-Agent": USER_AGENT},
+                             timeout=min(REQ_TIMEOUT, _left))
         except (requests.exceptions.ConnectionError, requests.exceptions.SSLError) as e:
             last_err = GdeltError(f"connection failed ({_scheme}): {str(e)[:70]}",
                                   "transport")
@@ -389,8 +420,13 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
             retry_after = r.headers.get("Retry-After")
             try:
                 wait = min(float(retry_after), 30.0) if retry_after else RETRY_BACKOFF * (attempt + 1)
+                # A Retry-After of 30s cannot be honoured inside an 8s budget.
+                # Sleeping past the deadline burns the whole budget doing
+                # nothing and then fails anyway.
+                wait = min(wait, max(0.0, _deadline - time.monotonic()))
             except (TypeError, ValueError):
-                wait = RETRY_BACKOFF * (attempt + 1)
+                wait = min(RETRY_BACKOFF * (attempt + 1),
+                           max(0.0, _deadline - time.monotonic()))
             if attempt < RETRY_ATTEMPTS - 1:
                 time.sleep(wait)
             continue

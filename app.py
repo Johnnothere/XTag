@@ -3299,28 +3299,22 @@ def _run_full_search(q: str, use_cache: bool = True,
     with budget.stage("relevance"):
         relevance_report = _apply_relevance(out, q, floor=relevance_floor)
 
-    # PHASE 3: Detect language + translate for display BEFORE sentiment,
-    # so sentiment can be run natively per-language.
     languages={"distribution":[],"languages_detected":0,"non_english_docs":0,"total_docs":0}
-    try:
-        with budget.stage("languages"):
-            languages=enrich_languages(out)
-    except Exception as e: app.logger.warning("language enrichment failed: %s",e)
-
     sentiment={"scored":0,"unscored":0,"eligible":0,"positive":0,"neutral":0,
                "negative":0,"net":None,"engines":[],
                "agreement":None,"babel_scored":0,"framing_counts":{},"by_language":{}}
-    if SENTIMENT_ENABLED:
-        try:
-            with budget.stage("sentiment"):
-                sentiment=attach_sentiment(out)
-        except Exception as e: app.logger.warning("sentiment failed: %s",e); sentiment["error"]=str(e)[:120]
 
     # ── PHASE 1 BOUNDARY (P2) ────────────────────────────────────────────────
-    # Everything above is COLLECTION: fetch, merge, gate for relevance, detect
-    # language, score sentiment, aggregate. Everything below is INTERPRETATION,
-    # and it is where nearly all the remaining wall-clock lives — six concurrent
-    # Claude calls plus the assessment layer.
+    # Everything above is COLLECTION: fetch, merge, gate for relevance,
+    # aggregate. Everything below is INTERPRETATION.
+    #
+    # The boundary moved. It used to sit after language detection and sentiment,
+    # which put phase 1 at ~20s on the measured deployment: 8s of collection and
+    # then 12s more of scoring, while the documents themselves had been ready
+    # the whole time. Language and sentiment are things we SAY ABOUT the corpus,
+    # not the corpus — the grid, the platform mix and the relevance report do
+    # not need them. Moving them below the line is what takes the first screen
+    # from ~20s to roughly the length of collection alone.
     #
     # The analyst does not need to wait for interpretation to start reading. The
     # documents, the platform mix, the relevance report and the sentiment split
@@ -3349,11 +3343,32 @@ def _run_full_search(q: str, use_cache: bool = True,
         budget.record("phase1", budget.elapsed())
         try:
             on_phase1({**payload, "phase": 1, "partial": True,
+                       # Named explicitly so the client never renders an empty
+                       # sentiment split as "0 positive, 0 negative" — it is not
+                       # scored yet, which is a different statement.
+                       "pending": ["languages", "sentiment", "narratives",
+                                   "entities", "events", "coordination",
+                                   "propagation", "threat", "risk"],
                        "timings": dict(budget.timings)})
         except Exception as e:
             # A caller that has hung up must not take the search down — the
             # results are still worth caching for whoever asks next.
             app.logger.warning("phase-1 emit failed for q=%r: %s", q, e)
+
+    # Detect language + translate for display BEFORE sentiment, so sentiment can
+    # be scored natively per-language. Both are now behind the phase-1 boundary.
+    try:
+        with budget.stage("languages"):
+            languages=enrich_languages(out)
+    except Exception as e: app.logger.warning("language enrichment failed: %s",e)
+    if SENTIMENT_ENABLED:
+        try:
+            with budget.stage("sentiment"):
+                sentiment=attach_sentiment(out)
+        except Exception as e:
+            app.logger.warning("sentiment failed: %s",e); sentiment["error"]=str(e)[:120]
+    payload["languages"]=languages
+    payload["sentiment"]=sentiment
     # C2 (same defect as the collection pool above): each future has its own
     # timeout, but __exit__ then blocked on whichever stage was still running,
     # so the per-stage budgets bounded nothing either.

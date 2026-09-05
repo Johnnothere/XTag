@@ -44,7 +44,15 @@ p1=marks["p"]
 chk("phase1 marked partial", p1.get("phase")==1 and p1.get("partial") is True)
 chk("phase1 has the corpus", (p1.get("totals") or {}) and p1["platforms"]["x"]["results"])
 chk("phase1 has relevance report", bool(p1.get("relevance")))
-chk("phase1 has sentiment", "scored" in (p1.get("sentiment") or {}))
+# Sentiment is now BEHIND the boundary — measured at 6.5s, and it is a
+# statement about the corpus, not the corpus. Phase 1 must not imply it exists.
+chk("phase1 does NOT claim sentiment yet",
+    not (p1.get("sentiment") or {}).get("engines"), str(p1.get("sentiment"))[:70])
+chk("phase1 names what is still pending",
+    "sentiment" in (p1.get("pending") or []) and "languages" in (p1.get("pending") or []),
+    str(p1.get("pending")))
+chk("phase2 HAS sentiment", "scored" in (full.get("sentiment") or {}))
+chk("phase2 has no pending list", "pending" not in full)
 chk("phase1 has NO narratives yet", not p1.get("narratives"), str(p1.get("narratives")))
 chk("phase1 has NO entities yet", not (p1.get("entities") or {}).get("entities"))
 chk("phase1 has NO threat yet", not p1.get("threat"))
