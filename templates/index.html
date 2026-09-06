@@ -647,6 +647,67 @@ button{background:none;border:none;cursor:pointer;}
 .ia-desc{font-size:var(--fs-cap);color:var(--ink3);margin-top:3px;line-height:1.55;}
 .method-note{font-size:var(--fs-micro);color:var(--ink3);line-height:1.65;margin-top:var(--s2);padding:var(--s2) var(--s3);border-radius:var(--r-sm);background:var(--surface2);border:1px dashed var(--line);}
 
+/* ── The finding ──────────────────────────────────────────────────────────
+   The first thing on the screen and the only element allowed to set the page's
+   reading rhythm. Everything below it is support. Type is larger than anything
+   else in the report and the measure is held near 62ch so it reads as prose,
+   not as a dashboard caption. */
+.finding{
+  padding:var(--s6) 0 var(--s5);
+  border-bottom:1px solid var(--line);
+  margin-bottom:var(--s5);
+}
+.fd-eyebrow{
+  font-size:var(--fs-cap); letter-spacing:.14em; text-transform:uppercase;
+  color:var(--ink4); font-weight:600; margin-bottom:var(--s3);
+}
+.fd-body{
+  margin:0 0 var(--s5); max-width:62ch;
+  font-size:19px; line-height:1.62; color:var(--ink1);
+  letter-spacing:-.005em; text-wrap:pretty;
+}
+/* Each clause is its own span so a future pass can make any of them a link to
+   the evidence behind it without restructuring the sentence. */
+.fd-c{ }
+.fd-c.fd-base{color:var(--ink2);}
+.fd-c.fd-claim{color:var(--ink1);}
+.fd-c.fd-coord,.fd-c.fd-reach{color:var(--ink2);}
+/* An absence is still a finding — quieter than a positive claim, never hidden. */
+.fd-c.fd-weak{color:var(--ink3);}
+
+.fd-foot{display:flex;align-items:center;gap:var(--s4);flex-wrap:wrap;}
+.fd-conf,.fd-score,.fd-basis{display:flex;flex-direction:column;gap:2px;}
+.fd-conf-w{font-size:17px;font-weight:600;color:var(--ink1);text-transform:capitalize;}
+.fd-conf-l,.fd-score-l{font-size:var(--fs-cap);letter-spacing:.08em;text-transform:uppercase;color:var(--ink4);}
+.fd-score-n{font-size:17px;font-weight:600;color:var(--ink1);font-variant-numeric:tabular-nums;}
+.fd-basis{font-size:13px;color:var(--ink3);justify-content:center;}
+.fd-sep{width:1px;align-self:stretch;background:var(--line);}
+
+/* ── What would change this ───────────────────────────────────────────────
+   Deliberately placed above the detail. A reader who is going to repeat a
+   claim needs its defeaters before they repeat it. */
+.limits{
+  margin:0 0 var(--s5); padding:var(--s4) 0 var(--s5);
+  border-bottom:1px solid var(--line);
+}
+.limits-head{
+  font-size:var(--fs-cap); letter-spacing:.12em; text-transform:uppercase;
+  color:var(--warn); font-weight:600; margin-bottom:var(--s4);
+}
+.limits-grid{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(248px,1fr));
+  gap:var(--s4) var(--s5);
+}
+.limit{border-left:2px solid var(--warn);padding-left:var(--s3);}
+.limit-t{font-size:14px;font-weight:600;color:var(--ink1);margin-bottom:3px;line-height:1.4;}
+.limit-d{font-size:13px;line-height:1.55;color:var(--ink3);}
+
+@media (max-width:760px){
+  .fd-body{font-size:17px;}
+  .fd-foot{gap:var(--s3);}
+  .fd-sep{display:none;}
+}
+
 /* ── Geography ── */
 .geo-row{display:flex;align-items:center;gap:var(--s2);margin-bottom:5px;}
 .geo-name{flex:none;width:130px;font-size:var(--fs-cap);color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -673,8 +734,18 @@ button{background:none;border:none;cursor:pointer;}
      later in the DOM, so without it the cards paint over Filter and Sort and
      swallow the clicks. 50 sits above cards, below popovers (200) and rail. */
   z-index:50;
+  /* The popovers are children of this bar and are positioned `absolute` with
+     `top:52px`, which only means "below the toolbar" if the toolbar is itself a
+     containing block. Without this they resolved against .grid-panel instead,
+     and every wrap of this flex row moved them somewhere they were never
+     designed to land. */
+  position:relative;
 }
-.grid-toolbar>*{position:relative;z-index:1;}
+/* This rule exists to lift the toolbar's own controls above the result cards.
+   It must not touch the popovers: `.grid-toolbar>*` and `.filter-panel` have
+   equal specificity, so whichever is written last wins the `position` — a
+   cascade collision deciding whether a dialog is anchored or in flow. */
+.grid-toolbar>*:not(.filter-panel):not(.sort-panel){position:relative;z-index:1;}
 .gt-query-label{font-size:var(--fs-cap);color:var(--ink2);background:var(--on-glass);border:1px solid var(--on-glass-line);border-radius:var(--pill);padding:5px var(--s3);font-weight:500;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;}
 .gt-count{font-size:var(--fs-micro);color:var(--ink3);font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;}
 .gt-flex{flex:1;}
@@ -690,10 +761,12 @@ button{background:none;border:none;cursor:pointer;}
 
 /* Popovers — functional layer, glass */
 .filter-panel,.sort-panel{position:absolute;top:52px;z-index:200;border-radius:var(--r-shell);display:none;}
-.filter-panel{right:var(--s3);padding:var(--s5);width:270px;}
+.filter-panel{right:var(--s3);padding:var(--s5);width:288px;max-height:min(70vh,560px);overflow-y:auto;overscroll-behavior:contain;}
 .sort-panel{right:110px;padding:var(--s2);width:200px;}
 .filter-panel.show,.sort-panel.show{display:block;}
 .filter-panel>*,.sort-panel>*{position:relative;z-index:1;}
+.fp-note{font-size:var(--fs-micro);color:var(--ink3);line-height:1.5;margin-top:var(--s2);}
+.date-pill.empty{opacity:.45;}
 .fp-title,.fp-label{font-size:var(--fs-micro);letter-spacing:.13em;text-transform:uppercase;color:var(--ink3);margin-bottom:var(--s2);}
 .fp-pills{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:var(--s4);}
 .fp-pill{font-size:var(--fs-cap);color:var(--ink2);background:var(--on-glass);border:1px solid var(--on-glass-line);border-radius:var(--pill);padding:5px var(--s3);cursor:pointer;display:flex;align-items:center;gap:5px;transition:border-color var(--t-fast),background var(--t-fast),color var(--t-fast);}
@@ -727,8 +800,16 @@ button{background:none;border:none;cursor:pointer;}
 }
 .mc:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 10px 26px rgba(0,0,0,.35);}
 :root[data-theme="light"] .mc:hover{box-shadow:0 10px 24px rgba(24,20,14,.12);}
-.mc-thumb{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--surface2);display:block;}
-.mc-thumb-placeholder{width:100%;aspect-ratio:16/9;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--ink4);}
+/* U5. A full-width 16:9 image on every card made the evidence grid a video
+   wall: YouTube was 97 of 407 documents and roughly 60% of the visible screen,
+   because it is the only source that ships pictures. For this reader the
+   thumbnail is the least informative attribute a document has — source, date,
+   reach and stance all rank above it and were all smaller. A 21:9 strip keeps
+   the visual identifier and the platform cue while handing the space back to
+   the text, and every card is now closer to the same height whether or not its
+   source had an image to give. */
+.mc-thumb{width:100%;aspect-ratio:21/9;object-fit:cover;background:var(--surface2);display:block;}
+.mc-thumb-placeholder{width:100%;aspect-ratio:21/9;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink4);}
 .mc-body{padding:var(--s3) var(--s3) var(--s2);flex:1;display:flex;flex-direction:column;}
 .mc-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
 .mc-badge{width:19px;height:19px;border-radius:var(--r-xs);display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff;flex:none;}
@@ -748,11 +829,13 @@ button{background:none;border:none;cursor:pointer;}
   color:var(--ink3);border:1px solid var(--line);border-radius:4px;padding:1px 5px;}
 .mc-cred.state{background:var(--state-tint);color:var(--state);}
 .mc-cred.low{background:var(--neg-tint);color:var(--neg);}
-.mc-title{font-size:var(--fs-sm);font-weight:600;color:var(--ink);line-height:1.4;margin-bottom:5px;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.mc-excerpt{font-size:var(--fs-cap);color:var(--ink2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:6px;}
+.mc-title{font-size:var(--fs-sm);font-weight:600;color:var(--ink);line-height:1.4;margin-bottom:5px;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+.mc-excerpt{font-size:var(--fs-cap);color:var(--ink2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:6px;}
 .mc-foot{display:flex;align-items:center;gap:6px;margin-top:auto;}
 .mc-author{font-size:var(--fs-micro);color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;}
-.mc-time{font-size:var(--fs-micro);color:var(--ink3);white-space:nowrap;margin-left:auto;font-family:var(--mono);}
+/* The date is evidence, not metadata: in a corpus spanning years it decides
+   whether a document belongs in a present-tense assessment at all. */
+.mc-time{font-size:var(--fs-cap);color:var(--ink2);white-space:nowrap;margin-left:auto;font-family:var(--mono);font-variant-numeric:tabular-nums;}
 .mc-pills{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px;}
 .mpill{font-size:var(--fs-micro);font-weight:600;letter-spacing:.03em;padding:2px 7px;border-radius:var(--pill);text-transform:uppercase;}
 .mpill.positive{background:var(--pos-tint);color:var(--pos);}
@@ -785,6 +868,129 @@ button{background:none;border:none;cursor:pointer;}
 .pcolors{display:none;}
 
 /* ── Language ── */
+/* A collection gap is a finding about the evidence, so it is drawn at the
+   weight of a finding, not at the weight of a legend. */
+.lang-gap{display:flex;gap:var(--s3);align-items:flex-start;margin-bottom:var(--s4);
+  padding:var(--s3) var(--s4);border-radius:var(--r);line-height:1.6;
+  font-size:var(--fs-cap);color:var(--ink);
+  background:color-mix(in srgb,var(--neg) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--neg) 40%,transparent);}
+.lang-gap i{color:var(--neg);font-size:15px;flex:none;margin-top:2px;}
+.lang-gap b{font-weight:650;}
+.lang-gap.soft{background:color-mix(in srgb,var(--warn) 10%,transparent);
+  border-color:color-mix(in srgb,var(--warn) 35%,transparent);}
+.lang-gap.soft i{color:var(--warn);}
+
+/* "What changed" — a headline, so it reads before the prose beneath it. */
+.cs-card{margin:var(--s4) 0;padding:var(--s4) var(--s5);border-radius:var(--r);
+  background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);}
+.cs-card.alert{border-left-color:var(--warn);}
+.cs-h{font-size:var(--fs-micro);letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink3);margin-bottom:var(--s3);}
+.cs-bits{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);}
+.cs-bit{font-size:var(--fs-sm);color:var(--ink2);}
+.cs-bit b{color:var(--ink);font-weight:650;font-variant-numeric:tabular-nums;}
+.cs-bit.alert b,.cs-bit.alert{color:var(--warn);}
+.cs-bit.quiet{color:var(--ink3);}
+.cs-note{font-size:var(--fs-cap);color:var(--ink3);margin-top:var(--s3);line-height:1.55;}
+.cs-note a{color:var(--accent2);}
+
+/* Brief typography. The run-in label carries the structure, so it is set as a
+   label rather than as bold text inside a paragraph. */
+.report-body .bf-h{font-size:var(--fs-sm);font-weight:650;color:var(--ink);
+  letter-spacing:-.01em;margin:var(--s5) 0 var(--s2);}
+.report-body .bf-h.h1{font-size:var(--fs-md);margin-top:0;}
+.report-body p{margin:0 0 var(--s3);line-height:1.68;}
+.report-body p.bf-r b{display:block;font-size:var(--fs-micro);letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink3);font-weight:600;margin-bottom:3px;}
+.report-body ul{margin:0 0 var(--s3);padding-left:1.15em;}
+.report-body li{margin-bottom:4px;line-height:1.62;}
+.report-body code{font-family:var(--mono);font-size:.9em;background:var(--on-glass);
+  border-radius:3px;padding:1px 4px;}
+
+/* A cluster card only looks like a control when it is one. */
+.risk-cell.off{opacity:.72;border-style:dashed;}
+.risk-cell.off .risk-num{color:var(--ink4);}
+.risk-cell.off .risk-band{color:var(--ink4);text-transform:none;letter-spacing:0;}
+.rk-cov.off{color:var(--ink4);font-style:italic;font-family:inherit;}
+.xp-why.unavail{color:var(--ink2);}
+
+.cd-list{margin-top:var(--s3);display:flex;flex-direction:column;gap:var(--s2);}
+.cd-item{padding-left:var(--s3);border-left:2px solid var(--line);}
+.cd-item.cut{border-left-color:var(--warn);}
+.cd-k{font-size:var(--fs-micro);letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink3);display:flex;align-items:baseline;gap:6px;}
+.cd-v{font-family:var(--mono);letter-spacing:0;text-transform:none;color:var(--ink4);}
+.cd-item.cut .cd-v{color:var(--warn);}
+.cd-d{font-size:var(--fs-cap);color:var(--ink2);line-height:1.55;margin-top:2px;}
+
+.ccard.live{cursor:pointer;transition:border-color var(--t-fast),background var(--t-fast);}
+.ccard.live:hover{background:var(--on-glass-hover);}
+.ccard.on{border-color:var(--accent) !important;background:var(--accent-tint);}
+.ccard-open{margin-top:var(--s2);font-size:var(--fs-micro);color:var(--accent2);font-weight:600;}
+.ccard-open.none{color:var(--ink4);font-weight:400;}
+.ac-chip.nr i:first-child{color:var(--accent2);}
+
+/* Card actions sit over the thumbnail, revealed on hover and always present for
+   keyboard and touch — an action that only exists on hover does not exist on a
+   tablet, which is where a lot of this reading happens. */
+.mc{position:relative;}
+.mc-acts{position:absolute;top:6px;right:6px;z-index:3;display:flex;gap:4px;
+  opacity:0;transition:opacity var(--t-fast);}
+.mc:hover .mc-acts,.mc:focus-within .mc-acts{opacity:1;}
+.mc-act{display:flex;align-items:center;justify-content:center;width:26px;height:26px;
+  border-radius:var(--r-sm);cursor:pointer;color:var(--ink2);
+  background:color-mix(in srgb,var(--bg2) 82%,transparent);
+  border:1px solid var(--on-glass-line);backdrop-filter:blur(6px);
+  transition:color var(--t-fast),border-color var(--t-fast),background var(--t-fast);}
+.mc-act:hover{color:var(--ink);border-color:var(--hair);}
+.mc-act.on{color:var(--accent2);border-color:var(--accent);background:var(--accent-tint);opacity:1;}
+.mc-act.drop.on{color:var(--neg);border-color:var(--neg);
+  background:color-mix(in srgb,var(--neg) 14%,transparent);}
+.mc.mk-keep{border-color:color-mix(in srgb,var(--accent) 55%,transparent);}
+.mc.mk-keep .mc-acts,.mc.mk-drop .mc-acts{opacity:1;}
+.mc.mk-drop{opacity:.5;}
+@media (hover:none){.mc-acts{opacity:1;}}
+
+.echip{cursor:pointer;transition:border-color var(--t-fast),background var(--t-fast);}
+.echip:hover:not(.empty){border-color:var(--hair);background:var(--on-glass-hover);}
+.echip.on{border-color:var(--accent);background:var(--accent-tint);}
+.echip.empty{cursor:default;opacity:.5;}
+
+.case-bar{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap;}
+.cb-n{font-size:var(--fs-cap);color:var(--ink2);}
+.cb-n b{color:var(--accent2);font-variant-numeric:tabular-nums;}
+.cb-n.quiet{color:var(--ink4);}
+.cb-b{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-micro);
+  color:var(--ink2);background:var(--on-glass);border:1px solid var(--on-glass-line);
+  border-radius:var(--r-sm);padding:5px 8px;cursor:pointer;
+  transition:color var(--t-fast),border-color var(--t-fast);}
+.cb-b:hover{color:var(--ink);border-color:var(--hair);}
+.cb-b.x:hover{color:var(--neg);border-color:var(--neg);}
+.cb-b i{font-size:12px;}
+
+.prop-note-hard{display:flex;gap:var(--s3);align-items:flex-start;margin-bottom:var(--s4);
+  padding:var(--s3) var(--s4);border-radius:var(--r);font-size:var(--fs-cap);line-height:1.6;
+  color:var(--ink);background:color-mix(in srgb,var(--warn) 11%,transparent);
+  border:1px solid color-mix(in srgb,var(--warn) 38%,transparent);}
+.prop-note-hard i{color:var(--warn);font-size:15px;flex:none;margin-top:2px;}
+.prop-row.archive{display:flex;flex-wrap:wrap;gap:var(--s3);}
+.prop-arch{display:flex;flex-direction:column;gap:3px;}
+
+.ev-merge{display:flex;align-items:flex-start;gap:6px;font-size:var(--fs-micro);
+  color:var(--ink3);margin-top:var(--s2);line-height:1.55;}
+.ev-merge i{font-size:12px;flex:none;margin-top:1px;color:var(--ink4);}
+.ev-q+.ev-q{margin-top:5px;}
+
+.ia-exs{display:flex;flex-wrap:wrap;gap:5px;margin-top:var(--s2);}
+.ia-ex{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);
+  font-size:var(--fs-micro);color:var(--ink2);background:var(--on-glass);
+  border:1px solid var(--on-glass-line);border-radius:var(--r-sm);padding:3px 7px;}
+.ia-ex b{font-weight:600;color:var(--ink3);}
+.ia-ex a{color:var(--accent2);}
+.ia-ex i{font-size:11px;color:var(--ink4);}
+.ia-ex.more{color:var(--ink4);border-style:dashed;}
+
 .lang-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:var(--s5);}
 .lang-pill{display:flex;align-items:center;gap:5px;background:var(--surface);border:1px solid var(--line);border-radius:var(--pill);padding:5px var(--s3);font-size:var(--fs-cap);color:var(--ink2);}
 .lang-pill .lnum{font-family:var(--mono);font-size:var(--fs-micro);color:var(--ink3);}
@@ -1035,7 +1241,7 @@ button{background:none;border:none;cursor:pointer;}
 /* buttons that replaced clickable divs keep the layout they had */
 .rh-q{background:none;border:none;text-align:left;font:inherit;color:inherit;cursor:pointer;padding:0;}
 .rh-del{background:none;border:none;cursor:pointer;}
-.hero-mode,.hero-chip,.filter-btn,.sort-btn,.fp-pill,.date-pill,.sort-opt,.em-chip,.em-ico,.wl-del,.top-act,.rail-icon,.wp-close,.modal-x,.thumb-btn,.fu-btn,.export-btn,.ms-btn,.wp-btn,.em-r .wh{font:inherit;letter-spacing:inherit;}
+.hero-mode,.hero-chip,.filter-btn,.sort-btn,.fp-pill,.date-pill,.sort-opt,.em-chip,.em-ico,.wl-del,.top-act,.rail-icon,.wp-close,.modal-x,.thumb-btn,.fu-btn,.export-btn,.ms-btn,.wp-btn,.em-r .wh,.echip,.cb-b,.mc-act{font:inherit;letter-spacing:inherit;}
 .ms-btn,.export-btn,.wp-btn{border:0;cursor:pointer;}
 .ms-btn.ghost{border:1px solid var(--on-glass-line);}
 .export-btn{border:1px solid var(--line);}
@@ -1855,6 +2061,7 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
           <span class="gt-count" id="gtCount" role="status" aria-live="polite"></span>
           <div class="gt-chips" id="gtChips" hidden></div>
           <div class="gt-flex"></div>
+          <div class="case-bar" id="caseBar" hidden></div>
           <button type="button" class="filter-btn" data-act="filter" aria-expanded="false" aria-controls="filterPanel"><i class="ti ti-adjustments-horizontal" aria-hidden="true"></i> Filter</button>
           <button type="button" class="sort-btn" data-act="sort" aria-expanded="false" aria-controls="sortPanel"><i class="ti ti-arrows-sort" aria-hidden="true"></i> Sort</button>
           <!-- FILTER PANEL -->
@@ -1871,6 +2078,7 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
             <div class="fp-sep"></div>
             <div class="fp-label">Date Range</div>
             <div class="date-pills" id="fpDates"></div>
+            <div class="fp-note" id="fpDateNote" hidden></div>
             <div class="fp-actions">
               <button type="button" class="fp-reset" data-act="fpreset">Reset all</button>
               <button type="button" class="fp-apply" data-act="fpapply">Done</button>
@@ -1964,7 +2172,15 @@ function ago(ts){
   var s=Math.floor((Date.now()-d)/1000);
   if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';
   if(s<86400)return Math.floor(s/3600)+'h';if(s<604800)return Math.floor(s/86400)+'d';
-  return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  /* The year is not optional. The Hezbollah corpus spanned 16.4 years — a 2006
+     opinion poll, a 2008 film clip and last week's strikes in one grid — and
+     every card read "21 Apr" with no way to tell 2011 from 2026. A document
+     whose date cannot be read is not evidence. Current year stays bare because
+     that is the common case and the noise is real; everything else is stamped. */
+  var cy=new Date().getFullYear();
+  return d.getFullYear()===cy
+    ? d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})
+    : d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
 }
 /* Hours a reader can picture. The propagation chain was printing "+21656h",
    which is precise, unreadable, and reads like an unfinished feature in the one
@@ -2227,6 +2443,7 @@ var currentCase=null,restoredAt=null;
 /* Set when an actor is clicked through from the entity map; narrows the grid to
    the documents that name it. Cleared like any other filter. */
 var entityFocus=null;
+var narrativeFocus=null;   // set by filterByNarrative; see M8
 /* Committed time window from brushing the timeline. Separate from `timeFocus`,
    which is the transient selection on the chart — brushing shows you what you
    have selected; only "Show these in results" narrows the grid. Conflating the
@@ -2445,7 +2662,7 @@ function doSearch(){
   gridState('idle');
   $('gtQuery').textContent=q;
   $('gtCount').textContent='';
-  restoredAt=null;entityFocus=null;gridTimeFocus=null;timeFocus=null;
+  restoredAt=null;entityFocus=null;narrativeFocus=null;gridTimeFocus=null;timeFocus=null;
   currentCase=addHist(q);
   var caseId=currentCase;
   showLoader();
@@ -2516,7 +2733,7 @@ function loadQ(q){
    "New" feel like it deleted the search. */
 function newSearch(){
   $('q').value='';
-  lastQ='';lastData=null;currentCase=null;restoredAt=null;entityFocus=null;
+  lastQ='';lastData=null;currentCase=null;restoredAt=null;entityFocus=null;narrativeFocus=null;
   gridTimeFocus=null;timeFocus=null;
   filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
   pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
@@ -2613,6 +2830,200 @@ function xp(title, icon, bodyHtml, open){
     '<div class="xp-body">'+bodyHtml+'</div></div>';
 }
 
+/* ── THE FINDING ────────────────────────────────────────────────────────────
+   The screen used to open on a number. That is the complaint this product has
+   had from the start — "it looks good but I don't know what to do with it" —
+   and it is a real one: 36.9 is not a finding, it is a measurement of one.
+
+   This assembles a written bottom line from what the payload actually contains.
+   Every clause is emitted ONLY when the data supports it, and no clause asserts
+   anything the backend did not compute. Where a thing is unknown the sentence
+   says so rather than quietly omitting it, because an assessment that reads
+   fluently by leaving out its gaps is worse than one that reads awkwardly.
+
+   It is deliberately not an LLM call: this must be reproducible, instant, and
+   identical for the same payload every time an analyst reloads a saved case. */
+
+function findingClauses(data){
+  var t=data.totals||{}, rel=data.relevance||{}, th=data.threat||{};
+  var co=data.coordination||{}, nar=data.narratives||[], ev=data.events||[];
+  var vel=data.velocity||{}, ents=(data.entities||{}).entities||[];
+  var c=[];
+
+  var kept=t.mentions||0;
+  var srcs=Object.keys(data.platforms||{}).filter(function(k){
+    return ((data.platforms[k]||{}).results||[]).length;}).length;
+
+  /* 1. What this is built from. Always first — the reader should know the size
+        of the evidence before reading a claim drawn from it. */
+  if(kept){
+    var s1=kept+' on-topic document'+(kept===1?'':'s')+' from '+srcs+' source'+(srcs===1?'':'s');
+    if(rel.dropped) s1+=', after removing '+rel.dropped+' that were not about this query';
+    c.push({k:'base', t:s1+'.'});
+  }
+
+  /* 2. What is being said. The top narrative's own claim, quoted from the
+        model's output — not a paraphrase of a paraphrase. */
+  if(nar.length){
+    var n0=nar[0];
+    var claim=(n0.key_claim||n0.label||'').trim();
+    if(claim){
+      var lead='The dominant narrative is ';
+      c.push({k:'claim', t:lead+'"'+claim.replace(/\s+$/,'').replace(/\.$/,'')+'"'+
+        (nar.length>1?', one of '+nar.length+' distinct narratives.':'.')});
+    }
+  }else{
+    c.push({k:'claim', t:'No distinct narrative clusters were identified.', weak:true});
+  }
+
+  /* 3. Who. Named actors only — never inferred. */
+  if(ents.length){
+    var top=ents.slice(0,3).map(function(e){return e.name;}).filter(Boolean);
+    if(top.length) c.push({k:'actors', t:'Named most often: '+top.join(', ')+'.'});
+  }
+
+  /* 4. Did it do anything offline. The distinction between a hashtag that
+        trended and a campaign that had an effect. */
+  if(ev.length){
+    var kinds={};
+    ev.forEach(function(e){ if(e&&e.kind) kinds[e.kind]=(kinds[e.kind]||0)+1; });
+    c.push({k:'events', t:ev.length+' real-world event'+(ev.length===1?'':'s')+
+      ' are evidenced in the corpus'+(kinds.protest?', including protest activity':'')+'.'});
+  }
+
+  /* 5. Coordination — and the honesty constraint. An unbanded score is a
+        magnitude with nothing to compare against and must not read as severity. */
+  var cl=(co.clusters||[]);
+  if(cl.length){
+    var acc=cl.reduce(function(a,x){return a+(x.actor_count||0);},0);
+    var ct=acc+' account'+(acc===1?'':'s')+' in '+cl.length+' cluster'+(cl.length===1?'':'s')+
+           ' show coordinated posting';
+    if(co.risk==='low'||co.risk==='medium'||co.risk==='high'){
+      ct+=' ('+co.risk+' against a matched baseline)';
+    }else{
+      ct+=', though with no matched baseline configured, the scale of it is not yet knowable';
+    }
+    c.push({k:'coord', t:ct+'.'});
+  }else if(co.coordination_score!==undefined&&co.coordination_score!==null){
+    c.push({k:'coord', t:'No coordinated cluster was found in this corpus.', weak:true});
+  }
+
+  /* 6. Did the coordination work — captured vs manufactured reach. */
+  var re=co.reach||{};
+  if(re.manufactured_share!==null&&re.manufactured_share!==undefined){
+    var pctv=(re.manufactured_share*100);
+    c.push({k:'reach', t:(pctv<5
+      ? 'Reach is overwhelmingly from accounts outside that cluster ('+
+        (100-pctv).toFixed(1)+'%), consistent with a narrative that was picked up rather than propped up.'
+      : pctv<50
+      ? pctv.toFixed(1)+'% of measurable reach came from the cluster itself — above the 0.1–5.3% band seen in confirmed operations.'
+      : pctv.toFixed(0)+'% of measurable reach is the cluster\'s own accounts: it is largely talking to itself.')});
+  }
+
+  /* 7. Direction of travel. */
+  if(vel.acceleration&&vel.acceleration!=='stable'){
+    c.push({k:'velocity', t:'Volume is currently '+vel.acceleration+'.'});
+  }
+  return c;
+}
+
+function findingConfidence(data){
+  var th=data.threat||{}, t=data.totals||{};
+  var kept=t.mentions||0, deg=(data.degraded||[]).length;
+  var conf=th.confidence;
+  var word = conf===undefined||conf===null
+    ? (kept>=40?'moderate':kept>=12?'low':'very low')
+    : (conf>=80?'high':conf>=55?'moderate':conf>=30?'low':'very low');
+  return {word:word, value:(conf===undefined?null:conf), degraded:deg, docs:kept};
+}
+
+function renderFinding(data){
+  // No evidence, no finding. A page that states "no narrative clusters were
+  // identified" over zero documents is describing an empty search as though it
+  // were a result — the caller shows an empty state instead.
+  if(!((data.totals||{}).mentions)) return '';
+  var cl=findingClauses(data);
+  if(!cl.length) return '';
+  var cf=findingConfidence(data);
+  var th=data.threat||{};
+  var unknown=(th.band==='unknown'||th.score===undefined||th.score===null);
+
+  // Every clause is kept, negatives included. An earlier version dropped the
+  // "weak" ones whenever a positive clause existed, which meant "no narrative
+  // clusters were identified" and "no coordinated cluster was found" silently
+  // vanished from any finding that had anything else to say — deleting exactly
+  // the absences an analyst needs to see. Weakness now only changes emphasis.
+  var body=cl.map(function(x){
+    return '<span class="fd-c fd-'+x.k+(x.weak?' fd-weak':'')+'">'+esc(x.t)+'</span>';
+  }).join(' ');
+
+  var h='<div class="finding">';
+  h+= '<div class="fd-eyebrow">The finding</div>';
+  h+= '<p class="fd-body">'+body+'</p>';
+
+  h+= '<div class="fd-foot">';
+  h+=   '<div class="fd-conf"><span class="fd-conf-w">'+esc(cf.word)+'</span>'+
+        '<span class="fd-conf-l">confidence</span></div>';
+  if(!unknown){
+    h+= '<div class="fd-sep"></div>'+
+        '<div class="fd-score"><span class="fd-score-n">'+esc(th.score)+'</span>'+
+        '<span class="fd-score-l">threat · '+esc(th.band||'—')+'</span></div>';
+  }
+  h+=   '<div class="fd-sep"></div>'+
+        '<div class="fd-basis">'+cf.docs+' document'+(cf.docs===1?'':'s')+
+        (cf.degraded?' · '+cf.degraded+' collection problem'+(cf.degraded===1?'':'s'):'')+'</div>';
+  h+= '</div>';
+  h+='</div>';
+  return h;
+}
+
+/* ── WHAT WOULD CHANGE THIS ─────────────────────────────────────────────────
+   Stated before the detail, not after it. An analyst who is going to repeat a
+   claim needs its defeaters before they repeat it, not in a footnote below the
+   fold. Every entry is derived from the payload — none is boilerplate. */
+function renderLimits(data){
+  var L=[], rel=data.relevance||{}, co=data.coordination||{}, t=data.totals||{};
+  var deg=data.degraded||[], ee=data.engine_errors||{}, pr=data.propagation||{};
+  var nt=data.narrative_tracking||{};
+
+  (deg||[]).forEach(function(d){
+    L.push({t:'Collection was incomplete', d:String(d)});
+  });
+  Object.keys(ee||{}).forEach(function(k){
+    L.push({t:'The '+k.replace(/_/g,' ')+' stage did not return', d:String(ee[k])});
+  });
+  if(co.risk==='unbanded'||co.risk==='unknown'){
+    L.push({t:'Coordination has no baseline',
+            d:co.caveat||'No matched organic baseline is configured, so the coordination figure is a magnitude with nothing to compare it against.'});
+  }
+  if(pr.undated){
+    L.push({t:pr.undated+' document'+(pr.undated===1?'':'s')+' carry no usable date',
+            d:'They inform the findings but are excluded from every timing figure, including first-seen and spread.'});
+  }
+  if((t.mentions||0)<12){
+    L.push({t:'The corpus is thin',
+            d:(t.mentions||0)+' on-topic documents is below the volume at which ratio-based scores are stable. Read every figure here as indicative.'});
+  }
+  if(nt&&nt.semantic===false){
+    L.push({t:'Narratives were grouped on wording, not meaning',
+            d:'No embedding backend is configured, so a claim restated in different words may appear here as two separate narratives.'});
+  }
+  if(rel.noise_ratio>0.65){
+    L.push({t:'Most of what was collected was off-topic',
+            d:Math.round(rel.noise_ratio*100)+'% was removed by the relevance gate. A high ratio can mean the query is ambiguous as much as that the sources were noisy.'});
+  }
+  if(!L.length) return '';
+
+  return '<div class="limits">'+
+    '<div class="limits-head">What would change this assessment</div>'+
+    '<div class="limits-grid">'+
+      L.slice(0,6).map(function(x){
+        return '<div class="limit"><div class="limit-t">'+esc(x.t)+'</div>'+
+               '<div class="limit-d">'+esc(x.d)+'</div></div>';
+      }).join('')+
+    '</div></div>';
+}
+
 function renderThreatBlock(data){
   var th=data.threat||{};
   if(th.score===undefined||th.score===null)return'';
@@ -2650,6 +3061,11 @@ function renderThreatBlock(data){
              : '')+
            'Severity and confidence are never folded together: a confident low score and an '+
            'unreliable high score demand opposite responses.'+
+           /* U1. The figure used to be a bare 94.5 with nothing behind it, sitting
+              directly above two caveats saying the evidence was incomplete. Each
+              gate that pulled it down is now named with the sentence that
+              justifies it, so the number can be argued with instead of ignored. */
+           confDrivers(th)+
          '</div>'+
        '</div>'+
      '</div>';
@@ -2690,14 +3106,24 @@ function renderThreatBlock(data){
                   .concat(rk.filter(function(k){return ORDER.indexOf(k)<0;}));
     keys.forEach(function(k){
       var d=risk[k]||{};
-      h+='<div class="risk-cell '+bandClass(d.band)+'" data-act="xprisk" data-v="'+esc(k)+'" '+
-           'role="button" tabindex="0" aria-label="'+esc(riskLabel(k))+' — open explanation">'+
+      /* U7. A dimension with no referent must not be drawn as a measurement.
+         "Operational 73.8 High" was the largest number on a Hezbollah query and
+         answered a question nobody had asked — operational risk to whom? An
+         empty bar and a zero would both read as "no operational risk", which is
+         a different and equally false claim, so the withheld case gets no bar
+         at all and says why on its face. */
+      var off=(d.available===false)||d.score===undefined||d.score===null;
+      h+='<div class="risk-cell '+(off?'off':bandClass(d.band))+'" data-act="xprisk" data-v="'+esc(k)+'" '+
+           'role="button" tabindex="0" aria-label="'+esc(riskLabel(k))+
+           (off?' — not assessed':' — open explanation')+'">'+
            '<i class="ti ti-info-circle rk-more" aria-hidden="true"></i>'+
            '<div class="risk-name">'+esc(riskLabel(k))+'</div>'+
-           '<div class="risk-val"><span class="risk-num">'+(d.score!==undefined?d.score:'—')+'</span>'+
-             '<span class="risk-band">'+esc(d.band||'')+'</span></div>'+
-           '<div class="risk-track"><div class="risk-fill" style="width:'+(d.score||0)+'%"></div></div>'+
-           (d.coverage!==undefined?'<div class="rk-cov">'+d.coverage+'% of signals available</div>':'')+
+           '<div class="risk-val"><span class="risk-num">'+(off?'—':d.score)+'</span>'+
+             '<span class="risk-band">'+(off?'not assessed':esc(d.band||''))+'</span></div>'+
+           (off?'':'<div class="risk-track"><div class="risk-fill" style="width:'+(d.score||0)+'%"></div></div>')+
+           (off
+             ? '<div class="rk-cov off">needs a configured subject</div>'
+             : (d.coverage!==undefined?'<div class="rk-cov">'+d.coverage+'% of signals available</div>':''))+
          '</div>';
     });
     h+='</div>';
@@ -2705,6 +3131,7 @@ function renderThreatBlock(data){
     h+='<div class="rk-panel">';
     keys.forEach(function(k){
       var d=risk[k]||{},x=RISK_EXPLAIN[k]||{};
+      var offX=(d.available===false)||d.score===undefined||d.score===null;
       h+='<div class="xp on" id="rk-'+esc(k)+'" hidden>'+
         '<button type="button" class="xp-head" data-act="xp" aria-expanded="true">'+
           '<i class="ti ti-shield-half" aria-hidden="true"></i><span>'+esc(riskLabel(k))+
@@ -2712,6 +3139,9 @@ function renderThreatBlock(data){
           (d.coverage!==undefined?' · '+d.coverage+'% of signals available':'')+'</span>'+
           '<i class="ti ti-chevron-right chev" aria-hidden="true"></i></button>'+
         '<div class="xp-body">'+
+          (offX&&d.reason
+            ? '<div class="xp-why unavail"><b>Not assessed.</b> '+esc(d.reason)+'</div>'
+            : '')+
           (x.q?'<div class="xp-why"><b>'+x.q+'</b> '+x.d+'</div>':'')+
           factorRows(d.factors)+
         '</div></div>';
@@ -2719,9 +3149,19 @@ function renderThreatBlock(data){
     h+='</div>';
   }
 
-  if((th.caveats||[]).length){
+  /* D3. The corpus card directly above this already states kept / collected /
+     verified / snippet-only / off-topic as its headline. The purity caveat then
+     said the same three numbers again in prose, so a reader met five separate
+     statements of one piece of arithmetic and had to work out whether they
+     agreed. The caveat is dropped only when the card that supersedes it is
+     actually on screen — on any view without it, the caveat is the only place
+     the reader would learn this, and it stays. */
+  var cavs=(th.caveats||[]);
+  if((data.relevance||{}).enabled)
+    cavs=cavs.filter(function(c){return c.indexOf('off-topic and excluded')<0;});
+  if(cavs.length){
     h+='<div class="tc-caveats">';
-    th.caveats.forEach(function(c){
+    cavs.forEach(function(c){
       h+='<div class="cv"><i class="ti ti-alert-triangle"></i><span>'+esc(c)+'</span></div>';
     });
     h+='</div>';
@@ -2818,7 +3258,18 @@ function renderEventsBlock(data){
             '<span>'+esc(k.replace(/_/g,' '))+'</span>'+
             '<span class="ev-c '+esc(e.confidence||'low')+'">'+esc(e.confidence||'low')+' confidence</span>'+
           '</div>'+
-          (e.evidence?'<div class="ev-q">"'+esc(e.evidence)+'"</div>':'')+
+          /* Merging is a judgement the analyst has to be able to overturn, so
+             it is stated on the row along with every quote behind it. */
+          ((e.evidence_all&&e.evidence_all.length?e.evidence_all:(e.evidence?[e.evidence]:[]))
+            .map(function(q){return'<div class="ev-q">"'+esc(q)+'"</div>';}).join(''))+
+          (e.merged_from>1
+            ? '<div class="ev-merge"><i class="ti ti-arrow-merge"></i>'+
+              e.merged_from+' reports treated as one incident'+
+              (e.also_labelled&&e.also_labelled.length
+                ? ' — also reported as '+e.also_labelled.map(function(l){
+                    return'\u201c'+esc(l)+'\u201d';}).join(', ')
+                : '')+'</div>'
+            : '')+
         '</div></div>';
     }).join('')+
   '</div>';
@@ -2830,14 +3281,52 @@ function renderInauthBlock(data){
   var h='<div class="report-section">'+
     '<div class="report-section-title"><i class="ti ti-robot"></i>Inauthentic Amplification'+
       ' <span class="tb-badge" style="background:var(--neg)">'+nz(ia.signal_count,0)+'</span></div>';
+  /* M6. Every signal here already carries `examples` from intel.py — the
+     handles, the flooding accounts, the laundering pairs — and none of them were
+     drawn. The page therefore said "3 handle(s) resemble major-outlet names —
+     verify before citing" and gave the analyst nothing to verify. The most
+     actionable finding on the page was the one that withheld the only detail
+     that made it actionable. */
   ia.signals.forEach(function(s){
     h+='<div class="ia-sig"><div class="ia-sev '+esc(s.severity)+'"></div><div class="ia-body">'+
        '<div class="ia-type">'+esc(String(s.type||'').replace(/_/g,' '))+'</div>'+
-       '<div class="ia-desc">'+esc(s.description||'')+'</div></div></div>';
+       '<div class="ia-desc">'+esc(s.description||'')+'</div>'+
+       iaExamples(s)+
+       '</div></div>';
   });
   if(ia.method_note)h+='<div class="method-note"><b>Method:</b> '+esc(ia.method_note)+'</div>';
   h+='</div>';
   return h;
+}
+
+/* The examples arrive in three shapes depending on the signal: bare handles,
+   {author, posts}, and the state-media -> pickup pairs. Rendered as evidence
+   rows rather than a blob, because the analyst's next action is to open one. */
+function iaExamples(s){
+  var ex=s.examples;
+  if(!ex||!ex.length)return'';
+  var rows=ex.slice(0,8).map(function(e){
+    if(typeof e==='string')
+      return'<span class="ia-ex">@'+esc(e.replace(/^@/,''))+'</span>';
+    if(e&&e.author!==undefined)
+      return'<span class="ia-ex">@'+esc(String(e.author).replace(/^@/,''))+
+        '<b>'+(e.posts||0)+' posts</b></span>';
+    if(e&&(e.state_url||e.pickup_url))
+      return'<span class="ia-ex pair">'+
+        (e.state_url?'<a href="'+esc(e.state_url)+'" target="_blank" rel="noopener noreferrer">'+
+          esc(e.state_source||'state source')+'</a>':esc(e.state_source||'state source'))+
+        '<i class="ti ti-arrow-narrow-right"></i>'+
+        (e.pickup_url?'<a href="'+esc(e.pickup_url)+'" target="_blank" rel="noopener noreferrer">'+
+          esc(e.pickup_platform||'pickup')+'</a>':esc(e.pickup_platform||'pickup'))+
+        (e.similarity!==undefined?'<b>'+e.similarity+'</b>':'')+'</span>';
+    if(e&&e.url)
+      return'<span class="ia-ex"><a href="'+esc(e.url)+'" target="_blank" rel="noopener noreferrer">'+
+        esc((e.title||e.author||e.url).toString().slice(0,70))+'</a></span>';
+    return'';
+  }).filter(Boolean);
+  if(!rows.length)return'';
+  var more=ex.length>8?'<span class="ia-ex more">+'+(ex.length-8)+' more</span>':'';
+  return'<div class="ia-exs">'+rows.join('')+more+'</div>';
 }
 
 function renderGeoBlock(data){
@@ -2991,6 +3480,20 @@ function renderCoordinationBlock(data){
     h+='<div class="cd-chips">'+tkeys.map(function(k){
       return '<span class="cd-chip"><b>'+tp[k]+'</b> '+esc(CD_TRAIT[k]||k)+'</span>';
     }).join('')+'</div>';
+  }
+  /* M7. These chips counted 56 pairwise signals and one cluster was drawn
+     beneath them, with nothing explaining the gap. The funnel closes it: an
+     analyst can now tell a filter decision from an empty detector, which are
+     opposite readings of the same screen. */
+  var pf=c.pair_funnel;
+  if(pf&&pf.candidate_pairs!==undefined){
+    var lost=(pf.candidate_pairs||0)-(pf.backbone_pairs||0);
+    h+='<div class="method-note">'+
+      '<b>'+pf.candidate_pairs+'</b> account pair'+(pf.candidate_pairs===1?'':'s')+
+      ' shared at least one behavioural trait. <b>'+pf.backbone_pairs+'</b> survived the '+
+      'disparity filter'+(lost>0?' ('+lost+' did not)':'')+', forming <b>'+
+      (pf.clusters||0)+'</b> cluster'+((pf.clusters||0)===1?'':'s')+
+      ' of '+pf.min_cluster+'+ accounts. '+esc(pf.note||'')+'</div>';
   }
 
   if(clusters.length){
@@ -3365,6 +3868,119 @@ function ntEventRow(e,byId){
     '</div></div>';
 }
 
+/* ── LANGUAGE COVERAGE ──────────────────────────────────────────────────────
+   The observed "Hezbollah" run collected 399 English documents, 8 Arabic, and
+   nothing in Hebrew or Persian — the language of the subject, of the state
+   conducting operations against it, and of its sponsor. That was rendered as a
+   neutral breakdown at the same visual weight as an engagement count, so the
+   page reported what the Anglophone press says about Hezbollah and labelled it
+   Hezbollah's narrative.
+
+   The judgement is only made where it can be defended. `expansion_langs` says
+   which languages the query was actually issued in, so a language that was
+   searched for and came back empty is a measured collection failure rather than
+   a guess about what the corpus ought to contain. With no expansion data the
+   banner states the concentration and stops short of calling it a gap. */
+var LANG_NAMES={ar:'Arabic',fa:'Persian',he:'Hebrew',ru:'Russian',zh:'Chinese',
+                es:'Spanish',fr:'French',de:'German',tr:'Turkish',ur:'Urdu'};
+function renderLangGap(data){
+  var langs=data.languages||{}, rel=data.relevance||{};
+  var total=Number(langs.total_docs)||0;
+  if(total<25)return'';                       // too thin to call anything a gap
+  var counts={};
+  (langs.distribution||[]).forEach(function(l){counts[l.lang]=Number(l.count)||0;});
+  var nonEn=Number(langs.non_english_docs)||0;
+  var share=total?nonEn/total:0;
+  var asked=(rel.expansion_langs||[]).filter(function(c){return c!=='en';});
+
+  // Languages we searched in and got essentially nothing back from.
+  var empty=asked.filter(function(c){return (counts[c]||0)<Math.max(3,total*0.01);});
+
+  if(empty.length){
+    var names=empty.map(function(c){return LANG_NAMES[c]||c.toUpperCase();});
+    var found=asked.filter(function(c){return empty.indexOf(c)<0;})
+                   .map(function(c){return (LANG_NAMES[c]||c)+' '+(counts[c]||0);});
+    return'<div class="lang-gap">'+
+      '<i class="ti ti-alert-triangle" aria-hidden="true"></i>'+
+      '<div><b>Collection gap — this corpus is '+Math.round((1-share)*100)+'% English.</b> '+
+      'The query was issued in '+esc(names.join(', '))+
+      (names.length===1?' and returned':' and returned')+' almost nothing'+
+      (found.length?', against '+esc(found.join(', '))+' elsewhere':'')+'. '+
+      'Everything below is drawn from coverage <i>about</i> this subject rather than from '+
+      'the subject\'s own information space, and framing, sentiment and coordination all '+
+      'measure the reporting rather than the thing reported on.</div></div>';
+  }
+  if(share<0.05){
+    return'<div class="lang-gap soft">'+
+      '<i class="ti ti-alert-triangle" aria-hidden="true"></i>'+
+      '<div><b>'+Math.round((1-share)*100)+'% of this corpus is English.</b> '+
+      'Findings describe English-language coverage of the subject. Whether that is the '+
+      'right frame depends on the subject — for a non-Anglophone one it is a limit on '+
+      'every score on this page, not a property of the story.</div></div>';
+  }
+  return'';
+}
+
+/* The compact form of narrative tracking: what moved, above the fold. Returns
+   nothing on a first observation — a run with no history has no change to
+   report, and an empty "what changed" panel is worse than none. */
+function renderChangedSince(data){
+  var nt=data.narrative_tracking;
+  if(!nt||typeof nt!=='object'||nt.error)return'';
+  var ns=ntArr(nt.narratives),evs=ntArr(nt.events);
+  if(!ns.length)return'';
+  var maxObs=0;
+  for(var i=0;i<ns.length;i++)maxObs=Math.max(maxObs,Number(ns[i].observations)||1);
+  if(maxObs<=1)return'';                      // first observation
+
+  var c={};
+  evs.forEach(function(e){if(e&&e.kind)c[e.kind]=(c[e.kind]||0)+1;});
+  var moved=(c.birth||0)+(c.growth||0)+(c.contraction||0)+(c.merge||0)+
+            (c.split||0)+(c.death||0)+(c.drift||0);
+  var bits=[];
+  function bit(n,one,many,cls){
+    if(!n)return; bits.push('<span class="cs-bit'+(cls?' '+cls:'')+'"><b>'+n+'</b> '+
+      (n===1?one:many)+'</span>');
+  }
+  bit(c.drift,'narrative changed subject','narratives changed subject','alert');
+  bit(c.birth,'new narrative','new narratives');
+  bit(c.growth,'grew','grew');
+  bit(c.contraction,'contracted','contracted');
+  bit(c.merge,'merge','merges');
+  bit(c.split,'split','splits');
+  bit(c.death,'stopped','stopped');
+
+  return'<div class="cs-card'+(c.drift?' alert':'')+'">'+
+    '<div class="cs-h">Since the last search of this query</div>'+
+    (moved
+      ? '<div class="cs-bits">'+bits.join('')+'</div>'+
+        '<div class="cs-note">'+ns.length+' narrative'+(ns.length===1?'':'s')+
+        ' tracked, matched by document membership. Detail and history are in '+
+        '<a href="#" data-act="gonarr">Narrative identity</a> below.</div>'
+      : '<div class="cs-bits"><span class="cs-bit quiet"><b>Nothing moved.</b> '+
+        'All '+ns.length+' tracked narrative'+(ns.length===1?' held its':'s held their')+
+        ' shape since the last observation.</span></div>')+
+  '</div>';
+}
+
+/* What moved the confidence figure, and by how much. Only gates that actually
+   reduced it are returned by the scorer, so an empty list means nothing was
+   holding the number down — which is itself worth being able to see. */
+function confDrivers(th){
+  var ds=(th&&th.confidence_drivers)||[];
+  if(!ds.length)return'';
+  return'<div class="cd-list">'+ds.map(function(d){
+    var v=Number(d.value);
+    var pct=isFinite(v)?Math.round(v*100):null;
+    var weak=isFinite(v)&&v<0.999;
+    return'<div class="cd-item'+(weak?' cut':'')+'">'+
+      '<div class="cd-k">'+esc(d.label||'')+
+        (pct!==null?'<span class="cd-v">'+(weak?'\u00d7'+v:'full')+'</span>':'')+'</div>'+
+      '<div class="cd-d">'+esc(d.detail||'')+'</div>'+
+    '</div>';
+  }).join('')+'</div>';
+}
+
 function renderNarrativeTrackingBlock(data){
   var nt=data.narrative_tracking;
   if(!nt||typeof nt!=='object')return'';
@@ -3413,17 +4029,24 @@ function renderNarrativeTrackingBlock(data){
   var firstRun=ns.length>0&&maxObs<=1;
 
   // The shape of the run, before any individual line.
+  /* This strip rendered "365 / 365narratives tracked / 365new" — one number
+     three times, with two words run together. On a first run every narrative is
+     new by definition, so the birth count is the total restated and carries
+     nothing; it is only worth printing once there is a previous run to be new
+     against. */
+  function ntStat(n,word,cls){
+    return'<span class="nt-stat'+(cls?' '+cls:'')+'"><b>'+n+'</b> '+word+'</span>';
+  }
   h+='<div class="nt-strip">'+
-    '<span class="nt-stat"><b>'+ns.length+'</b>'+(ns.length===1?'narrative tracked':'narratives tracked')+'</span>'+
-    (firstRun?'':'<span class="nt-stat"><b>'+maxObs+'</b>observations at most</span>')+
-    (counts.birth?'<span class="nt-stat"><b>'+counts.birth+'</b>new</span>':'')+
-    (counts.growth?'<span class="nt-stat"><b>'+counts.growth+'</b>grew</span>':'')+
-    (counts.contraction?'<span class="nt-stat"><b>'+counts.contraction+'</b>contracted</span>':'')+
-    (counts.merge?'<span class="nt-stat"><b>'+counts.merge+'</b>merged</span>':'')+
-    (counts.split?'<span class="nt-stat"><b>'+counts.split+'</b>split</span>':'')+
-    (counts.death?'<span class="nt-stat"><b>'+counts.death+'</b>stopped</span>':'')+
-    (counts.drift?'<span class="nt-stat drift"><b>'+counts.drift+'</b>'+
-      (counts.drift===1?'subject change':'subject changes')+'</span>':'')+
+    ntStat(ns.length,ns.length===1?'narrative tracked':'narratives tracked')+
+    (firstRun?'':ntStat(maxObs,'observations at most'))+
+    (!firstRun&&counts.birth?ntStat(counts.birth,'new'):'')+
+    (counts.growth?ntStat(counts.growth,'grew'):'')+
+    (counts.contraction?ntStat(counts.contraction,'contracted'):'')+
+    (counts.merge?ntStat(counts.merge,'merged'):'')+
+    (counts.split?ntStat(counts.split,'split'):'')+
+    (counts.death?ntStat(counts.death,'stopped'):'')+
+    (counts.drift?ntStat(counts.drift,counts.drift===1?'subject change':'subject changes','drift'):'')+
   '</div>';
 
   if(firstRun){
@@ -3456,11 +4079,16 @@ function renderNarrativeTrackingBlock(data){
     for(i=0;i<Math.min(rows.length,12);i++)h+=ntRow(rows[i]);
     if(rows.length>12){
       h+='<div class="cd-actors">+'+(rows.length-12)+' further narratives tracked and not '+
-         'listed — the full set, with ids and history, is in the downloaded dossier.</div>';
+         'shown here. Export the dossier from the toolbar for the full set with ids '+
+         'and history.</div>';
     }
   }
 
-  if(rest.length){
+  /* D2. On a first observation every event is a birth, so this feed printed the
+     tracked list a second time — same items, same order — each wrapped in four
+     lines of "there is nothing to compare it against yet". The list above
+     already says everything is new; the feed's job starts on run two. */
+  if(rest.length&&!firstRun){
     h+='<div class="tc-lbl" style="margin-top:var(--s5)">Since the last observation</div>';
     for(i=0;i<Math.min(rest.length,20);i++)h+=ntEventRow(rest[i],byId);
     if(rest.length>20){
@@ -3485,7 +4113,39 @@ function renderPropagationBlock(data){
   if(!chain.length&&!prop.origin_caveat)return'';
   var h='<div class="report-section">'+
     '<div class="report-section-title"><i class="ti ti-arrows-transfer-up"></i>Propagation</div>';
-  if(chain.length>1){
+  /* U6. The chain was always drawn as nodes joined by arrows, which reads as a
+     story moving from platform to platform. On the observed run the spread was
+     16.4 years — X to Reddit "+11.6y" — so the arrows were asserting propagation
+     over what is really archive depth: which platform's index reaches furthest
+     back. The caveat underneath said exactly that and was contradicted by the
+     picture above it, and the picture is what people read.
+
+     So the presentation follows the evidence. Inside a window where a lag can
+     plausibly be transmission, the chain stays a chain. Beyond it, the arrows
+     come off and the same data is labelled for what it is. */
+  var ARCHIVE_H=24*90;                    // beyond a quarter, lag is not transmission
+  var isArchive=(prop.spread_hours||0)>ARCHIVE_H;
+  if(chain.length>1&&isArchive){
+    h+='<div class="prop-note-hard"><i class="ti ti-archive"></i><div>'+
+       '<b>This is archive depth, not a propagation chain.</b> These documents span '+
+       esc(durH(prop.spread_hours))+', so the order below records how far back each '+
+       'platform\'s index reaches — not a story moving between them. Narrow the date '+
+       'range in the grid to a window where a lag could actually be transmission.'+
+       '</div></div>'+
+      '<div class="prop-row archive">'+
+      chain.map(function(step){
+        var dd=step.dated_docs,ud=step.undated_docs;
+        return'<div class="prop-arch">'+
+          '<div class="prop-node">'+esc(pm(step.platform).n)+'</div>'+
+          '<span class="prop-lag">earliest '+
+            (step.first_seen?esc(String(step.first_seen).slice(0,10)):'—')+'</span>'+
+          ((dd!==undefined||ud!==undefined)
+            ?'<span class="prop-dated">'+(dd||0)+' dated'+((ud||0)?' · '+ud+' undated':'')+'</span>':'')+
+        '</div>';
+      }).join('')+
+    '</div>';
+  }
+  else if(chain.length>1){
     h+='<div class="prop-row">'+
       chain.map(function(step,i){
         var isO=step.platform===prop.origin;
@@ -3578,26 +4238,55 @@ function renderReport(data){
     '</span>'+
   '</div>';
 
-  // Corpus quality before the judgement. How much of what was collected is
-  // actually about the query determines how much any number below is worth,
-  // so it is stated before the numbers rather than in a footnote after them.
-  html+=renderRelevanceBlock(data);
+  // ORDER OF READING, not order of computation. The pipeline produces a
+  // relevance audit first, so the screen used to open on one — methodology
+  // before answer. An analyst opens this to learn what is going on; the way the
+  // corpus was assembled matters enormously but it is the second question, not
+  // the first.
+  //
+  //   1. the finding, in words
+  //   2. what would overturn it
+  //   3. what happened offline
+  //   4. the scored assessment behind it
+  //   5. how the corpus was built
+  //
+  html+=renderFinding(data);
+  /* M10. Monitoring work asks "what is new since Tuesday", never "what is
+     there". The tracking section that answers it sat below coordination and
+     propagation, and on the one run where it had nothing to say it spent the
+     whole screen saying so. This is the same data, read as a headline, and it
+     renders only when there is a previous observation to have changed from. */
+  html+=renderChangedSince(data);
+  html+=renderLimits(data);
 
-  // Threat assessment — the headline judgement, above the evidence.
+  // What happened offline — the difference between a hashtag that trended and
+  // a campaign that had an effect. It belongs high for that reason.
+  html+=renderEventsBlock(data);
+
+  // The scored assessment, now supporting the finding rather than being it.
   html+=renderThreatBlock(data);
 
-  // What happened offline.
-  html+=renderEventsBlock(data);
+  // Corpus quality. How much of what was collected is actually about the query
+  // determines what every number above is worth — so it stays prominent, but
+  // below the answer it qualifies rather than in front of it.
+  html+=renderRelevanceBlock(data);
 
   // Brief placeholder (filled by /api/brief)
   html+='<div class="report-section">'+
     '<div id="briefBody" class="report-body"><div class="skel w90"></div><div class="skel w75"></div><div class="skel w60"></div></div>'+
   '</div>';
 
-  // Stats inline
+  // Stats inline. "Mentions" was the corpus card's headline number printed a
+  // second time under a different word; source breadth is not stated anywhere
+  // else and is the thing that tells an analyst whether one platform is
+  // carrying the whole finding.
+  var srcN=Object.keys(data.platforms||{}).filter(function(pid){
+    return ((data.platforms[pid]||{}).results||[]).length;}).length;
   html+='<div class="inline-stats">'+
-    '<div class="istat accent"><div class="istat-val">'+num(total)+'</div><div class="istat-label">Mentions</div></div>'+
-    '<div class="istat '+(s.net>0?'pos':s.net<0?'neg':'')+'"><div class="istat-val">'+(s.net!==null&&s.net!==undefined?s.net:'—')+'</div><div class="istat-label">Net Sentiment</div></div>'+
+    '<div class="istat accent"><div class="istat-val">'+srcN+'</div><div class="istat-label">Sources with results</div></div>'+
+    /* D5. Net sentiment was printed here as a tile and again immediately below
+       as a full section with the same distribution behind it. The section is the
+       one that can be interrogated, so the tile goes and the section stays. */
     '<div class="istat state"><div class="istat-val">'+num(t.state_media||0)+'</div><div class="istat-label">State Media</div></div>'+
   '</div>';
 
@@ -3679,11 +4368,12 @@ function renderReport(data){
     }
   }
 
-  // Language distribution (Phase 3)
+  // Language distribution — and, when it is one, the collection failure in it.
   var langs=data.languages||{};
-  if(langs.distribution&&langs.distribution.length>1){
+  if(langs.distribution&&langs.distribution.length){
     html+='<div class="report-section">'+
       '<div class="report-section-title"><i class="ti ti-language"></i>Languages</div>'+
+      renderLangGap(data)+
       '<div class="lang-row">'+
         langs.distribution.map(function(l){
           return'<div class="lang-pill'+(l.lang!=='en'?' nonEn':'')+'">'+
@@ -3724,7 +4414,17 @@ function renderReport(data){
               var col=CLUSTER_COLORS[i%CLUSTER_COLORS.length];
               var vel=n.velocity||'stable';
               var velIcon=vel==='accelerating'?'↑':vel==='declining'?'↓':'→';
-              return'<div class="ccard" role="button" tabindex="0" data-act="narr" data-v="'+esc(n.label)+'" style="border-color:'+col+'22">'+
+              /* M8. This card carried role="button" and called a stub whose own
+                 comment read "For now just scroll to grid and highlight" — the
+                 brief asserted five frames and none of them could be opened.
+                 Extraction now returns the documents behind each narrative, so
+                 the card indexes into them. A narrative with no resolved
+                 documents is not drawn as clickable, because a control that
+                 looks live and is not is worse than a label. */
+              var hasDocs=(n.doc_urls&&n.doc_urls.length)?1:0;
+              return'<div class="ccard'+(hasDocs?' live':'')+'"'+
+                (hasDocs?' role="button" tabindex="0" data-act="narr" data-v="'+i+'"':'')+
+                ' style="border-color:'+col+'22">'+
                 '<div class="ccard-top">'+
                   '<div class="ccard-dot" style="background:'+col+'33;border:2px solid '+col+'"></div>'+
                   '<div class="ccard-frame '+(n.framing||'neutral')+'">'+esc(n.framing||'neutral')+'</div>'+
@@ -3732,6 +4432,9 @@ function renderReport(data){
                 '<div class="ccard-label">'+esc(n.label)+'</div>'+
                 '<div class="ccard-count">×'+n.count+' posts</div>'+
                 '<div class="ccard-vel '+(vel)+'">'+velIcon+' '+vel+'</div>'+
+                (hasDocs?'<div class="ccard-open">'+n.doc_urls.length+
+                  ' source'+(n.doc_urls.length===1?'':'s')+' →</div>':
+                  '<div class="ccard-open none">no sources resolved</div>')+
               '</div>';
             }).join('')+
           '</div>'+
@@ -3751,15 +4454,28 @@ function renderReport(data){
     var sorted=ents.slice().sort(function(a,b){return(b.mentions||0)-(a.mentions||0);}).slice(0,16);
     html+='<div class="report-section">'+
       '<div class="report-section-title"><i class="ti ti-network"></i>Key Entities</div>'+
+      /* M9. These were plain divs: "Hassan Nasrallah ×4" with nothing behind
+         it. showEntityInGrid already existed and was reachable only from the
+         entity map, so the most-read list of actors on the page was the one
+         list you could not open. The count shown is now the number of documents
+         the chip will actually produce, because a chip reading ×4 that filters
+         to 11 (or to none) is worse than no number. */
       '<div class="ent-chips">'+
         sorted.map(function(e){
-          return'<div class="echip '+(e.type||'')+'">'+
+          var n=entDocCount(e.name);
+          return'<button type="button" class="echip '+(e.type||'')+
+              (entityFocus===e.name?' on':'')+(n?'':' empty')+'"'+
+              (n?' data-act="entgrid" data-v="'+esc(e.name)+'"':' disabled')+
+              ' title="'+(n?'Show the '+n+' document'+(n===1?'':'s')+' mentioning this actor'
+                            :'No document in this corpus matches this name')+'">'+
             '<span class="etype">'+esc(e.type||'')+'</span>'+
             '<span class="ename">'+esc(e.name)+'</span>'+
-            '<span class="ement">×'+e.mentions+'</span>'+
-          '</div>';
+            '<span class="ement">'+(n||0)+'</span>'+
+          '</button>';
         }).join('')+
       '</div>'+
+      '<div class="method-note">Counts are documents in this corpus whose text names the '+
+      'actor. Click one to filter the evidence grid to it.</div>'+
     '</div>';
   }
 
@@ -4872,8 +5588,8 @@ function renderTimelineView(data){
           '<div class="tl-meta"><span class="tl-plat">'+esc(m.n)+'</span>'+
             '<span class="tl-time">'+esc(fmtTs(i.timestamp))+'</span>'+
             (i.sentiment&&i.sentiment!=='unscored'?'<span class="mpill '+esc(i.sentiment)+'">'+esc(i.sentiment)+'</span>':'')+
-            (i.relevance!==undefined?'<span class="rl-pill '+(i.relevance>=0.65?'v':'u')+'">'+
-              (i.relevance>=0.65?'match':'snippet')+'</span>':'')+'</div>'+
+            (i.relevance!==undefined&&i.relevance<0.65
+              ?'<span class="rl-pill u">snippet only</span>':'')+'</div>'+
           '<div class="tl-title">'+esc((i.title_en||i.title||i.excerpt_en||i.excerpt||'').slice(0,150))+'</div>'+
         '</div></a>';
     }).join('')+'</div></div>';
@@ -5019,7 +5735,7 @@ function requestBrief(data){
     .then(function(j){
       if(j.brief){
         briefState='ready';
-        briefHTML=esc(j.brief).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\n\n/g,'<br/><br/>').replace(/\n/g,'<br/>');
+        briefHTML=briefMd(j.brief);
         applyBrief();
         // Show follow-up
         var fu=$('followUp');
@@ -5042,6 +5758,45 @@ function requestBrief(data){
       applyBrief();
     });
 }
+/* U8. The brief was rendered with a single bold substitution, so `**bold**`
+   worked and everything else in the model's markdown reached the screen as
+   literal characters — the observed run opened with "# INTELLIGENCE BRIEF:
+   HEZBOLLAH", hash included, as the first line of the report.
+
+   Escaping happens FIRST and the markdown is applied to the escaped string, so
+   nothing the model writes can introduce markup. The subset is deliberately
+   small: headings, bold, italic, bullets, paragraphs. Anything else is left
+   alone rather than half-rendered. */
+function briefMd(src){
+  var lines=String(src||'').replace(/\r/g,'').split('\n');
+  var out=[],para=[],list=[];
+  function inline(t){
+    return t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+            .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>')
+            .replace(/`([^`]+)`/g,'<code>$1</code>');
+  }
+  function flushPara(){ if(para.length){out.push('<p>'+inline(para.join(' '))+'</p>');para=[];} }
+  function flushList(){
+    if(list.length){out.push('<ul>'+list.map(function(x){return'<li>'+inline(x)+'</li>';}).join('')+'</ul>');list=[];}
+  }
+  function flush(){ flushPara(); flushList(); }
+  lines.forEach(function(raw){
+    var line=esc(raw).trim();
+    if(!line){flush();return;}
+    var hm=line.match(/^(#{1,4})\s+(.*)$/);
+    if(hm){flush();out.push('<div class="bf-h h'+hm[1].length+'">'+inline(hm[2])+'</div>');return;}
+    var lm=line.match(/^[-*\u2022]\s+(.*)$/);
+    if(lm){flushPara();list.push(lm[1]);return;}
+    // "**LABEL**: text" is the shape this prompt asks for — a run-in heading,
+    // not a paragraph that happens to start bold.
+    var rm=line.match(/^\*\*([^*]+)\*\*\s*:\s*(.*)$/);
+    if(rm){flush();out.push('<p class="bf-r"><b>'+rm[1]+'</b>'+(rm[2]?' '+inline(rm[2]):'')+'</p>');return;}
+    flushList(); para.push(line);
+  });
+  flush();
+  return out.join('')||esc(String(src||''));
+}
+
 /* renderReport() replaces #report wholesale on every tab switch, so the brief is
    re-applied from state rather than re-fetched. Switching tabs while it was in
    flight used to strand three skeleton bars that never resolved. */
@@ -5049,6 +5804,23 @@ function applyBrief(){
   var el=$('briefBody');if(!el)return;
   if(briefState==='loading')return;         // skeletons are already correct
   if(briefHTML)el.innerHTML=briefHTML;
+}
+
+/* How many documents an entity chip will actually produce. Same normalisation
+   the grid filter uses, so the number on the chip and the number in the grid
+   cannot disagree. */
+function entDocCount(name){
+  if(!name||!lastData)return 0;
+  var needle=entNorm(name);
+  needle=needle.slice(1,-1);
+  if(!needle)return 0;
+  var n=0;
+  allItems().forEach(function(it){
+    var blob=entNorm((it.title||'')+' '+(it.title_en||'')+' '+(it.excerpt||'')+' '+
+                     (it.excerpt_en||'')+' '+(it.author||''));
+    if(blob.indexOf(needle)>=0)n++;
+  });
+  return n;
 }
 
 /* ── GRID ── */
@@ -5070,6 +5842,12 @@ function filterItems(items){
                        (it.excerpt_en||'')+' '+(it.author||''));
       if(blob.indexOf(efc)<0)return false;
     }
+    /* A dismissal hides a document from this reader. It deliberately does NOT
+       feed back into any score: the assessment is computed over the corpus that
+       was collected, and a figure that quietly moved because someone clicked
+       would not be reproducible by the next person to open the same case. */
+    if(!showDismissed&&caseMarks[it.url]===MARK_DROP)return false;
+    if(narrativeFocus&&!narrativeFocus.urls.has(it.url))return false;
     if(gridTimeFocus){
       var td=parseTs(it.timestamp);
       if(!td)return false;
@@ -5085,7 +5863,9 @@ function filterItems(items){
     if(!filterState.srcTypes.has('all')&&!filterState.srcTypes.has(it.source_type||'social'))return false;
     if(filterState.dateRange!=='all'){
       var dt=parseTs(it.timestamp);if(!dt)return false;
-      var now=Date.now();var ms={'24h':86400000,'7d':604800000,'30d':2592000000};
+      var now=Date.now();
+      var ms={'24h':86400000,'7d':604800000,'30d':2592000000,
+              '90d':7776000000,'1y':31536000000};
       if(ms[filterState.dateRange]&&(now-dt)>ms[filterState.dateRange])return false;
     }
     return true;
@@ -5100,7 +5880,23 @@ function sortItems(items){
   var out=items.slice();
   // Relevance is the default because it answers the question the grid is for:
   // what is this actually about. Newest answers a different one.
-  if(sortMode==='relevance')out.sort(function(a,b){var d=rel(b)-rel(a);return d||(eng(b)-eng(a));});
+  /* U2. The gate scores most surviving documents at 1.00 — they all contain the
+     query — so `rel(b)-rel(a)` was almost always 0 and the whole sort collapsed
+     into the engagement tiebreak sitting behind it. On "Hezbollah" that put the
+     2008 Zohan hotline clip (7.3M views) at position one under a control
+     labelled "Most relevant".
+     Recency is the second term because relevance to a present-tense question
+     decays with age, and it separates the 2008 clip from this week's reporting
+     without any appeal to popularity. Engagement stays, third, as the last
+     resort it always should have been. */
+  if(sortMode==='relevance')out.sort(function(a,b){
+    var d=rel(b)-rel(a); if(d)return d;
+    var ta=ts(a),tb=ts(b);
+    if(ta!==tb&&isFinite(ta)&&isFinite(tb))return tb-ta;
+    if(isFinite(tb)&&!isFinite(ta))return 1;
+    if(isFinite(ta)&&!isFinite(tb))return -1;
+    return eng(b)-eng(a);
+  });
   else if(sortMode==='newest')out.sort(function(a,b){return ts(b)-ts(a);});
   else if(sortMode==='oldest')out.sort(function(a,b){var x=ts(a),y=ts(b);if(x===-Infinity)return 1;if(y===-Infinity)return-1;return x-y;});
   else if(sortMode==='eng_desc')out.sort(function(a,b){return eng(b)-eng(a);});
@@ -5108,6 +5904,84 @@ function sortItems(items){
   else if(sortMode==='neg')out.sort(function(a,b){return(sr[b.sentiment]==null?-9:sr[b.sentiment])-(sr[a.sentiment]==null?-9:sr[a.sentiment]);});
   else if(sortMode==='platform')out.sort(function(a,b){return pm(a._p).n.localeCompare(pm(b._p).n);});
   return out;
+}
+
+/* ── CASE MARKS (M5) ─────────────────────────────────────────────────────────
+   Nothing on this page could be acted on. There was no way to flag a document,
+   dismiss one as noise, or attach one to a case; Full Dossier exported
+   everything or nothing. So the expensive part of the work — the analyst
+   reading 407 documents and deciding which twelve matter — was thrown away when
+   the tab closed, and the next search started from the same 407.
+
+   Marks are per query and live in localStorage: this is the analyst's own
+   machine and their own judgement, and it must survive a reload. The mark is
+   never allowed to change a score. Dismissing a document removes it from the
+   analyst's view, not from the corpus the assessment was computed over —
+   letting a click silently re-weight a threat number would make every figure on
+   the page depend on who had been reading it. */
+var MARK_KEEP='keep', MARK_DROP='drop';
+var caseMarks={};            // url -> 'keep' | 'drop'
+var showDismissed=false;
+function marksKey(q){return'xtag-marks:'+String(q||'').toLowerCase().trim();}
+function loadMarks(q){
+  caseMarks={};showDismissed=false;
+  try{
+    var raw=localStorage.getItem(marksKey(q));
+    if(raw){var o=JSON.parse(raw);if(o&&typeof o==='object')caseMarks=o;}
+  }catch(e){caseMarks={};}
+}
+function saveMarks(){
+  if(!lastQ)return;
+  try{
+    var n=0,k;for(k in caseMarks)if(caseMarks[k])n++;
+    if(n)localStorage.setItem(marksKey(lastQ),JSON.stringify(caseMarks));
+    else localStorage.removeItem(marksKey(lastQ));
+  }catch(e){/* private mode, quota, blocked site data — marks stay in memory */}
+}
+function markDoc(url,mark){
+  if(!url)return;
+  if(caseMarks[url]===mark)delete caseMarks[url];else caseMarks[url]=mark;
+  saveMarks();renderGrid(allItems());updateToolbarState();
+}
+function markCounts(){
+  var keep=0,drop=0,k;
+  for(k in caseMarks){if(caseMarks[k]===MARK_KEEP)keep++;else if(caseMarks[k]===MARK_DROP)drop++;}
+  return{keep:keep,drop:drop};
+}
+/* The case file is the marked subset, exported as the analyst built it. */
+function exportCase(fmt){
+  var keep=allItems().filter(function(it){return caseMarks[it.url]===MARK_KEEP;});
+  if(!keep.length)return;
+  var name='xtag-case-'+String(lastQ||'query').replace(/[^a-z0-9]+/gi,'-').toLowerCase()+
+           '-'+new Date().toISOString().slice(0,10);
+  var blob,ext;
+  if(fmt==='csv'){
+    var cols=['platform','author','date','title','excerpt','url','relevance','sentiment','engagement'];
+    function cell(v){v=(v===null||v===undefined)?'':String(v);
+      return'"'+v.replace(/"/g,'""').replace(/\r?\n/g,' ')+'"';}
+    var rows=[cols.join(',')].concat(keep.map(function(it){
+      var d=parseTs(it.timestamp);
+      return[cell(pm(it._p).n),cell(it.author),cell(d?d.toISOString():''),
+             cell(it.title_en||it.title),cell(it.excerpt_en||it.excerpt),cell(it.url),
+             cell(it.relevance),cell(it.sentiment),cell(it.engagement)].join(',');
+    }));
+    blob=new Blob([rows.join('\n')],{type:'text/csv;charset=utf-8'});ext='csv';
+  }else{
+    blob=new Blob([JSON.stringify({
+      query:lastQ, exported_at:new Date().toISOString(),
+      marked_relevant:keep.length, dismissed:markCounts().drop,
+      note:'Marks are the analyst\u2019s own and did not affect any score in the report.',
+      documents:keep.map(function(it){
+        return{platform:it._p,author:it.author,timestamp:it.timestamp,
+               title:it.title_en||it.title,excerpt:it.excerpt_en||it.excerpt,
+               url:it.url,relevance:it.relevance,relevance_basis:it.relevance_basis,
+               sentiment:it.sentiment,engagement:it.engagement,views:it.views};})
+    },null,2)],{type:'application/json'});ext='json';
+  }
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=name+'.'+ext;
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},0);
 }
 
 var GRID_CAP=300;
@@ -5131,6 +6005,9 @@ function docReach(it){
 }
 
 function renderGrid(rawItems){
+  /* Marks are per query; loading them here keeps a restored case and a fresh
+     search on the same path without a second call site to forget. */
+  if(renderGrid._q!==lastQ){renderGrid._q=lastQ;loadMarks(lastQ);}
   var items=sortItems(filterItems(rawItems));
   var grid=$('mediaGrid');
   var shown=Math.min(items.length,GRID_CAP);
@@ -5153,7 +6030,13 @@ function renderGrid(rawItems){
     var credH=cred==='high'?'<span class="mc-cred high">✓</span>':cred==='state'?'<span class="mc-cred state">⚠</span>':cred==='low'?'<span class="mc-cred low">↓</span>':'';
     var st=it.source_type||'social';
     var pills='';
-    if(it.sentiment)pills+='<span class="mpill '+it.sentiment+'">'+it.sentiment+'</span>';
+    /* U3. Every card in the grid read UNSCORED while the header claimed 77%
+       negative — 300 identical badges asserting the absence of a number the
+       page displays two panels up. An absent score is not a property of the
+       document worth a pill; it belongs in the sentiment block's own
+       "unscored" count, where it already is. */
+    if(it.sentiment&&it.sentiment!=='unscored')
+      pills+='<span class="mpill '+it.sentiment+'">'+it.sentiment+'</span>';
     if(it.framing&&it.framing!=='neutral')pills+='<span class="mpill framing">'+it.framing+'</span>';
     if(st!=='social'&&st!=='unknown')pills+='<span class="mpill '+st+'">'+(SRC_LABELS[st]||st)+'</span>';
     // Language handling (Phase 3): show translation, allow toggle to original
@@ -5163,7 +6046,16 @@ function renderGrid(rawItems){
     var showExcerpt=it.excerpt_en||it.excerpt;
     var rtlClass=(it.rtl&&!it.translated)?' mc-rtl':'';
     var transFlag=it.translated?'<div class="translated-flag">translated from '+esc(it.language_name||lang)+'</div>':'';
-    return'<a class="mc" href="'+esc(it.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
+    var mk=caseMarks[it.url]||'';
+    return'<a class="mc'+(mk?' mk-'+mk:'')+'" href="'+esc(it.url||'#')+'" target="_blank" rel="noopener noreferrer">'+
+      '<div class="mc-acts">'+
+        '<button type="button" class="mc-act'+(mk===MARK_KEEP?' on':'')+'" data-act="mkeep" '+
+          'data-v="'+esc(it.url||'')+'" title="Mark relevant — adds to the case file" '+
+          'aria-pressed="'+(mk===MARK_KEEP)+'"><i class="ti ti-bookmark"></i></button>'+
+        '<button type="button" class="mc-act drop'+(mk===MARK_DROP?' on':'')+'" data-act="mdrop" '+
+          'data-v="'+esc(it.url||'')+'" title="Dismiss as noise — hides it from your view only" '+
+          'aria-pressed="'+(mk===MARK_DROP)+'"><i class="ti ti-eye-off"></i></button>'+
+      '</div>'+
       thumb+
       '<div class="mc-body">'+
         '<div class="mc-head">'+
@@ -5182,10 +6074,12 @@ function renderGrid(rawItems){
           '<span class="mc-time">'+ago(it.timestamp)+'</span>'+
           // Why this document is in the corpus, on the document itself. The
           // gate is a judgement about each card, so it belongs on the card.
-          (it.relevance===undefined?''
-            :'<span class="rl-pill '+(it.relevance>=0.65?'v':'u')+'" title="'+
-              esc(it.relevance_basis||'')+'">'+
-              (it.relevance>=0.65?'match':'snippet')+'</span>')+
+          /* U4. This rendered "match" on every card, because everything in the
+             grid passed the gate by construction. Only the weaker state carries
+             information, so only the weaker state is drawn. */
+          (it.relevance===undefined||it.relevance>=0.65?''
+            :'<span class="rl-pill u" title="'+esc(it.relevance_basis||'')+
+              '">snippet only</span>')+
         '</div>'+
         (pills?'<div class="mc-pills">'+pills+'</div>':'')+
         // Same separation on the card as in the totals: an impression count
@@ -5246,10 +6140,37 @@ function buildFilterPanel(){
   // Dates
   var fpD=$('fpDates');
   if(fpD){
-    fpD.innerHTML=['all','24h','7d','30d'].map(function(v){
-      var label=v==='all'?'All time':v==='24h'?'Last 24h':v==='7d'?'Last 7 days':'Last 30 days';
-      return'<button type="button" class="date-pill'+(filterState.dateRange===v?' on':'')+'" data-act="fpd" data-v="'+v+'" aria-pressed="'+(filterState.dateRange===v)+'">'+label+'</button>';
+    /* Four bands topping out at 30 days is not a date filter for this corpus.
+       The observed "Hezbollah" run spanned 16.4 years, so "All time" and "Last
+       30 days" were the only two reachable states and everything between them
+       — the quarter, the year, the period since the last escalation — had no
+       control at all. Counts are printed on each band so an empty window is
+       visible before it is chosen. */
+    var DBANDS=[['all','All time'],['24h','Last 24h'],['7d','Last 7 days'],
+                ['30d','Last 30 days'],['90d','Last 90 days'],['1y','Last year']];
+    var nowMs=Date.now(),WIN={'24h':864e5,'7d':6048e5,'30d':2592e6,'90d':7776e6,'1y':31536e6};
+    fpD.innerHTML=DBANDS.map(function(o){
+      var v=o[0],cnt;
+      if(v==='all')cnt=items.length;
+      else{
+        var w=WIN[v];
+        cnt=items.filter(function(it){var d=parseTs(it.timestamp);return d&&(nowMs-d)<=w;}).length;
+      }
+      var on=filterState.dateRange===v;
+      return'<button type="button" class="date-pill'+(on?' on':'')+(cnt?'':' empty')+
+        '" data-act="fpd" data-v="'+v+'" aria-pressed="'+on+'">'+o[1]+
+        ' <span class="fpn">'+cnt+'</span></button>';
     }).join('');
+    /* An undated document cannot satisfy any window, so it silently disappears
+       the moment one is chosen. That is correct and it is invisible, so say it. */
+    var undated=items.filter(function(it){return !parseTs(it.timestamp);}).length;
+    var note=$('fpDateNote');
+    if(note){
+      note.textContent=undated
+        ? undated+' document'+(undated===1?'':'s')+' carry no usable date and are excluded by any window below All time.'
+        : '';
+      note.hidden=!undated;
+    }
   }
 }
 /* Filter used to be deferred behind an Apply button while Sort applied
@@ -5290,7 +6211,7 @@ function setPendingDate(v){filterState.dateRange=v;commit();}
 function setRelFilter(v){filterState.rel=v;commit();}
 function resetFilters(){
   filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
-  entityFocus=null;gridTimeFocus=null;timeFocus=null;
+  entityFocus=null;narrativeFocus=null;gridTimeFocus=null;timeFocus=null;
   commit();
 }
 /* Kept so any remaining caller is harmless — Apply is now a no-op close. */
@@ -5314,11 +6235,14 @@ function activeFilterCount(){
   if(!filterState.platforms.has('all'))n+=filterState.platforms.size;
   if(!filterState.srcTypes.has('all'))n+=filterState.srcTypes.size;
   if(filterState.dateRange!=='all')n+=1;
+  if(narrativeFocus)n+=1;
   if(filterState.rel&&filterState.rel!=='all')n+=1;
   if(entityFocus)n+=1;
   if(gridTimeFocus)n+=1;
   return n;
 }
+var DATE_LABELS={all:'All time','24h':'Last 24h','7d':'Last 7 days',
+                 '30d':'Last 30 days','90d':'Last 90 days','1y':'Last year'};
 var SORT_LABELS={relevance:'Most relevant',newest:'Newest',oldest:'Oldest',
                  eng_desc:'Most engaged',pos:'Most positive',neg:'Most negative',
                  platform:'By platform'};
@@ -5339,20 +6263,43 @@ function renderActiveChips(){
         esc(SRC_LABELS[v]||v)+'<i class="ti ti-x"></i></button>');});
   if(filterState.dateRange!=='all')
     out.push('<button type="button" class="ac-chip" data-act="dropf" data-k="d" data-v="">'+
-      esc(filterState.dateRange)+'<i class="ti ti-x"></i></button>');
+      esc(DATE_LABELS[filterState.dateRange]||filterState.dateRange)+'<i class="ti ti-x"></i></button>');
   if(filterState.rel&&filterState.rel!=='all')
     out.push('<button type="button" class="ac-chip rel" data-act="dropf" data-k="r" data-v="">'+
       (filterState.rel==='verified'?'query in text':'snippet only')+'<i class="ti ti-x"></i></button>');
   if(entityFocus)
     out.push('<button type="button" class="ac-chip ent" data-act="dropf" data-k="e" data-v="">'+
       '<i class="ti ti-affiliate"></i>'+esc(entityFocus)+'<i class="ti ti-x"></i></button>');
+  if(narrativeFocus)
+    out.push('<button type="button" class="ac-chip nr" data-act="dropnarr">'+
+      '<i class="ti ti-topology-star-3"></i>'+esc(narrativeFocus.label)+'<i class="ti ti-x"></i></button>');
   if(gridTimeFocus)
     out.push('<button type="button" class="ac-chip tm" data-act="dropf" data-k="t" data-v="">'+
       '<i class="ti ti-clock"></i>'+esc(gridTimeFocus.label||'window')+'<i class="ti ti-x"></i></button>');
   el.innerHTML=out.join('');
   el.hidden=!out.length;
 }
+/* The case file has to be visible while it is being built, or the analyst is
+   marking documents into a void. */
+function renderCaseBar(){
+  var el=$('caseBar');if(!el)return;
+  var c=markCounts();
+  if(!c.keep&&!c.drop){el.hidden=true;el.innerHTML='';return;}
+  el.hidden=false;
+  el.innerHTML=
+    (c.keep?'<span class="cb-n"><b>'+c.keep+'</b> in case file</span>':
+            '<span class="cb-n quiet">nothing marked yet</span>')+
+    (c.drop?'<button type="button" class="cb-b" data-act="showdis" aria-pressed="'+showDismissed+'">'+
+      '<i class="ti ti-eye'+(showDismissed?'':'-off')+'"></i>'+c.drop+' dismissed</button>':'')+
+    (c.keep?'<button type="button" class="cb-b" data-act="expcase" data-v="csv">'+
+      '<i class="ti ti-table-export"></i>CSV</button>'+
+      '<button type="button" class="cb-b" data-act="expcase" data-v="json">'+
+      '<i class="ti ti-braces"></i>JSON</button>':'')+
+    '<button type="button" class="cb-b x" data-act="clearmarks" title="Clear all marks">'+
+      '<i class="ti ti-trash"></i></button>';
+}
 function updateToolbarState(){
+  renderCaseBar();
   var fb=document.querySelector('.filter-btn');
   if(fb){
     var n=activeFilterCount();
@@ -5388,9 +6335,17 @@ function closeAll(){
   if(sp)sp.classList.remove('show');
   setExpanded('.filter-btn',false);setExpanded('.sort-btn',false);
 }
+/* Both this and the [data-act] dispatcher are bound to `document`, and
+   stopPropagation() does not stop a sibling listener on the SAME node — only
+   stopImmediatePropagation() would. So this closer runs on every click
+   regardless of what the dispatcher did, and its behaviour must not depend on
+   which of the two was registered first. Any click on a control is left alone;
+   the panels close on clicks elsewhere. */
 document.addEventListener('click',function(e){
-  if(!e.target.closest('.filter-btn')&&!e.target.closest('.filter-panel'))$('filterPanel')&&$('filterPanel').classList.remove('show');
-  if(!e.target.closest('.sort-btn')&&!e.target.closest('.sort-panel'))$('sortPanel')&&$('sortPanel').classList.remove('show');
+  if(e.target.closest('[data-act]'))return;
+  var fp=$('filterPanel'),sp=$('sortPanel');
+  if(fp&&!e.target.closest('.filter-panel')){fp.classList.remove('show');setExpanded('.filter-btn',false);}
+  if(sp&&!e.target.closest('.sort-panel')){sp.classList.remove('show');setExpanded('.sort-btn',false);}
 });
 function pickSort(el){
   sortMode=el.dataset.sort;
@@ -5405,9 +6360,22 @@ function pickSort(el){
 }
 
 /* ── NARRATIVE CLICK FILTER ── */
-function filterByNarrative(label){
-  // For now just scroll to grid and highlight
-  var ms=$('mediaScroll');if(ms)ms.scrollIntoView({behavior:'smooth'});
+/* Narrative -> its documents. The focus is a URL set, so it is exact: these are
+   the documents the extraction cited for this frame, not a keyword search that
+   happens to look similar. */
+function filterByNarrative(idx){
+  var ns=(lastData&&lastData.narratives)||[];
+  var n=ns[Number(idx)];
+  if(!n||!n.doc_urls||!n.doc_urls.length)return;
+  if(narrativeFocus&&narrativeFocus.label===n.label){narrativeFocus=null;}
+  else{narrativeFocus={label:n.label,urls:new Set(n.doc_urls)};}
+  document.querySelectorAll('.ccard').forEach(function(c){
+    c.classList.toggle('on',!!narrativeFocus&&c.getAttribute('data-v')===String(idx));
+  });
+  renderGrid(allItems());updateToolbarState();
+  var split=$('split');
+  if(split&&!split.classList.contains('show-grid')&&window.innerWidth<860)toggleGridView();
+  var g=$('mediaGrid');if(g)g.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 /* ── SUGGESTIONS ── */
@@ -5669,7 +6637,18 @@ var ACTS={
     document.querySelectorAll('.hero-mode').forEach(function(b){
       var on=b.getAttribute('data-v')===m;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
   },
+  entgrid:function(el){
+    var name=el.getAttribute('data-v');
+    if(entityFocus===name){entityFocus=null;renderGrid(allItems());updateToolbarState();
+      el.classList.remove('on');return;}
+    window.showEntityInGrid(name);
+    document.querySelectorAll('.echip').forEach(function(c){
+      c.classList.toggle('on',c.getAttribute('data-v')===name);});
+  },
   narr:function(el){filterByNarrative(el.getAttribute('data-v'));},
+  dropnarr:function(){narrativeFocus=null;
+    document.querySelectorAll('.ccard').forEach(function(c){c.classList.remove('on');});
+    renderGrid(allItems());updateToolbarState();},
   /* Disclosure toggle used by every explainer panel. */
   xp:function(el){
     var box=el.closest('.xp');if(!box)return;
@@ -5690,6 +6669,11 @@ var ACTS={
     box.hidden=false;box.classList.add('on');el.classList.add('on');
     box.scrollIntoView({block:'nearest',behavior:'smooth'});
   },
+  gonarr:function(){
+    var t=document.querySelector('.report-section-title .ti-fingerprint');
+    var sec=t&&t.closest('.report-section');
+    if(sec)sec.scrollIntoView({behavior:'smooth',block:'start'});
+  },
   gridview:function(){toggleGridView();},
   watch:function(){openWatch();},
   closewatch:function(){closeWatch();},
@@ -5697,6 +6681,15 @@ var ACTS={
   transparency:function(){toggleTransparency();},
   filter:function(){toggleFilter();},
   sort:function(){toggleSort();},
+  mkeep:function(el,ev){if(ev){ev.preventDefault();ev.stopPropagation();}
+    markDoc(el.getAttribute('data-v'),MARK_KEEP);},
+  mdrop:function(el,ev){if(ev){ev.preventDefault();ev.stopPropagation();}
+    markDoc(el.getAttribute('data-v'),MARK_DROP);},
+  showdis:function(){showDismissed=!showDismissed;renderGrid(allItems());updateToolbarState();},
+  expcase:function(el){exportCase(el.getAttribute('data-v'));},
+  clearmarks:function(){
+    if(!confirm('Clear every mark on this query? The documents stay; only your marks go.'))return;
+    caseMarks={};showDismissed=false;saveMarks();renderGrid(allItems());updateToolbarState();},
   fpp:function(el){toggleFpPlatform(el.getAttribute('data-v'));},
   fps:function(el){toggleFpSrcType(el.getAttribute('data-v'));},
   fpd:function(el){setPendingDate(el.getAttribute('data-v'));},

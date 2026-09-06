@@ -367,7 +367,26 @@ def detect(docs: list[dict], baseline: float | None = None,
            "signals": signals,
            "flagged_urls": sorted(set(flagged)),
            "actors": len(actor_traits),
-           "trait_pairs": {k: len(v) for k, v in per_trait.items()}}
+           "trait_pairs": {k: len(v) for k, v in per_trait.items()},
+           # M7. The block reported "5 shared hashtags, 12 near-identical text,
+           # 39 synchronised timing" beside a single cluster of three Reddit
+           # crossposters, and never said what happened to the other 53. A
+           # reader could not tell whether those signals failed the filter or
+           # failed the renderer, which are opposite conclusions about the same
+           # screen. The funnel is now reported: candidate pairs in, backbone
+           # edges out, clusters formed. A signal that did not survive is a
+           # finding about the evidence, not something to hide.
+           "pair_funnel": {
+               "candidate_pairs": len(normed),
+               "backbone_pairs": len(backbone),
+               "clusters": len(cluster_out),
+               "min_cluster": min_cluster,
+               "note": ("The disparity filter keeps only edges that stand out "
+                        "against each account's own behaviour. Pairs that were "
+                        "measured but did not survive it are not shown as "
+                        "clusters, and their absence is a filter decision "
+                        "rather than an absence of signal."),
+           }}
 
     # ── The band ─────────────────────────────────────────────────────────────
     # Without a matched baseline there is no defensible band, and inventing one

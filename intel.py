@@ -27,6 +27,7 @@ see here" — the single most dangerous failure mode a threat score can have.
 
 from __future__ import annotations
 
+import os
 import re
 import math
 import logging
@@ -47,6 +48,100 @@ def _all_docs(platforms: dict) -> list:
     for group in (platforms or {}).values():
         out.extend((group or {}).get("results") or [])
     return out
+
+
+# U1: the audited "Hezbollah" corpus spanned 16.4 years and the confidence
+# figure took no notice, so a 2006 opinion poll counted toward a present-tense
+# assessment exactly as much as last week's strikes. These two constants define
+# what "current" means for that judgement and how much dating evidence has to
+# exist before the judgement is allowed at all.
+#
+# 90 days: long enough that a story with a month of build-up still reads as
+# current, short enough that last year's coverage cannot pass as this week's.
+# 20 documents: below that, a share is arithmetic on a handful of timestamps
+# rather than a property of the corpus, and the gate is skipped rather than
+# guessed (see the recency gate in score_threat).
+_RECENCY_WINDOW_DAYS = 90
+_RECENCY_MIN_DATED = 20
+
+# Publisher clocks drift and some feeds stamp a scheduled publication time, so a
+# few hours into the future is noise; anything beyond that is a broken timestamp
+# and is discarded rather than counted as maximally recent. Same tolerance the
+# velocity computation upstream already applies, for the same reason.
+_FUTURE_SKEW_HOURS = 2.0
+
+
+def _parse_ts(value):
+    """
+    Best-effort UTC datetime from whatever a source put in a document's
+    `timestamp`, or None.
+
+    Deliberately forgiving and deliberately silent: the callers here use dates
+    to weight confidence, so an unparseable date must degrade to "undated" —
+    which is excluded from the measurement — and never to a plausible-looking
+    wrong date, which would be counted as evidence.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        ts = float(value)
+        if ts > 1e12:          # milliseconds
+            ts /= 1000.0
+        try:
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+        except Exception:
+            return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if s.isdigit():
+        return _parse_ts(int(s))
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+    except Exception:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(s)
+        if dt:
+            return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+    except Exception:
+        pass
+    for fmt in ("%a %b %d %H:%M:%S %z %Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+        except Exception:
+            continue
+    return None
+
+
+def _recency_counts(docs: list) -> tuple[int, int]:
+    """
+    (usably dated documents, of which published within _RECENCY_WINDOW_DAYS).
+
+    Undated documents are counted in NEITHER figure rather than assumed old.
+    Most feeds stamp a date; the ones that do not are a source quirk, and
+    treating a missing timestamp as age would penalise a platform for its
+    metadata rather than the corpus for being stale.
+    """
+    now = datetime.now(timezone.utc)
+    dated = recent = 0
+    for d in docs:
+        dt = _parse_ts((d or {}).get("timestamp"))
+        if not dt:
+            continue
+        age_h = (now - dt).total_seconds() / 3600.0
+        if age_h < -_FUTURE_SKEW_HOURS:
+            continue
+        dated += 1
+        if age_h <= _RECENCY_WINDOW_DAYS * 24:
+            recent += 1
+    return dated, recent
 
 
 def _log_scale(value: float, full_at: float) -> float:
@@ -654,7 +749,7 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
     # half the factors dark should never present as authoritative.
     vol_conf = _clamp(_log_scale(n_docs, 250))
     engine_errors = payload.get("engine_errors") or {}
-    engine_penalty = min(35, len(engine_errors) * 12)
+    rel = payload.get("relevance") or {}
     # A8: the old formula was 0.55*coverage*100 + 0.45*vol_conf, so full signal
     # coverage alone scored 55 before a single document was read — "moderate"
     # confidence on zero evidence, and "high" on eight. Coverage answers "did
@@ -663,8 +758,152 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
     # makes that structural: below ~100 documents the whole confidence figure is
     # scaled down, and no amount of coverage escapes it.
     vol_gate = 0.35 + 0.65 * min(1.0, n_docs / 100.0)
+
+    # U1: the volume gate was the ONLY gate, and on the audited "Hezbollah" run
+    # it did nothing at all (407 documents saturates it), leaving CONFIDENCE
+    # 94.5 printed directly above two caveats this same function had just
+    # written: GDELT partially dark, and 37 of 444 collected documents discarded
+    # as off-topic. Both of those facts moved the caveat list and neither moved
+    # the number. That is precisely the failure this module's opening principle
+    # forbids — a caveat nobody is charged for is decoration, and a reader who
+    # sees 94.5 in large type does not deduct for prose underneath it.
+    #
+    # Three further gates follow, each in [0,1], each multiplicative and each
+    # named in `confidence_drivers`, so the reduction is ATTRIBUTABLE: a reader
+    # can see which condition cost what rather than being handed one
+    # unaccountable figure. They are multiplicative rather than subtractive for
+    # the same reason vol_gate is: a subtractive penalty can be outrun by a high
+    # coverage term, and these conditions are not things a good score should be
+    # able to outrun.
+
+    # ── Purity gate ──────────────────────────────────────────────────────────
+    # 407 survivors filtered out of 444 is not the same evidence base as 407
+    # clean hits. Heavy filtering means the query was ambiguous enough that the
+    # gate had to work hard, and a gate working hard has an error rate in both
+    # directions — some kept documents are noise and some dropped ones were not.
+    # The floor is 0.60 rather than 0 because the survivors are still real,
+    # read documents: noise removed is not evidence destroyed. The gate reaches
+    # that floor at 50% noise, the point past which it is the collection, not
+    # the corpus, that needs explaining.
+    purity_gate = 1.0
+    noise_ratio = rel.get("noise_ratio") if rel.get("enabled") else None
+    if isinstance(noise_ratio, (int, float)) and not isinstance(noise_ratio, bool) \
+            and noise_ratio > 0:
+        purity_gate = max(0.60, 1.0 - 0.40 * min(1.0, float(noise_ratio) / 0.50))
+
+    # ── Source gate ──────────────────────────────────────────────────────────
+    # `snap["degraded"]` names sources that went dark or returned partial data
+    # mid-run. Before U1 it produced a caveat string and touched nothing else,
+    # so a run with GDELT missing scored identically to a run with GDELT whole.
+    # Signal coverage does not cover this case: on the audited run coverage was
+    # still 90% because the GDELT-derived factors DEGRADED rather than vanished,
+    # and a tone average computed from a partial index is not a tone average.
+    #
+    # ENGINE ERRORS ARE COUNTED HERE AND NOWHERE ELSE. The old subtractive
+    # `engine_penalty` — 12 points each, capped at 35 — has been folded into
+    # this gate at the same calibration (12 points off a ~100-point scale is
+    # ×0.88) and removed from the sum above, so an engine failure is charged
+    # exactly once. The per-source cost is the same 0.12: a named source going
+    # dark is at least as expensive as an analysis stage crashing, because both
+    # mean a signal that was supposed to exist does not.
+    degraded = snap.get("degraded")
+    degraded_n = (len(degraded) if isinstance(degraded, (list, tuple, set))
+                  else (1 if degraded else 0))
+    source_loss = min(0.30, 0.12 * degraded_n) + min(0.35, 0.12 * len(engine_errors))
+    source_gate = max(0.50, 1.0 - source_loss)
+
+    # ── Recency gate ─────────────────────────────────────────────────────────
+    # The audited corpus spanned 16.4 years. A 2006 opinion poll and a 2008 film
+    # clip carried the same weight as last week's strikes, and the assessment
+    # they fed is written in the present tense. Volume was standing in for
+    # quality with no reference to time at all, which is how an archive of a
+    # long-running story reads as high confidence about this week.
+    #
+    # If fewer than _RECENCY_MIN_DATED documents are usably dated the gate is
+    # skipped entirely at 1.0 rather than estimated: a share computed from a
+    # dozen timestamps is not a measurement of a 407-document corpus, and
+    # guessing would reintroduce exactly the dishonesty this gate removes.
+    recency_gate = 1.0
+    dated_docs, recent_docs = _recency_counts(docs)
+    recent_share = None
+    if dated_docs >= _RECENCY_MIN_DATED:
+        recent_share = recent_docs / dated_docs
+        # Full marks at three-quarters current rather than at 100%: background
+        # and context coverage is normal and desirable in any real corpus and
+        # should not be charged for. Floor 0.55 — an archival corpus still
+        # describes something that genuinely happened, it just does not
+        # describe now, so it is discounted rather than dismissed.
+        recency_gate = 0.55 + 0.45 * min(1.0, recent_share / 0.75)
+
     confidence = _clamp(
-        (0.55 * coverage * 100 + 0.45 * vol_conf - engine_penalty) * vol_gate)
+        (0.55 * coverage * 100 + 0.45 * vol_conf)
+        * vol_gate * purity_gate * source_gate * recency_gate)
+    # U1: the decimal place asserted a resolution this method does not have.
+    # Every input above is a judgement call good to within several points, and
+    # printing 94.5 invited a reader to believe the .5 carried information.
+    # Whole numbers only.
+    confidence = float(round(confidence))
+
+    # `confidence_drivers` is what makes the number interrogable instead of
+    # merely believable — the same principle as `factors`, applied to the
+    # confidence figure, which until now was the one number in this module that
+    # arrived without its workings. Only gates that actually moved the score are
+    # listed, because a wall of "1.00 — no effect" rows teaches a reader to skip
+    # the block; the volume gate is always listed because corpus size is the
+    # first thing anyone asks of a confidence figure and its absence would read
+    # as an omission rather than as a pass.
+    confidence_drivers = [{
+        "label": "Evidence volume",
+        "value": round(vol_gate, 2),
+        "detail": (f"{n_docs} documents is a full evidence base for this measure, so "
+                   f"corpus size is not holding this figure down."
+                   if vol_gate >= 0.99 else
+                   f"Only {n_docs} documents were kept, below the roughly 100 at which "
+                   f"this measure stops discounting for a thin evidence base."),
+    }]
+    if purity_gate < 0.99:
+        _dropped = rel.get("dropped")
+        _collected = rel.get("collected")
+        _pct = round(float(noise_ratio) * 100)
+        confidence_drivers.append({
+            "label": "Corpus purity",
+            "value": round(purity_gate, 2),
+            "detail": ((f"{_dropped} of {_collected} collected documents were off-topic "
+                        f"and excluded ({_pct}% noise). "
+                        if _dropped and _collected else
+                        f"{_pct}% of the documents collected were off-topic and excluded. ")
+                       + "The survivors are real evidence, but a query that needed that "
+                         "much filtering is a less certain one than a clean match."),
+        })
+    if source_gate < 0.99:
+        if degraded_n and engine_errors:
+            _src_detail = (
+                f"A source went dark or returned partial data during this run, and "
+                f"{len(engine_errors)} analysis stage(s) failed. Parts of this "
+                f"assessment rest on less evidence than a complete run would give.")
+        elif degraded_n:
+            _src_detail = (
+                "GDELT was unavailable or returned only partial data for this run, so "
+                "the geographic and tone signals rest on less evidence than the "
+                "coverage figure alone suggests.")
+        else:
+            _src_detail = (
+                f"{len(engine_errors)} analysis stage(s) failed during this run, so "
+                f"signals that should have been measured were never computed.")
+        confidence_drivers.append({
+            "label": "Source availability",
+            "value": round(source_gate, 2),
+            "detail": _src_detail,
+        })
+    if recency_gate < 0.99 and recent_share is not None:
+        confidence_drivers.append({
+            "label": "Corpus recency",
+            "value": round(recency_gate, 2),
+            "detail": (f"Only {round(recent_share * 100)}% of the {dated_docs} dated "
+                       f"documents were published in the last {_RECENCY_WINDOW_DAYS} "
+                       f"days. Much of this corpus describes the past, while the "
+                       f"assessment above is written about the present."),
+        })
 
     caveats = []
     if n_docs < 25:
@@ -676,6 +915,17 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
         caveats.append("Analysis engine reported errors: " + ", ".join(sorted(engine_errors)) + ".")
     if snap.get("degraded"):
         caveats.append("GDELT partially unavailable — geographic and tone signals may be thin.")
+    # U1: the 16.4-year span of the audited corpus was visible nowhere on the
+    # page. The recency gate now charges for it, but a reader who does not open
+    # the confidence breakdown still needs to be told, because it changes what
+    # the whole assessment is ABOUT — a judgement on a long-running story rather
+    # than on this week's turn in it.
+    if recent_share is not None and recent_share < 0.5:
+        caveats.append(
+            f"Only {round(recent_share * 100)}% of the {dated_docs} dated documents are "
+            f"from the last {_RECENCY_WINDOW_DAYS} days — this corpus is substantially "
+            f"archival, and the assessment reflects the story's history as much as its "
+            f"current state.")
 
     # Corpus purity. `n_docs` above counts documents that PASSED the relevance
     # gate, which is what makes the confidence figure defensible — before the
@@ -683,7 +933,6 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
     # documents of which 389 contained no form of the query at all. A reader who
     # is told only the surviving number cannot tell a clean corpus from a heavily
     # filtered one, and those warrant different levels of trust, so say it.
-    rel = payload.get("relevance") or {}
     if rel.get("enabled") and rel.get("dropped"):
         caveats.append(
             f"{rel['dropped']} of {rel['collected']} collected documents were off-topic "
@@ -743,9 +992,12 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
             "timespan_hours": snap.get("timespan_hours"),
             "gdelt_cached": bool(snap.get("cached")),
         },
-        "confidence": round(confidence, 1),
+        "confidence": int(confidence),
         "confidence_band": ("high" if confidence >= 70 else
                             "moderate" if confidence >= 45 else "low"),
+        # U1: each named gate and what it did to the number above, so the
+        # confidence figure can be argued with rather than only accepted.
+        "confidence_drivers": confidence_drivers,
         "signal_coverage": round(coverage * 100, 1),
         "factors": factor_dicts,
         "primary_drivers": [{"label": d["label"], "contribution": d["contribution"]}
@@ -759,6 +1011,35 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
 # ══════════════════════════════════════════════════════════════════════════════
 # RISK ASSESSMENT (dimensional)
 # ══════════════════════════════════════════════════════════════════════════════
+
+# U7: where the operational dimension's referent comes from. Nothing in XTag
+# supplied one before — the dimension was computed and printed regardless — so
+# these are the places a referent CAN legitimately arrive: explicitly on the
+# payload for a per-search subject, or from the deployment's environment for an
+# installation that monitors one organisation and always means the same thing by
+# "operational". Env is checked last so a per-search subject always wins.
+#
+# A referent is a name this system can look for in the corpus. It is deliberately
+# not inferred from the query: "Hezbollah" is what the analyst searched for, not
+# what they operate, and treating the two as the same thing is the exact
+# substitution U7 exists to stop.
+_SUBJECT_PAYLOAD_KEYS = ("watch_subject", "monitored_asset", "subject",
+                         "organisation", "organization")
+_SUBJECT_ENV_VAR = "XTAG_WATCH_SUBJECT"
+
+
+def _watch_subject(payload: dict) -> str | None:
+    """The configured operational referent, or None if nobody supplied one."""
+    for key in _SUBJECT_PAYLOAD_KEYS:
+        val = (payload or {}).get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        if isinstance(val, dict):
+            name = val.get("name") or val.get("label") or val.get("subject")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+    return os.environ.get(_SUBJECT_ENV_VAR, "").strip() or None
+
 
 def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
                 audience: dict | None = None, gdelt_snapshot: dict | None = None) -> dict:
@@ -820,6 +1101,10 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
     ]
     s, cov, fd = _composite(f)
     dims["reputational"] = {
+        # U7 made `available` load-bearing for the operational dimension; it is
+        # set on all four so a consumer can branch on one key instead of having
+        # to know which dimensions are capable of withholding themselves.
+        "available": True, "reason": None,
         "score": round(s, 1), "band": _band_cov(s, cov), "coverage": round(cov * 100, 1),
         "factors": fd,
         "rationale": ("Driven by how hostile the framing is, how widely it has spread "
@@ -848,6 +1133,7 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
     ]
     s, cov, fd = _composite(f)
     dims["information_integrity"] = {
+        "available": True, "reason": None,
         "score": round(s, 1), "band": _band_cov(s, cov), "coverage": round(cov * 100, 1),
         "factors": fd,
         "rationale": ("Whether this narrative is being manufactured and pushed rather "
@@ -855,29 +1141,119 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
     }
 
     # ── Operational ──────────────────────────────────────────────────────────
-    gd_total = (snap.get("volume") or {}).get("total")
-    vol_score = _log_scale(gd_total, 3000) if gd_total else (
-        _log_scale(n_docs, 600) if n_docs else None)
-    _reached = (payload.get("propagation") or {}).get("platforms_reached")
-    f = [
-        Factor("volume", "Coverage volume", 40, vol_score,
-               detail=(f"{gd_total or n_docs} items" if vol_score is not None else None),
-               reason=None if vol_score is not None else "no volume signal"),
-        Factor("velocity", "Acceleration", 35, accel_score,
-               detail=accel if accel_score is not None else None,
-               reason=None if accel_score is not None else "no velocity signal"),
-        Factor("platforms", "Platform spread", 25,
-               _log_scale(_reached, 10) if _reached else None,
-               detail=f"{_reached} platforms" if _reached else None,
-               reason=None if _reached else "no propagation trace"),
-    ]
-    s, cov, fd = _composite(f)
-    dims["operational"] = {
-        "score": round(s, 1), "band": _band_cov(s, cov), "coverage": round(cov * 100, 1),
-        "factors": fd,
-        "rationale": ("Scale and speed of the response this would require if it "
-                      "continues on its current trajectory."),
-    }
+    # U7: this dimension used to score coverage volume, acceleration and platform
+    # spread and render the result as "OPERATIONAL 73.8 HIGH" — on the audited
+    # "Hezbollah" run, the largest number on the page. Operational risk to WHOM?
+    # XTag does not know what the analyst operates. Those three signals measure
+    # how big and how fast the STORY is, which the threat score and the
+    # reputational dimension already report; filing them under "operational"
+    # silently asserted a subject nobody had entered, and a reader supplies their
+    # own employer by reflex. The other three dimensions are properties of the
+    # information environment and need no referent. This one is a relation
+    # between that environment and something outside it.
+    #
+    # So the dimension now requires a referent. Given one, the three magnitude
+    # signals are kept but subordinated to the only thing that makes them
+    # operational rather than ambient: how much of this corpus actually names the
+    # subject. Given none, no number is produced, because there is no defensible
+    # number to produce.
+    subject = _watch_subject(payload)
+    if not subject:
+        _op_reason = (
+            "Operational impact is exposure of a specific subject — an organisation, "
+            "asset, site or person that you operate — and no subject was configured "
+            "for this search. Coverage volume, acceleration and platform spread "
+            "describe how large the narrative is, not what it does to you; presenting "
+            "them under this heading would attribute a risk to a subject that was "
+            "never supplied. Configure a watch subject to assess this dimension.")
+        _op_factors = [
+            Factor("subject_exposure", "Subject exposure", 40, None,
+                   reason="no watch subject configured for this search"),
+            Factor("volume", "Coverage volume", 25, None,
+                   reason="withheld — no subject to relate coverage volume to"),
+            Factor("velocity", "Acceleration", 20, None,
+                   reason="withheld — no subject to relate acceleration to"),
+            Factor("platforms", "Platform spread", 15, None,
+                   reason="withheld — no subject to relate platform spread to"),
+        ]
+        _, _, fd = _composite(_op_factors)
+        # NOTE THE ABSENT "score" KEY, which is the whole point of the fix.
+        # It is not 0 and it is not None: 0 renders as a number and reads as
+        # "operational risk: none", a finding this system did not make and the
+        # inverse of the honest answer; None renders as a literal null in the
+        # existing risk cell. The renderer's fallback for a score it cannot find
+        # is an em-dash, which IS the honest answer, so the key is simply not
+        # emitted. Every consumer that ranks or aggregates these dimensions must
+        # therefore check `available` before reaching for `score` — see the
+        # ranking at the end of this function.
+        dims["operational"] = {
+            "available": False,
+            "reason": _op_reason,
+            "band": "unknown",
+            "coverage": 0.0,
+            "factors": fd,
+            "subject": None,
+            "rationale": ("Exposure of a named subject to this narrative. Not assessed "
+                          "for this search: no watch subject was configured, and this "
+                          "dimension has no meaning without one."),
+        }
+    else:
+        gd_total = (snap.get("volume") or {}).get("total")
+        vol_score = _log_scale(gd_total, 3000) if gd_total else (
+            _log_scale(n_docs, 600) if n_docs else None)
+        _reached = (payload.get("propagation") or {}).get("platforms_reached")
+        # Tokens rather than a substring so "acme" does not match "acmesoft".
+        # The length filter drops articles and initials; if that empties the set
+        # — a two-letter subject like "BP" — fall back to the raw tokens, since
+        # matching nothing at all would score a genuine exposure as zero.
+        _subj_norm = _norm_text(subject)
+        subj_tokens = {t for t in _subj_norm.split() if len(t) > 2} or set(_subj_norm.split())
+        subj_hits = 0
+        if subj_tokens:
+            for d in docs:
+                body = _norm_text((d.get("title") or "") + " " + (d.get("excerpt") or ""))
+                if body and subj_tokens.issubset(set(body.split())):
+                    subj_hits += 1
+        subj_share = (subj_hits / n_docs) if n_docs else 0.0
+        # No multiplier and no curve. The score IS the percentage of the corpus
+        # that names the subject, because there is no defensible basis for
+        # steepening it and an invented one would put this dimension straight
+        # back where U7 found it. A very large narrative that never mentions you
+        # scores near zero here and should: that is the distinction the dimension
+        # was missing, not a bug in it.
+        subj_score = _clamp(subj_share * 100) if n_docs >= 5 else None
+        f = [
+            Factor("subject_exposure", "Subject exposure", 40, subj_score,
+                   detail=(f"{subj_hits} of {n_docs} documents name {subject}"
+                           if subj_score is not None else None),
+                   reason=None if subj_score is not None
+                   else "too few documents to measure subject exposure"),
+            Factor("volume", "Coverage volume", 25, vol_score,
+                   detail=(f"{gd_total or n_docs} items" if vol_score is not None else None),
+                   reason=None if vol_score is not None else "no volume signal"),
+            Factor("velocity", "Acceleration", 20, accel_score,
+                   detail=accel if accel_score is not None else None,
+                   reason=None if accel_score is not None else "no velocity signal"),
+            Factor("platforms", "Platform spread", 15,
+                   _log_scale(_reached, 10) if _reached else None,
+                   detail=f"{_reached} platforms" if _reached else None,
+                   reason=None if _reached else "no propagation trace"),
+        ]
+        # Exposure carries 40 of the 100 — more than any single magnitude signal,
+        # less than all three together — because a narrative that names you is
+        # the precondition for this dimension meaning anything, while how loud
+        # and how fast it is determines what answering it would cost.
+        s, cov, fd = _composite(f)
+        dims["operational"] = {
+            "available": True,
+            "reason": None,
+            "score": round(s, 1), "band": _band_cov(s, cov), "coverage": round(cov * 100, 1),
+            "factors": fd,
+            "subject": subject,
+            "rationale": (f"How far this narrative has attached itself to {subject} — the "
+                          f"share of the corpus that names it, weighted by the scale and "
+                          f"speed of the coverage any response would have to be made in."),
+        }
 
     # ── Physical security (lexical, deliberately conservative) ───────────────
     THREAT_TERMS = [
@@ -941,6 +1317,7 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
                 phys_score, detail=_detail, reason=phys_reason)]
     s, cov, fd = _composite(f)
     dims["physical_security"] = {
+        "available": True, "reason": None,
         "score": round(s, 1), "band": _band_cov(s, cov), "coverage": round(cov * 100, 1),
         "factors": fd,
         "top_terms": [{"term": t, "count": c} for t, c in hits.most_common(10)],
@@ -953,11 +1330,24 @@ def assess_risk(payload: dict, threat: dict, inauth: dict | None = None,
                         "threat, and must not be read as a prediction of violence."),
     }
 
-    ordered = sorted(dims.items(), key=lambda kv: kv[1]["score"], reverse=True)
+    # U7: this ranking was `sorted(dims.items(), key=lambda kv: kv[1]["score"])`,
+    # which assumes every dimension carries a number. A withheld dimension no
+    # longer does, and the two obvious repairs — defaulting it to 0, or scoring
+    # it as 0 upstream — would both smuggle in the exact claim that withholding
+    # exists to prevent ("operational risk: none") and would do it in the one
+    # field the UI renders largest. Unassessed dimensions are excluded from the
+    # ranking and named separately instead, so absent can never be read as low.
+    _scored = [(k, v) for k, v in dims.items()
+               if v.get("available") and v.get("score") is not None]
+    ordered = sorted(_scored, key=lambda kv: kv[1]["score"], reverse=True)
+    unassessed = sorted(k for k, v in dims.items() if not v.get("available"))
     return {
         "dimensions": dims,
         "highest": {"dimension": ordered[0][0], "score": ordered[0][1]["score"],
                     "band": ordered[0][1]["band"]} if ordered else None,
+        # Named explicitly so a caller reading `highest` cannot conclude that the
+        # dimensions it does not mention were measured and came back quiet.
+        "unassessed_dimensions": unassessed,
         "overall_band": threat.get("band"),
         "confidence": threat.get("confidence"),
         "assessed_at": datetime.now(timezone.utc).isoformat(),

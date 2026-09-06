@@ -30,13 +30,20 @@ for t in tests/test_*.py; do
 done
 
 if command -v node >/dev/null 2>&1; then
-  line=$(node tests/test_sse_parser.mjs 2>&1 | grep -E "^  [0-9]+ passed")
-  n=$(echo "$line" | grep -oE "^  [0-9]+" | tr -d ' ')
-  f=$(echo "$line" | grep -oE "[0-9]+ failed" | grep -oE "^[0-9]+")
-  tot=$((tot+${n:-0})); fail=$((fail+${f:-0}))
-  printf "  %-30s %s\n" "test_sse_parser.mjs" "${line:-NO RESULT}"
+  for m in tests/test_*.mjs; do
+    line=$(node "$m" 2>&1 | grep -E "^  [0-9]+ passed")
+    n=$(echo "$line" | grep -oE "^  [0-9]+" | tr -d ' ')
+    f=$(echo "$line" | grep -oE "[0-9]+ failed" | grep -oE "^[0-9]+")
+    tot=$((tot+${n:-0})); fail=$((fail+${f:-0}))
+    if [ -z "$line" ]; then
+      missing=$((missing+1))
+      printf "  %-30s NO RESULT\n" "$(basename "$m")"
+    else
+      printf "  %-30s %s\n" "$(basename "$m")" "$line"
+    fi
+  done
 else
-  echo "  test_sse_parser.mjs            SKIPPED (node not installed)"
+  echo "  (node not installed — .mjs suites skipped)"
 fi
 
 echo "  ----------------------------------------------------"
