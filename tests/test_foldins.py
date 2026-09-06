@@ -216,8 +216,70 @@ chk("death defaults off", app.DEFAULT_RULES["narrative_death"] is False)
 print("\n=== corpus denominator reaches track() ===")
 import inspect
 src = inspect.getsource(app._run_full_search)
-chk("corpus_size passed", "corpus_size=len(claims)" in src)
-chk("clustering method recorded on the payload", 'tracking["clustering"]' in src)
+# These two used to pin the literal source text of the old implementation
+# ("corpus_size=len(claims)"), so they broke the moment the implementation was
+# corrected rather than when the behaviour regressed. They assert the property
+# now: a real corpus denominator reaches track(), and the payload discloses what
+# unit is being tracked.
+chk("corpus_size passed to track()", "corpus_size=" in src and "narr.track(" in src)
+chk("denominator is the corpus, not the cluster count",
+    "corpus_n = sum(len(" in src)
+chk("tracked unit disclosed on the payload", 'tracking["unit"]' in src)
+
+# D1 REGRESSION GUARD. Tracking was fed one claim per DOCUMENT — every title and
+# excerpt in the corpus — which turned a 407-document run into 365 "narratives"
+# labelled with news headlines verbatim. The unit that carries identity between
+# searches must be the extracted narrative frame, not a document cluster.
+chk("tracking does not cluster raw document titles",
+    'd.get("title") or d.get("excerpt")' not in src.split("narrative_tracking")[-1][:2000],
+    "tracking is building claims from document titles again")
+chk("tracking clusters come from the extracted narratives",
+    'for n in (narratives or [])' in src and 'n.get("doc_urls")' in src)
+chk("a frame with no resolved documents is not tracked",
+    "if not label or not members:" in src)
+
+print("\n=== extraction returns the documents behind each narrative ===")
+nsrc = inspect.getsource(app.extract_narratives_v2)
+chk("prompt asks for doc_ids", "doc_ids" in nsrc)
+chk("doc_ids are resolved to urls", '"doc_urls"' in nsrc)
+chk("out-of-range ids are dropped, not the narrative",
+    "0 <= idx < len(docs)" in nsrc)
+
+print("\n=== event dedupe (D6) ===")
+_ev = app._merge_duplicate_events
+_pair = [
+    {"label": "Hezbollah pager explosions in Lebanon", "date": "September 2024",
+     "location": "Lebanon", "kind": "violence", "evidence": "Pagers exploded", "confidence": "high"},
+    {"label": "Hezbollah walkie-talkie explosions across Lebanon", "date": "September 2024",
+     "location": "Lebanon", "kind": "violence", "evidence": "radios detonate", "confidence": "high"},
+]
+_m = _ev(_pair)
+chk("one incident reported twice collapses", len(_m) == 1, str(len(_m)))
+chk("the first label survives", _m[0]["label"].startswith("Hezbollah pager"), _m[0]["label"])
+chk("the other label is kept, not discarded",
+    _m[0].get("also_labelled") == ["Hezbollah walkie-talkie explosions across Lebanon"])
+chk("merging never costs a quote", len(_m[0]["evidence_all"]) == 2)
+chk("no private keys leak into the payload",
+    not any(k.startswith("_") for k in _m[0]))
+
+# Absence must not satisfy a merge condition: two undated events in the same
+# place are not thereby the same event.
+_undated = [
+    {"label": "IDF strike on Hezbollah position", "date": None, "location": "Lebanon",
+     "kind": "violence", "evidence": "a", "confidence": "high"},
+    {"label": "IDF strike on Hezbollah convoy", "date": None, "location": "Lebanon",
+     "kind": "violence", "evidence": "b", "confidence": "high"},
+]
+chk("undated events are never merged on absence", len(_ev(_undated)) == 2)
+
+# Different incidents that share a month and a country stay separate.
+_distinct = [
+    {"label": "Hezbollah drone attack on Israeli troops", "date": "2026-08-14",
+     "location": "southern Lebanon", "kind": "violence", "evidence": "a", "confidence": "high"},
+    {"label": "Lebanese cabinet disarmament vote", "date": "2026-08-14",
+     "location": "southern Lebanon", "kind": "official_action", "evidence": "b", "confidence": "medium"},
+]
+chk("different kinds never merge", len(_ev(_distinct)) == 2)
 chk("semantic availability reported", 'tracking["semantic"]' in src)
 
 print(f"\n{'='*46}\n  {P} passed, {F} failed\n{'='*46}")

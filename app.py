@@ -1955,6 +1955,12 @@ def _apply_relevance(platforms: dict, q: str, floor: float) -> dict:
         "collected": collected, "kept": kept_total, "dropped": dropped_total,
         "noise_ratio": round(dropped_total / collected, 3) if collected else 0.0,
         "by_platform": by_platform,
+        # M3. Which languages the query was actually issued in. Without this the
+        # language distribution downstream is unreadable: 8 Arabic documents out
+        # of 407 on a Hezbollah query means one thing if Arabic was never
+        # searched for and something far worse if it was. The reader has to be
+        # able to tell a collection gap from a coverage decision.
+        "expansion_langs": sorted(k for k, v in (expansions or {}).items() if v),
     }
     app.logger.info("relevance q=%r kept %d/%d (%.1f%% dropped)",
                     q, kept_total, collected, report["noise_ratio"] * 100)
@@ -2320,7 +2326,109 @@ def extract_real_world_events(platforms, q, max_docs=120):
                     "kind": o.get("kind") or "other",
                     "evidence": str(o.get("evidence") or "")[:240],
                     "confidence": o.get("confidence") or "low"})
-    return out[:12]
+    return _merge_duplicate_events(out)[:12]
+
+
+# Words that carry no discriminating power between two events in this domain.
+_EVENT_STOP = {
+    "the","a","an","of","in","on","at","to","for","and","or","by","with","from",
+    "after","against","over","as","its","his","her","their","said","says","say",
+    "reported","reports","new","amid","near","into","out","up","down","that",
+}
+
+
+def _merge_duplicate_events(events: list[dict]) -> list[dict]:
+    """Collapse one incident reported as several events.
+
+    The observed "Hezbollah" run returned nine IMPACT events describing about
+    five incidents: the September 2024 pager detonations and the September 2024
+    walkie-talkie detonations are one operation, and two entries described one
+    drone exchange. An analyst tallying incidents off that screen would have
+    reported nine, and that count propagates into every product built from the
+    page.
+
+    The merge is deliberately narrow. Two events collapse only when they agree
+    on kind, on normalised date and on location AND their content words overlap
+    — three independent agreements, not one fuzzy score. Distinct incidents that
+    happen to share a location and a week survive, because losing a real second
+    incident is a worse error than showing a near-duplicate: an analyst can see
+    that two rows describe one thing, but cannot see a row that is not there.
+
+    The survivor keeps every quote, so merging never destroys evidence.
+    """
+    def key_words(label: str) -> set:
+        w = re.findall(r"[a-z0-9]+", (label or "").lower())
+        return {x for x in w if len(x) > 2 and x not in _EVENT_STOP}
+
+    def norm_date(d) -> str:
+        # "September 2024", "2024-09-17" and "17 Sept 2024" are the same month.
+        t = (str(d or "")).lower()
+        m = re.search(r"(\d{4})-(\d{2})", t)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}"
+        m = re.search(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b.*?\b(\d{4})\b", t)
+        if m:
+            return f"{m.group(2)}-{m.group(1)}"
+        m = re.search(r"\b(\d{4})\b", t)
+        return m.group(1) if m else ""
+
+    def norm_loc(l) -> str:
+        return re.sub(r"[^a-z]", "", (str(l or "")).lower())
+
+    CONF_RANK = {"high": 3, "medium": 2, "low": 1}
+    out: list[dict] = []
+    for ev in events:
+        kw = key_words(ev.get("label"))
+        d, loc = norm_date(ev.get("date")), norm_loc(ev.get("location"))
+        merged = False
+        for keep in out:
+            if keep["_kind"] != (ev.get("kind") or "other"):
+                continue
+            # A missing date or location is not agreement — it is absence, and
+            # absence must not be allowed to satisfy a merge condition.
+            if not d or not keep["_date"] or d != keep["_date"]:
+                continue
+            if not loc or not keep["_loc"] or loc != keep["_loc"]:
+                continue
+            union = kw | keep["_kw"]
+            if not union:
+                continue
+            if len(kw & keep["_kw"]) / len(union) < 0.30:
+                continue
+            # The first label wins — extraction returns them in salience order,
+            # and swapping in a merely longer one turned "pager explosions" into
+            # "walkie-talkie explosions" and lost the more recognisable name of
+            # the operation. The other labels are kept, not discarded: an
+            # analyst has to be able to see that two reports were treated as one
+            # incident, and to disagree.
+            alt = (ev.get("label") or "").strip()
+            if alt and alt != keep.get("label"):
+                keep.setdefault("also_labelled", []).append(alt)
+            q = (ev.get("evidence") or "").strip()
+            if q and q not in keep["_quotes"]:
+                keep["_quotes"].append(q)
+            if CONF_RANK.get(ev.get("confidence"), 0) > CONF_RANK.get(keep.get("confidence"), 0):
+                keep["confidence"] = ev.get("confidence")
+            keep["_kw"] |= kw
+            keep["merged_from"] = keep.get("merged_from", 1) + 1
+            merged = True
+            break
+        if not merged:
+            ev = dict(ev)
+            ev["_kind"] = ev.get("kind") or "other"
+            ev["_date"], ev["_loc"], ev["_kw"] = d, loc, kw
+            ev["_quotes"] = [(ev.get("evidence") or "").strip()] if ev.get("evidence") else []
+            out.append(ev)
+
+    for ev in out:
+        # `evidence` stays a single string for every existing consumer;
+        # `evidence_all` carries the rest so a merge never costs a quote.
+        ev["evidence_all"] = ev.pop("_quotes", [])
+        if ev.get("evidence_all"):
+            ev["evidence"] = ev["evidence_all"][0]
+        for k in ("_kind", "_date", "_loc", "_kw"):
+            ev.pop(k, None)
+    return out
 
 
 def extract_narratives_v2(platforms, q, max_posts=160):
@@ -2333,7 +2441,9 @@ def extract_narratives_v2(platforms, q, max_posts=160):
         f"Narrative intelligence analyst. Search: '{_safe_query(q)}'.\n"
         "Identify up to 8 distinct NARRATIVE CLUSTERS. A narrative = recurring story/frame/claim-set.\n"
         "For each: label (max 7 words), count, framing (fear|anger|hope|pride|grief|threat|disinformation|neutral), "
-        "platforms (list), key_claim (one sentence), actors (list), velocity (accelerating|stable|declining).\n"
+        "platforms (list), key_claim (one sentence), actors (list), velocity (accelerating|stable|declining), "
+        "doc_ids (the numbers of the documents above that carry this narrative — at least one, "
+        "and only documents that actually carry it).\n"
         "ONLY JSON array. No prose.\n\n"
         + _INJECTION_PREAMBLE + "\n" + _wrap_documents(numbered))
     # C1: the biggest prompt in the app — give it the analysis budget, not the
@@ -2345,10 +2455,26 @@ def extract_narratives_v2(platforms, q, max_posts=160):
         out = []
         for o in arr:
             if not isinstance(o,dict) or not o.get("label"): continue
+            # doc_ids are 1-based indices into the numbered block above. They are
+            # what turns a narrative from a label into something an analyst can
+            # open: the tracking layer uses them as cluster membership, and the
+            # UI uses them to answer "which documents said this?". A model that
+            # returns an out-of-range or non-integer id gets that id dropped
+            # rather than the whole narrative — a bad citation is worth less
+            # than the narrative, but not less than nothing.
+            urls, seen = [], set()
+            for raw in (o.get("doc_ids") or []):
+                try: idx = int(raw) - 1
+                except (TypeError, ValueError): continue
+                if not (0 <= idx < len(docs)): continue
+                u = (docs[idx] or {}).get("url")
+                if u and u not in seen:
+                    seen.add(u); urls.append(u)
             out.append({"label":str(o.get("label",""))[:80],"count":int(o.get("count") or 0),
                         "framing":o.get("framing","neutral"),"platforms":o.get("platforms") or [],
                         "key_claim":o.get("key_claim",""),"actors":o.get("actors") or [],
-                        "velocity":o.get("velocity","stable")})
+                        "velocity":o.get("velocity","stable"),
+                        "doc_urls":urls[:40]})
         return sorted(out, key=lambda x:x["count"], reverse=True)[:8]
     except: return []
 
@@ -3106,9 +3232,30 @@ def generate_brief(q, snippets, narratives, entities, coordination):
         narr_ctx="\nNARRATIVES:\n"+"\n".join(
             f"- [{n.get('framing','').upper()}] {n.get('label','')} (x{n.get('count',0)}): {n.get('key_claim','')}"
             for n in narratives[:5])
-    coord_ctx=""
-    if coordination.get("coordination_score",0)>25:
-        coord_ctx=f"\nCOORDINATION SIGNAL: score {coordination['coordination_score']}/100 ({coordination.get('risk','?')} risk)"
+    # D4. This used to pass coordination context ONLY above a score of 25, so on
+    # the observed "Hezbollah" run (score 6, explicitly unbanded for want of a
+    # matched baseline) the model received nothing at all — and, still asked for
+    # a COORDINATION RISK heading, wrote "Moderate". The page then carried two
+    # verdicts 500 pixels apart: a brief asserting a band, and a block stating
+    # that no band can be assigned. An analyst quoting the brief would have
+    # attributed a judgement the system deliberately withholds.
+    #
+    # The state is now always supplied, including the refusal, and the refusal
+    # is the one thing the model is forbidden to overwrite.
+    coord_ctx = ""
+    _cs = coordination.get("coordination_score")
+    _risk = coordination.get("risk")
+    if _cs is not None:
+        if _risk in (None, "", "unbanded"):
+            coord_ctx = (
+                f"\nCOORDINATION SIGNAL: raw magnitude {_cs}/100. THIS SCORE IS NOT BANDED. "
+                "There is no matched organic baseline for this query, so the magnitude "
+                "cannot be called low, moderate or high. State the magnitude and say "
+                "explicitly that it is unbanded. Do NOT assign a severity word to it.")
+        else:
+            coord_ctx = f"\nCOORDINATION SIGNAL: score {_cs}/100 ({_risk} risk)"
+        if coordination.get("caveat"):
+            coord_ctx += f"\nCOORDINATION CAVEAT: {coordination['caveat']}"
     ent_ctx=""
     if entities.get("entities"):
         top_ents=sorted(entities["entities"],key=lambda e:e.get("mentions",0),reverse=True)[:8]
@@ -3121,7 +3268,10 @@ def generate_brief(q, snippets, narratives, entities, coordination):
             "**SITUATION**: 1 sentence.\n"
             "**KEY ACTORS**: Who is involved.\n"
             "**DOMINANT NARRATIVE**: Main story and framing.\n"
-            "**COORDINATION RISK**: Signs of inauthentic behaviour (only if relevant).\n"
+            "**COORDINATION RISK**: Signs of inauthentic behaviour, drawn ONLY from the "
+            "COORDINATION SIGNAL above. If it says the score is not banded, say so and give "
+            "no severity word. If no coordination signal was supplied, write "
+            "'Not assessed on this run.' Never infer coordination from the posts alone.\n"
             "**ASSESSMENT**: 1-2 sentence significance.\n\n"
             "Bold key entities. English only. Output only the brief.")
     try:
@@ -3529,14 +3679,50 @@ def _run_full_search(q: str, use_cache: bool = True,
     # Deliberately best-effort: tracking is a layer ON TOP of the search, and a
     # failure here must never cost the user their results.
     tracking = None
+    clusters = []          # bound here so the reporting below cannot NameError
     if NARRATIVE_TRACKING:
         try:
             with budget.stage("narrative_tracking"):
-                claims = [{"text": ((d.get("title") or d.get("excerpt") or "")[:300]),
-                           "url": d.get("url")}
-                          for g in out.values() for d in ((g or {}).get("results") or [])
-                          if d.get("url") and (d.get("title") or d.get("excerpt"))]
-                clusters = narr.cluster_claims(claims)
+                # WHAT GETS TRACKED, and why it is not the corpus.
+                #
+                # This block used to build one claim per DOCUMENT — every title
+                # and excerpt in the corpus — and hand all of them to
+                # cluster_claims. On a 407-document "Hezbollah" run that produced
+                # 365 "narratives" whose labels were news headlines verbatim:
+                # "Israel says it strikes southern Lebanon... - Reuters",
+                # "CBS News/New York Times Monthly Poll #1, August 2006". The
+                # page then reported four narratives in one block and 365 in the
+                # next, and only the four were narratives.
+                #
+                # That was a category error, not a threshold problem. Semantic
+                # embeddings reduce the count but cannot fix it: clustering
+                # document titles yields groups of documents, and a group of
+                # documents is not a story. The unit that should carry identity
+                # across searches is the narrative FRAME the analysis already
+                # extracted — the thing an analyst would name in a report — and
+                # its members are the documents that carry it.
+                #
+                # So the frames are the clusters. cluster_claims is not called:
+                # there is nothing left to cluster, because extraction already
+                # did it.
+                clusters = []
+                for n in (narratives or []):
+                    label = (n.get("label") or "").strip()
+                    members = [u for u in (n.get("doc_urls") or []) if u]
+                    if not label or not members:
+                        # A frame with no resolved documents cannot be matched to
+                        # the next run by membership, so it would be reborn every
+                        # search and emit a false "new narrative" event forever.
+                        continue
+                    clusters.append({
+                        "label": label[:120],
+                        "members": sorted(set(members)),
+                        "size": int(n.get("count") or len(members)),
+                        "cohesion": 1.0,
+                        "method": "extracted",
+                        "framing": n.get("framing") or "neutral",
+                        "key_claim": n.get("key_claim") or "",
+                    })
                 state_key = f"nt:{q.lower().strip()}"
                 prev = None
                 try:
@@ -3548,8 +3734,9 @@ def _run_full_search(q: str, use_cache: bool = True,
                 # narrative that grew 40% in a corpus that grew 40% did not
                 # grow, and without the denominator the event would report our
                 # own collection volume as a finding about the world.
+                corpus_n = sum(len((g or {}).get("results") or []) for g in out.values())
                 tracking = narr.track(prev, clusters, seen_at,
-                                      corpus_size=len(claims))
+                                      corpus_size=corpus_n)
                 try:
                     db.cache_set(state_key, q, {"narratives": tracking["narratives"]},
                                  NARRATIVE_STATE_TTL)
@@ -3566,8 +3753,18 @@ def _run_full_search(q: str, use_cache: bool = True,
         # Which method actually clustered the claims. A lexical run does not
         # recognise paraphrase, so two "separate" narratives may be one story
         # reworded — the reader has to be able to tell.
-        tracking["clustering"] = ((clusters[0].get("method") if clusters else None)
-                                  or ("lexical" if not embeddings.available() else None))
+        # The tracked unit is now the extracted narrative frame, so there is no
+        # clustering method to disclose — the honest answer is what the unit IS.
+        # `clusters` is bound inside the try above and is undefined if tracking
+        # raised before it, which is why this reads through a default rather
+        # than touching the name directly.
+        tracked_units = len(clusters)
+        tracking["unit"] = "narrative"
+        tracking["unit_detail"] = (
+            "Tracked units are the narrative frames named in this report, not "
+            "document clusters. Each one keeps the same id between searches, so "
+            "the next run can say what happened to it.")
+        tracking["tracked_units"] = tracked_units
         tracking["semantic"] = embeddings.available()
     payload["narrative_tracking"] = tracking
     payload.update({"narratives":narratives,"entities":entities,
