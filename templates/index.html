@@ -331,6 +331,30 @@ button{background:none;border:none;cursor:pointer;}
 .rail.expanded .rail-sep{width:100%;}
 .rail-hist{flex:1;overflow-y:auto;overflow-x:hidden;width:100%;display:none;}
 .rail.expanded .rail-hist{display:block;}
+/* The saved-search drawer, and the evidence that it exists. */
+.rail-count{position:relative;}
+.rail.expanded .rail-count{display:none;}
+.rc-n{position:absolute;top:4px;right:4px;min-width:16px;height:16px;padding:0 4px;
+  border-radius:var(--pill);background:var(--accent);color:#fff;font-size:10px;
+  font-weight:700;line-height:16px;text-align:center;font-variant-numeric:tabular-nums;}
+.rh-item.flash{animation:rhflash 1.6s var(--e-out);}
+@keyframes rhflash{
+  0%,55%{background:var(--accent-tint);box-shadow:inset 0 0 0 1px var(--accent);}
+  100%{background:transparent;box-shadow:none;}
+}
+@media (prefers-reduced-motion:reduce){.rh-item.flash{animation:none;background:var(--accent-tint);}}
+
+/* One transient line for an action that would otherwise leave no trace. */
+.toast{
+  position:fixed;left:var(--s5);bottom:var(--s5);z-index:400;max-width:min(440px,calc(100vw - 2*var(--s5)));
+  background:var(--surface2);border:1px solid var(--hair);border-radius:var(--r);
+  padding:var(--s3) var(--s4);font-size:var(--fs-cap);line-height:1.55;color:var(--ink);
+  box-shadow:var(--sh);opacity:0;transform:translateY(8px);pointer-events:none;
+  transition:opacity var(--t-mid) var(--e-out),transform var(--t-mid) var(--e-out);
+}
+.toast.show{opacity:1;transform:translateY(0);}
+@media (prefers-reduced-motion:reduce){.toast{transition:opacity var(--t-fast);transform:none;}}
+
 .rh-item{display:flex;align-items:center;gap:var(--s2);padding:8px;border-radius:var(--r-sm);cursor:pointer;color:var(--ink3);font-size:var(--fs-cap);transition:background var(--t-fast),color var(--t-fast);min-width:0;width:100%;text-align:left;}
 .rh-item:hover{background:var(--on-glass);color:var(--ink);}
 .rh-item.on{background:var(--accent-tint);color:var(--accent2);}
@@ -373,7 +397,15 @@ button{background:none;border:none;cursor:pointer;}
 .search-go:hover{filter:brightness(1.08);}
 .search-go:active{transform:scale(.97);}
 .mode-tabs{display:flex;gap:2px;background:var(--on-glass);border:1px solid var(--on-glass-line);border-radius:var(--pill);padding:3px;flex:none;}
-.mode-tab{font-size:var(--fs-cap);font-weight:600;letter-spacing:.01em;color:var(--ink3);border-radius:var(--pill);padding:5px var(--s3);transition:background var(--t-fast),color var(--t-fast);white-space:nowrap;}
+.mode-tab{font-size:var(--fs-cap);font-weight:600;letter-spacing:.01em;color:var(--ink3);border-radius:var(--pill);padding:5px var(--s3);transition:background var(--t-fast),color var(--t-fast);white-space:nowrap;position:relative;}
+/* Each tab is now a distinct view rather than the same report with an appendix,
+   so the label has to say which question it answers. */
+.mode-tab .tip{position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%) translateY(-3px);
+  background:var(--surface2);border:1px solid var(--hair);border-radius:var(--r-xs);
+  padding:5px 10px;font-size:var(--fs-micro);white-space:nowrap;color:var(--ink2);
+  pointer-events:none;opacity:0;transition:opacity var(--t-fast),transform var(--t-fast);
+  z-index:120;box-shadow:var(--sh);font-weight:500;letter-spacing:0;}
+.mode-tab:hover .tip,.mode-tab:focus-visible .tip{opacity:1;transform:translateX(-50%) translateY(0);}
 .mode-tab:hover{color:var(--ink);}
 .mode-tab.on{background:linear-gradient(180deg,var(--accent2),var(--accent));color:#fff;box-shadow:0 1px 6px var(--accent-glow),inset 0 1px 0 rgba(255,255,255,.28);}
 .top-actions{display:flex;gap:var(--s1);flex:none;}
@@ -400,7 +432,35 @@ button{background:none;border:none;cursor:pointer;}
 /* Display XL only exists when there is room for it. */
 .split.landing .hero-mark{font-size:clamp(56px,9vw,124px);}
 .split.landing .hero-desc{font-size:17px;max-width:52ch;}
-.report-panel{width:min(560px,48%);flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line);overflow:hidden;position:relative;}
+/* The report was capped at min(560px, 48%), so on a wide screen the analysis —
+   the reason the product exists — got less room than the thumbnail grid, and
+   the split could not be changed. It is a variable now, defaulting to 60/40 in
+   favour of the report, dragged by the seam and remembered per browser. */
+.report-panel{width:var(--split,60%);flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line);overflow:hidden;position:relative;min-width:0;}
+
+/* ── The seam ──
+   Four pixels of hit area is a mouse-only control, so the handle is 9px wide
+   with the visible line drawn inside it, and it answers the keyboard too. */
+.split-h{
+  flex:none;width:9px;margin:0 -4px;z-index:70;cursor:col-resize;position:relative;
+  background:transparent;border:0;padding:0;align-self:stretch;
+}
+.split-h::before{
+  content:'';position:absolute;left:4px;top:0;bottom:0;width:1px;
+  background:var(--line);transition:background var(--t-fast);
+}
+.split-h:hover::before,.split-h.dragging::before{background:var(--accent);}
+.split-h:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:2px;}
+.split-h::after{           /* the grip, so the seam reads as draggable at rest */
+  content:'';position:absolute;left:2px;top:50%;transform:translateY(-50%);
+  width:5px;height:34px;border-radius:3px;background:var(--line);
+  opacity:0;transition:opacity var(--t-fast);
+}
+.split-h:hover::after{opacity:.9;background:var(--accent);}
+.split.landing .split-h{display:none;}
+/* While dragging, the panes must not eat the pointer or select their own text. */
+.split.resizing{user-select:none;cursor:col-resize;}
+.split.resizing .report-panel,.split.resizing .grid-panel{pointer-events:none;}
 .report-panel.full{width:100%;}
 .rp-scroll{flex:1;overflow-y:auto;padding:var(--s6) var(--s6) var(--s16);scroll-behavior:smooth;}
 
@@ -1199,10 +1259,13 @@ button{background:none;border:none;cursor:pointer;}
 
 /* ═══ RESPONSIVE ═══ */
 @media(max-width:980px){
-  .report-panel{width:min(480px,52%);}
+  /* Below this the dragged width stops being a useful preference — there is not
+     enough room for both panes to be worth reading — so the layout takes over. */
+  .report-panel{width:clamp(320px,var(--split,60%),62%);}
 }
 @media(max-width:860px){
   .report-panel{width:100%;border-right:none;}
+  .split-h{display:none;}
   .grid-panel{display:none;}
   .report-panel.full,.report-panel{display:flex;}
   /* The mode tabs used to be hidden here, which made the Entities and Timeline
@@ -1526,6 +1589,9 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
    and the rule above it carry the severity; the number just has to be legible
    and large. */
 .verdict{padding:var(--s6) 0 var(--s7);display:flex;align-items:flex-end;gap:var(--s6);flex-wrap:wrap;}
+/* Rendered under a finding that already states the score: the block keeps its
+   breakdown and gives up the headline it was duplicating. */
+.verdict.compact{padding:var(--s4) 0 var(--s5);}
 .verdict-num{
   font-size:clamp(58px,8.5vw,84px);font-weight:200;line-height:.86;
   letter-spacing:-.055em;font-variant-numeric:tabular-nums;
@@ -1976,9 +2042,16 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
     <button type="button" class="rail-icon" data-act="new" aria-label="New search">
       <i class="ti ti-plus ril" aria-hidden="true"></i>
       <span class="rlabel">New search</span>
-      <span class="tip" role="tooltip">New search</span>
+      <span class="tip" role="tooltip">New search &mdash; keeps the current one</span>
     </button>
     <div class="rail-sep"></div>
+    <!-- Visible while the rail is collapsed: the only cue that anything is
+         stored behind it. Clicking it opens the drawer. -->
+    <button type="button" class="rail-icon rail-count" data-act="rail" id="railCount" hidden>
+      <i class="ti ti-folders ril" aria-hidden="true"></i>
+      <span class="rc-n" id="railCountN">0</span>
+      <span class="tip" role="tooltip">Saved searches</span>
+    </button>
     <div class="rail-hh">Saved searches</div>
     <div class="rail-hist" id="railHist"></div>
     <div class="rail-sep"></div>
@@ -2004,9 +2077,9 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
         <button class="search-go" onclick="doSearch()">Analyse</button>
       </div>
       <div class="mode-tabs">
-        <button class="mode-tab on" data-mode="narrative" onclick="setMode(this)">Narrative</button>
-        <button class="mode-tab" data-mode="entities" onclick="setMode(this)">Entities</button>
-        <button class="mode-tab" data-mode="timeline" onclick="setMode(this)">Timeline</button>
+        <button class="mode-tab on" data-mode="narrative" onclick="setMode(this)" role="tab" aria-selected="true">Narrative<span class="tip" role="tooltip">What is being said, and how hard</span></button>
+        <button class="mode-tab" data-mode="entities" onclick="setMode(this)" role="tab" aria-selected="false">Entities<span class="tip" role="tooltip">Who is saying it, from where, and whether they are authentic</span></button>
+        <button class="mode-tab" data-mode="timeline" onclick="setMode(this)" role="tab" aria-selected="false">Timeline<span class="tip" role="tooltip">When it happened, and how it moved</span></button>
       </div>
       <div class="top-actions">
         <button type="button" class="top-act grid-toggle-btn" data-act="gridview" id="gridToggleBtn" title="Results, Filter &amp; Sort" aria-label="Results, filter and sort"><i class="ti ti-layout-grid" aria-hidden="true"></i></button>
@@ -2053,6 +2126,12 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
           <div id="report" class="hidden" role="region" aria-live="polite" aria-label="Analysis report"></div>
         </div>
       </div>
+
+      <button type="button" class="split-h" id="splitH"
+              role="separator" aria-orientation="vertical"
+              aria-label="Resize panels. Arrow keys to adjust, Home to reset."
+              aria-valuemin="25" aria-valuemax="75" aria-valuenow="60"
+              title="Drag to resize · double-click to reset to 60/40"></button>
 
       <!-- RIGHT: MEDIA GRID -->
       <div class="grid-panel" id="gridPanel">
@@ -2218,11 +2297,40 @@ updateThemeIcon();
 
 /* ── RAIL ── */
 var railExpanded=false;
-function expandRail(){
-  railExpanded=!railExpanded;
-  var r=$('rail');
-  if(railExpanded)r.classList.add('expanded');
-  else r.classList.remove('expanded');
+/* Saved searches live in `.rail-hist`, which is `display:none` until the rail
+   is expanded — and the rail collapsed itself on every load, with no persisted
+   state. So every search WAS being stored in IndexedDB, and none of them could
+   be seen or reached: "+" looked like it threw the previous search away, and a
+   re-run of the same query cost another full fan-out for a result already on
+   disk. The storage was never the problem; the door was.
+
+   The rail now remembers whether it was open, and opens itself the first time
+   there is something behind it to find. */
+var RAIL_KEY='xtag-rail';
+function setRail(open,persist){
+  railExpanded=!!open;
+  var r=$('rail');if(!r)return;
+  r.classList.toggle('expanded',railExpanded);
+  var b=document.querySelector('[data-act="rail"]');
+  if(b){
+    b.setAttribute('aria-expanded',railExpanded?'true':'false');
+    var lbl=b.querySelector('.rlabel');if(lbl)lbl.textContent=railExpanded?'Collapse':'Expand';
+  }
+  if(persist){try{localStorage.setItem(RAIL_KEY,railExpanded?'1':'0');}catch(e){}}
+  var rc=$('railCount');
+  if(rc)rc.hidden=railExpanded||!loadHist().length;
+}
+function expandRail(){ setRail(!railExpanded,true); }
+/* Called from BOOT, not here: this sits above `var HIST_KEY`, and `var` hoists
+   the declaration without the assignment — so loadHist() would have read
+   localStorage under the key `undefined`, returned [], and collapsed the rail
+   on exactly the first visit this is meant to fix. */
+function initRail(){
+  var v=null;
+  try{v=localStorage.getItem(RAIL_KEY);}catch(e){}
+  // No stored choice: open it if there is something behind it worth finding,
+  // otherwise leave the landing screen uncluttered.
+  setRail(v===null ? loadHist().length>0 : v==='1', false);
 }
 
 /* ── PLATFORM META ── */
@@ -2374,6 +2482,13 @@ function relTime(ts){
 function renderRailHist(){
   var el=$('railHist');if(!el)return;
   var h=loadHist();
+  var rc=$('railCount'), rcn=$('railCountN');
+  if(rc&&rcn){
+    rcn.textContent=h.length>99?'99+':String(h.length);
+    // Only shown collapsed: expanded, the list itself is the count.
+    rc.hidden=!h.length||railExpanded;
+    rc.setAttribute('aria-label',h.length+' saved search'+(h.length===1?'':'es'));
+  }
   el.setAttribute('role','list');
   if(!h.length){el.innerHTML='<div style="font-size:11px;color:var(--ink3);padding:8px;">No searches yet.</div>';return;}
   el.innerHTML=h.map(function(x,i){
@@ -2386,7 +2501,8 @@ function renderRailHist(){
               '<span class="rh-docs">'+(x.docs||0)+' docs</span>';
     else meta='<span class="rh-band '+bandClass(x.band)+'">'+esc(x.band||'—')+'</span>'+
               '<span class="rh-docs">'+(x.docs||0)+' docs</span>';
-    return'<div class="rh-item'+(currentCase===x.id?' on':'')+'" role="listitem">'+
+    return'<div class="rh-item'+(currentCase===x.id?' on':'')+'" role="listitem" '+
+      'data-id="'+esc(x.id||'')+'">'+
       '<button type="button" class="rh-q" data-act="hist" data-i="'+i+'">'+
         '<span class="rh-t">'+esc(x.q)+'</span>'+
         '<span class="rh-m">'+meta+'<span class="rh-age">'+relTime(x.ts)+'</span></span>'+
@@ -2395,6 +2511,35 @@ function renderRailHist(){
     '</div>';
   }).join('');
 }
+/* A one-off highlight on the row that was just saved. Without it the rail
+   opens onto a list and the analyst has to work out which entry is theirs. */
+function railFlash(id){
+  if(!id)return;
+  setTimeout(function(){
+    var el=document.querySelector('.rh-item[data-id="'+id+'"]');
+    if(!el)return;
+    el.classList.add('flash');
+    el.scrollIntoView({block:'nearest'});
+    setTimeout(function(){el.classList.remove('flash');},1600);
+  },0);
+}
+
+/* One transient line, bottom-left, for things the user did that would otherwise
+   leave no trace. Never used for errors — those belong where the failure is. */
+var _toastT=null;
+function toast(msg){
+  var el=$('toast');
+  if(!el){
+    el=document.createElement('div');
+    el.id='toast'; el.className='toast'; el.setAttribute('role','status');
+    document.body.appendChild(el);
+  }
+  el.textContent=msg;
+  el.classList.add('show');
+  clearTimeout(_toastT);
+  _toastT=setTimeout(function(){el.classList.remove('show');},5200);
+}
+
 function delHist(i){
   var h=loadHist();
   if(h[i]&&h[i].id)caseDrop(h[i].id);
@@ -2459,9 +2604,29 @@ var pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRang
 var sortMode='relevance';
 
 /* ── MODE ── */
+/* Where each tab was last read. Switching tabs replaces #report wholesale, so
+   without this a reader who scrolled to the coordination clusters, glanced at
+   Entities and came back landed at the top of a very long document every time
+   — which is why nobody uses the tabs twice. */
+var tabScroll={narrative:0,entities:0,timeline:0};
+function rpScrollEl(){return $('rpScroll')||$('report');}
+function rememberTabScroll(){
+  var el=rpScrollEl();
+  if(el)tabScroll[activeMode]=el.scrollTop||0;
+}
+function restoreTabScroll(){
+  var el=rpScrollEl();if(!el)return;
+  var y=tabScroll[activeMode]||0;
+  // After innerHTML the new content has no layout yet; wait one frame.
+  requestAnimationFrame(function(){el.scrollTop=y;});
+}
 function setMode(btn){
-  document.querySelectorAll('.mode-tab').forEach(function(t){t.classList.remove('on');});
-  btn.classList.add('on');
+  if(btn.dataset.mode===activeMode)return;      // re-rendering the same view is pure cost
+  rememberTabScroll();
+  document.querySelectorAll('.mode-tab').forEach(function(t){
+    var on=t===btn; t.classList.toggle('on',on);
+    t.setAttribute('aria-selected',on?'true':'false');
+  });
   activeMode=btn.dataset.mode;
   if(lastData)renderReport(lastData);
 }
@@ -2736,6 +2901,18 @@ function loadQ(q){
    lastData and the screen with nothing retaining the result, which is what made
    "New" feel like it deleted the search. */
 function newSearch(){
+  /* "+" felt destructive because it looked destructive: the screen emptied, and
+     the case it had just saved was behind a collapsed rail with no confirmation
+     that anything had been kept. The search was never lost — it just could not
+     be seen, so the only way back was to run it again and pay for it twice.
+     Say what happened, and open the drawer holding it. */
+  var kept=(lastData&&lastQ)?lastQ:null;
+  if(kept){
+    if(!railExpanded)setRail(true,true);
+    railFlash(currentCase);
+    toast('Saved \u201c'+kept+'\u201d to your searches. '+
+          'Reopen it from the left \u2014 it restores instantly, without running again.');
+  }
   $('q').value='';
   lastQ='';lastData=null;currentCase=null;restoredAt=null;entityFocus=null;narrativeFocus=null;
   gridTimeFocus=null;timeFocus=null;
@@ -2982,9 +3159,14 @@ function renderFinding(data){
         '<div class="fd-score"><span class="fd-score-n">'+esc(th.score)+'</span>'+
         '<span class="fd-score-l">threat · '+esc(th.band||'—')+'</span></div>';
   }
-  h+=   '<div class="fd-sep"></div>'+
-        '<div class="fd-basis">'+cf.docs+' document'+(cf.docs===1?'':'s')+
-        (cf.degraded?' · '+cf.degraded+' collection problem'+(cf.degraded===1?'':'s'):'')+'</div>';
+  /* The prose immediately above opens with the document count, so repeating it
+     here made the strip restate its own first sentence. Only the collection
+     problems — which the prose does not carry — earn the slot. */
+  if(cf.degraded){
+    h+= '<div class="fd-sep"></div>'+
+        '<div class="fd-basis">'+cf.degraded+' collection problem'+
+        (cf.degraded===1?'':'s')+'</div>';
+  }
   h+= '</div>';
   h+='</div>';
   return h;
@@ -3052,9 +3234,23 @@ function renderThreatBlock(data){
   // One hero. The number carries the view; everything that qualifies it is a
   // chip, a rule, or a disclosure — not a paragraph competing with it.
   var unknown=(th.band==='unknown');
-  h+='<div class="verdict">'+
-       '<div><span class="verdict-num">'+(unknown?'—':th.score)+
-         (unknown?'':'<span class="of">/100</span>')+'</span></div>'+
+  /* This used to open with an 84px restatement of the score, the band and the
+     confidence — all three of which the finding strip states a screen-height
+     above, and states first. Two readings of one number, one of them enormous,
+     is how a reader ends up checking whether they disagree.
+     The number stays for the views that render this WITHOUT the finding above
+     it; where the finding is on screen, this leads with what it alone knows:
+     which signals were weighed, and how much of them was available. */
+  /* NOT a DOM query. The whole report is assembled as a string and inserted in
+     one write, so nothing rendered in this pass is in the document yet — the
+     same trap that made an earlier de-duplication guard silently never fire.
+     This asks the finding's own two conditions instead. */
+  var solo=!((data.totals||{}).mentions)||!findingClauses(data).length;
+  h+='<div class="verdict'+(solo?'':' compact')+'">'+
+       (solo
+         ? '<div><span class="verdict-num">'+(unknown?'—':th.score)+
+             (unknown?'':'<span class="of">/100</span>')+'</span></div>'
+         : '')+
        '<div class="verdict-meta">'+
          '<div class="verdict-rule"></div>'+
          '<div class="verdict-band">'+(unknown?'Insufficient signal':esc(th.band||'')+' threat')+'</div>'+
@@ -4233,7 +4429,8 @@ function renderReport(data){
     html+='<div class="restored-bar">'+
       '<i class="ti ti-history" aria-hidden="true"></i>'+
       '<span>Captured '+esc(new Date(restoredAt).toLocaleString())+' · '+esc(relTime(restoredAt))+
-        '. Restored exactly as collected — nothing was re-fetched.</span>'+
+        '. Restored from your own machine — no sources were queried and nothing was spent. '+
+        'Re-running collects the corpus again from scratch.</span>'+
       '<button type="button" class="rb-btn" data-act="rerun">Re-run now</button>'+
     '</div>';
   }
@@ -4263,6 +4460,7 @@ function renderReport(data){
   //   3. what happened offline
   //   4. the scored assessment behind it
   //   5. how the corpus was built
+
   //
   html+=renderFinding(data);
   /* M10. Monitoring work asks "what is new since Tuesday", never "what is
@@ -4271,12 +4469,95 @@ function renderReport(data){
      whole screen saying so. This is the same data, read as a headline, and it
      renders only when there is a previous observation to have changed from. */
   html+=renderChangedSince(data);
+  /* The collection gap is a limit on every number in every view — a corpus that
+     is 98% English on a Levant query measures the reporting rather than the
+     subject — so the banner sits with the finding it qualifies rather than in
+     one tab out of three. The full distribution stays on Entities, where the
+     composition of the corpus is the subject. */
+  html+=renderLangGap(data);
   html+=renderLimits(data);
 
-  // What happened offline — the difference between a hashtag that trended and
-  // a campaign that had an effect. It belongs high for that reason.
-  html+=renderEventsBlock(data);
+  /* ══ A TAB IS A VIEW, NOT AN APPENDIX ════════════════════════════════════
+     Every tab used to render this whole report — finding, what-would-change,
+     events, threat, corpus, brief, stats, engagement, sentiment, framing,
+     languages — and only THEN append its own section. Clicking "Entities"
+     meant scrolling past fifteen blocks of narrative analysis to reach the
+     first actor, and both Key Entities and the geographic breakdown were drawn
+     twice, one click apart, because each belonged to the default view AND to
+     the entity view.
 
+     A tab now owns its content. What stays above the tabs is the answer and
+     what would overturn it, because that is the thing every other view
+     qualifies — and it is four blocks, not fifteen.
+
+       Narrative   what is being said, and how hard
+       Entities    who is saying it, from where, and whether they are authentic
+       Timeline    when it happened, and how it moved
+
+     Nothing renders under two of them. */
+  if(activeMode==='entities'){
+    html+=renderEntitiesView(data);
+      // Coordination — its own section now. The rebuilt detector returns clusters,
+      // signals, flagged documents and a reach split, none of which fit in half of
+      // a two-up mini-card, and the band rules need room to be stated honestly.
+      html+=renderCoordinationBlock(data);
+    html+=renderInauthBlock(data);
+      // Language distribution — and, when it is one, the collection failure in it.
+      var langs=data.languages||{};
+      if(langs.distribution&&langs.distribution.length){
+        html+='<div class="report-section">'+
+          '<div class="report-section-title"><i class="ti ti-language"></i>Languages</div>'+
+          '<div class="lang-row">'+
+            langs.distribution.map(function(l){
+              return'<div class="lang-pill'+(l.lang!=='en'?' nonEn':'')+'">'+
+                (l.flag||'')+' '+esc(l.name)+
+                '<span class="lnum">'+l.count+'</span>'+
+              '</div>';
+            }).join('')+
+          '</div>'+
+          (langs.non_english_docs?'<div class="lang-note">'+langs.non_english_docs+' of '+langs.total_docs+
+            ' non-English · analysed in the <b>source language</b>, translated only for display</div>':'')+
+        '</div>';
+      }
+    html+=renderGeoBlock(data);
+    html+=reportFooter();
+    $('report').innerHTML=html; wireEntityMap(data); wireTimeline(data);
+    restoreTabScroll(); return;
+  }
+  if(activeMode==='timeline'){
+    /* renderTimelineView draws its own Velocity block and its own dated
+       events list, with those events plotted on the same axis. Rendering the
+       standalone versions here as well printed each of them twice. */
+    html+=renderTimelineView(data);
+      html+=renderPropagationBlock(data);
+
+      // Source mix
+      var mix=data.source_mix||[];
+      if(mix.length){
+        html+='<div class="report-section">'+
+          '<div class="report-section-title"><i class="ti ti-sources"></i>Source Mix</div>'+
+          '<div class="src-pills">'+
+            mix.slice(0,10).map(function(s_){
+              var m=pm(s_.platform);
+              var stResult=lastData&&lastData.platforms&&lastData.platforms[s_.platform]&&lastData.platforms[s_.platform].results;
+              var st=stResult&&stResult[0]?stResult[0].source_type:'';
+              return'<div class="src-pill">'+
+                '<div class="src-dot" style="background:'+m.c+'"></div>'+
+                esc(m.n)+
+                '<span class="src-n">'+s_.count+'</span>'+
+                (st&&st!=='social'?'<span class="src-type '+st+'">'+esc(SRC_LABELS[st]||st)+'</span>':'')+
+              '</div>';
+            }).join('')+
+          '</div>'+
+        '</div>';
+      }
+
+    html+=reportFooter();
+    $('report').innerHTML=html; wireTimeline(data);
+    restoreTabScroll(); return;
+  }
+
+  // ── NARRATIVE (default) — what is being said, and how hard ──────────────
   // The scored assessment, now supporting the finding rather than being it.
   html+=renderThreatBlock(data);
 
@@ -4284,6 +4565,10 @@ function renderReport(data){
   // determines what every number above is worth — so it stays prominent, but
   // below the answer it qualifies rather than in front of it.
   html+=renderRelevanceBlock(data);
+
+  // What happened offline — the difference between a hashtag that trended and
+  // a campaign that had an effect. It belongs high for that reason.
+  html+=renderEventsBlock(data);
 
   // Brief placeholder (filled by /api/brief)
   html+='<div class="report-section">'+
@@ -4382,34 +4667,6 @@ function renderReport(data){
     }
   }
 
-  // Language distribution — and, when it is one, the collection failure in it.
-  var langs=data.languages||{};
-  if(langs.distribution&&langs.distribution.length){
-    html+='<div class="report-section">'+
-      '<div class="report-section-title"><i class="ti ti-language"></i>Languages</div>'+
-      renderLangGap(data)+
-      '<div class="lang-row">'+
-        langs.distribution.map(function(l){
-          return'<div class="lang-pill'+(l.lang!=='en'?' nonEn':'')+'">'+
-            (l.flag||'')+' '+esc(l.name)+
-            '<span class="lnum">'+l.count+'</span>'+
-          '</div>';
-        }).join('')+
-      '</div>'+
-      (langs.non_english_docs?'<div class="lang-note">'+langs.non_english_docs+' of '+langs.total_docs+
-        ' non-English · analysed in the <b>source language</b>, translated only for display</div>':'')+
-    '</div>';
-  }
-
-  // ── MODE-SPECIFIC BODY ──────────────────────────────────────────────────
-  // activeMode was previously assigned by setMode() and never read, so the
-  // Narrative / Entities / Timeline tabs did nothing at all. Each now renders
-  // its own view over the same query.
-  // Entities view also carries geography — "who" and "where" are the same
-  // question asked twice, and an actor map without a reach map is half a picture.
-  if(activeMode==='entities'){ html+=renderEntitiesView(data); html+=renderGeoBlock(data); html+=reportFooter(); $('report').innerHTML=html; wireEntityMap(data); wireTimeline(data); return; }
-  if(activeMode==='timeline'){ html+=renderTimelineView(data); html+=reportFooter(); $('report').innerHTML=html; wireTimeline(data); return; }
-
   // Narrative clusters — Annex style
   var narr=data.narratives||[];
   if(narr.length){
@@ -4462,104 +4719,11 @@ function renderReport(data){
   // now", this answers "is it the same thing that was being said last time".
   html+=renderNarrativeTrackingBlock(data);
 
-  // Entities
-  var ents=(data.entities||{}).entities||[];
-  if(ents.length){
-    var sorted=ents.slice().sort(function(a,b){return(b.mentions||0)-(a.mentions||0);}).slice(0,16);
-    html+='<div class="report-section">'+
-      '<div class="report-section-title"><i class="ti ti-network"></i>Key Entities</div>'+
-      /* M9. These were plain divs: "Hassan Nasrallah ×4" with nothing behind
-         it. showEntityInGrid already existed and was reachable only from the
-         entity map, so the most-read list of actors on the page was the one
-         list you could not open. The count shown is now the number of documents
-         the chip will actually produce, because a chip reading ×4 that filters
-         to 11 (or to none) is worse than no number. */
-      '<div class="ent-chips">'+
-        sorted.map(function(e){
-          var n=entDocCount(e.name);
-          return'<button type="button" class="echip '+(e.type||'')+
-              (entityFocus===e.name?' on':'')+(n?'':' empty')+'"'+
-              (n?' data-act="entgrid" data-v="'+esc(e.name)+'"':' disabled')+
-              ' title="'+(n?'Show the '+n+' document'+(n===1?'':'s')+' mentioning this actor'
-                            :'No document in this corpus matches this name')+'">'+
-            '<span class="etype">'+esc(e.type||'')+'</span>'+
-            '<span class="ename">'+esc(e.name)+'</span>'+
-            '<span class="ement">'+(n||0)+'</span>'+
-          '</button>';
-        }).join('')+
-      '</div>'+
-      '<div class="method-note">Counts are documents in this corpus whose text names the '+
-      'actor. Click one to filter the evidence grid to it.</div>'+
-    '</div>';
-  }
 
-  // Coordination — its own section now. The rebuilt detector returns clusters,
-  // signals, flagged documents and a reach split, none of which fit in half of
-  // a two-up mini-card, and the band rules need room to be stated honestly.
-  html+=renderCoordinationBlock(data);
-
-  // Velocity
-  var vel=data.velocity||{};
-  if(vel.windows){
-    html+='<div class="report-section">'+
-      '<div class="report-section-title"><i class="ti ti-radar"></i>Intelligence Signals</div>'+
-      '<div class="intel-pair one">';
-    var w=vel.windows||{};var ac=vel.acceleration||'stable';
-    var acIcon={accelerating:'<i class="ti ti-trending-up"></i>',stable:'<i class="ti ti-minus"></i>',declining:'<i class="ti ti-trending-down"></i>'};
-    html+='<div class="mini-card">'+
-      '<div class="mini-title"><i class="ti ti-trending-up"></i>Velocity</div>'+
-      '<div class="vel-grid">'+
-        ['1h','6h','24h'].map(function(k){return'<div class="vw"><div class="vw-n">'+num(w[k]||0)+'</div><div class="vw-l">'+k+'</div></div>';}).join('')+
-      '</div>'+
-      '<div class="vel-accel '+ac+'">'+acIcon[ac]+' '+ac+'</div>'+
-    '</div>';
-    html+='</div>';
-    // A rate is only a rate over the documents that carried a date. A corpus
-    // that is largely undated produces windows computed from a minority of it,
-    // and the previous UI stated the verdict with no hint of that. Reported
-    // whenever it is a meaningful share rather than a rounding error.
-    var vTot=vel.total_docs||0, vUnd=vel.undated_docs||0, vFrom=vel.rate_computed_from;
-    if(vTot&&vUnd&&(vUnd/vTot)>=0.1){
-      html+='<div class="method-note">The counts above were computed from <b>'+
-        (vFrom!==undefined&&vFrom!==null?vFrom:(vTot-vUnd))+' of '+vTot+'</b> documents — '+
-        Math.round((vUnd/vTot)*100)+'% carry no usable timestamp and could not enter any '+
-        'window. The trend describes the dated remainder, not the corpus.</div>';
-    }else if(vUnd){
-      html+='<div class="method-note">'+vUnd+' of '+(vTot||vUnd)+' documents carry no usable '+
-        'timestamp and are excluded from these windows.</div>';
-    }
-    html+='</div>';
-  }
-
-  // Propagation — chain, per-platform dating, and the origin caveat with it.
-  html+=renderPropagationBlock(data);
-
-  // Source mix
-  var mix=data.source_mix||[];
-  if(mix.length){
-    html+='<div class="report-section">'+
-      '<div class="report-section-title"><i class="ti ti-sources"></i>Source Mix</div>'+
-      '<div class="src-pills">'+
-        mix.slice(0,10).map(function(s_){
-          var m=pm(s_.platform);
-          var stResult=lastData&&lastData.platforms&&lastData.platforms[s_.platform]&&lastData.platforms[s_.platform].results;
-          var st=stResult&&stResult[0]?stResult[0].source_type:'';
-          return'<div class="src-pill">'+
-            '<div class="src-dot" style="background:'+m.c+'"></div>'+
-            esc(m.n)+
-            '<span class="src-n">'+s_.count+'</span>'+
-            (st&&st!=='social'?'<span class="src-type '+st+'">'+esc(SRC_LABELS[st]||st)+'</span>':'')+
-          '</div>';
-        }).join('')+
-      '</div>'+
-    '</div>';
-  }
-
-  html+=renderInauthBlock(data);
-  html+=renderGeoBlock(data);
   html+=reportFooter();
   $('report').innerHTML=html;
   applyBrief();
+  restoreTabScroll();
 }
 
 
@@ -5331,20 +5495,34 @@ function renderEntitiesView(data){
     '</div></div>';
 
   html+='<div class="report-section"><div class="report-section-title">'+
-    '<i class="ti ti-chart-bar"></i>Actor volume</div>';
+    '<i class="ti ti-chart-bar"></i>Actors</div>'+
+    '<div class="method-note">Counts are documents in this corpus whose text names the '+
+    'actor. Click one to filter the evidence grid to it.</div>';
   Object.keys(byType).sort(function(a,b){return byType[b].length-byType[a].length;}).forEach(function(t){
     html+='<div class="ent-group"><div class="ent-group-label">'+esc(t)+' <span class="egc">'+byType[t].length+'</span></div>';
     html+=byType[t].sort(function(a,b){return (b.mentions||0)-(a.mentions||0);}).map(function(e){
       var pct=Math.round(((e.mentions||0)/maxM)*100);
       var s=(e.sentiment||'neutral').toLowerCase();
-      return '<div class="ent-row">'+
+      /* This list and the old "Key Entities" chip row were the same actors with
+         the same counts, one scroll apart — the chips were clickable and this
+         was not, so the useful half was the one an analyst was less likely to
+         reach. There is one actor list now, and it is this one, because it also
+         carries type grouping and relative volume. The count is documents the
+         click will actually produce, not the extractor's mention tally: a row
+         reading 4 that filters to 11 is worse than no number. */
+      var n=entDocCount(e.name);
+      return '<button type="button" class="ent-row'+(entityFocus===e.name?' on':'')+
+          (n?'':' empty')+'"'+
+          (n?' data-act="entgrid" data-v="'+esc(e.name||'')+'"':' disabled')+
+          ' title="'+(n?'Show the '+n+' document'+(n===1?'':'s')+' naming this actor'
+                       :'No document in this corpus names this actor')+'">'+
         '<div class="ent-row-top">'+
           '<span class="ent-name">'+esc(e.name||'')+'</span>'+
           '<span class="mpill '+esc(s)+'">'+esc(s)+'</span>'+
-          '<span class="ent-count">'+(e.mentions||0)+'</span>'+
+          '<span class="ent-count">'+(n||0)+'</span>'+
         '</div>'+
         '<div class="ent-bar"><div class="ent-bar-fill '+esc(s)+'" style="width:'+pct+'%"></div></div>'+
-      '</div>';
+      '</button>';
     }).join('');
     html+='</div>';
   });
@@ -6787,6 +6965,90 @@ function toggleTransparency(){
 }
 applyTransparency();
 
+/* ══ SPLIT ══════════════════════════════════════════════════════════════════
+   The report gets 60% by default because it is the product; the evidence grid
+   gets 40%. Both are the analyst's to change, and the change is theirs to keep,
+   so it is stored per browser rather than reset on every search.
+
+   Clamped to 25–75%: below a quarter neither pane holds a readable line, and a
+   control that lets you drag a panel into uselessness is not flexibility. */
+var SPLIT_KEY='xtag-split', SPLIT_DEFAULT=60, SPLIT_MIN=25, SPLIT_MAX=75;
+var splitPct=SPLIT_DEFAULT;
+
+function applySplit(pct,persist){
+  splitPct=Math.max(SPLIT_MIN,Math.min(SPLIT_MAX,Math.round(pct*10)/10));
+  document.documentElement.style.setProperty('--split',splitPct+'%');
+  var h=$('splitH');
+  if(h){
+    h.setAttribute('aria-valuenow',String(Math.round(splitPct)));
+    h.setAttribute('aria-valuetext',Math.round(splitPct)+'% report, '+
+                   (100-Math.round(splitPct))+'% evidence');
+  }
+  if(persist){try{localStorage.setItem(SPLIT_KEY,String(splitPct));}catch(e){}}
+  /* The entity map and the timeline are canvas/SVG sized from their container,
+     so they have to be told the container changed. Without this the map keeps
+     drawing at the old width and the physics run against a stale bounding box. */
+  if(window.EMAP&&EMAP.resize)EMAP.resize();
+  window.dispatchEvent(new Event('resize'));
+}
+(function initSplit(){
+  var v=null;
+  try{v=parseFloat(localStorage.getItem(SPLIT_KEY));}catch(e){}
+  applySplit(isFinite(v)&&v?v:SPLIT_DEFAULT,false);
+})();
+
+(function wireSplit(){
+  var h=$('splitH'), sp=$('split');
+  if(!h||!sp)return;
+  var dragging=false;
+
+  function pctFromX(x){
+    var r=sp.getBoundingClientRect();
+    if(!r.width)return splitPct;
+    return ((x-r.left)/r.width)*100;
+  }
+  function move(e){
+    if(!dragging)return;
+    var x=(e.touches&&e.touches[0]?e.touches[0].clientX:e.clientX);
+    if(x==null)return;
+    e.preventDefault();
+    applySplit(pctFromX(x),false);
+  }
+  function stop(){
+    if(!dragging)return;
+    dragging=false;
+    h.classList.remove('dragging'); sp.classList.remove('resizing');
+    applySplit(splitPct,true);          // one write at the end, not one per pixel
+    window.removeEventListener('mousemove',move);
+    window.removeEventListener('touchmove',move);
+    window.removeEventListener('mouseup',stop);
+    window.removeEventListener('touchend',stop);
+  }
+  function start(e){
+    // Ignore anything but a primary press, so a right-click does not start a drag.
+    if(e.type==='mousedown'&&e.button!==0)return;
+    dragging=true;
+    h.classList.add('dragging'); sp.classList.add('resizing');
+    window.addEventListener('mousemove',move,{passive:false});
+    window.addEventListener('touchmove',move,{passive:false});
+    window.addEventListener('mouseup',stop);
+    window.addEventListener('touchend',stop);
+    e.preventDefault();
+  }
+  h.addEventListener('mousedown',start);
+  h.addEventListener('touchstart',start,{passive:false});
+  h.addEventListener('dblclick',function(){applySplit(SPLIT_DEFAULT,true);});
+  h.addEventListener('keydown',function(e){
+    var step=e.shiftKey?10:2, p=null;
+    if(e.key==='ArrowLeft')p=splitPct-step;
+    else if(e.key==='ArrowRight')p=splitPct+step;
+    else if(e.key==='Home')p=SPLIT_DEFAULT;
+    else if(e.key==='End')p=SPLIT_MAX;
+    if(p===null)return;
+    e.preventDefault(); applySplit(p,true);
+  });
+})();
+
 /* ══ ESCAPE ══ closes the topmost thing that is open, in that order. */
 document.addEventListener('keydown',function(e){
   if(e.key!=='Escape')return;
@@ -6807,6 +7069,7 @@ window.cancelSearch = cancelSearch;
 window.toggleTransparency = toggleTransparency;
 
 /* ── BOOT ── */
+initRail();
 renderRailHist();
 updateWatchBadge();
 var q0=new URLSearchParams(location.search).get('q');
