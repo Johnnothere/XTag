@@ -161,5 +161,20 @@ chk('U7 a withheld dimension is never drawn as a zero',
 chk('U7 the reason for withholding is shown, not just the dash',
     js.includes("offX&&d.reason"));
 
+// ── Found on the live re-run: one number wearing two bands ──────────────────
+console.log('\n=== post-deploy regressions ===');
+chk('the finding does not band confidence on its own thresholds',
+    !js.includes("conf>=80?'high':conf>=55?'moderate':conf>=30?'low'"),
+    'the finding is still banding 49 as Low while the scorer calls it moderate');
+chk('the scorer owns the confidence band', js.includes('th.confidence_band\n    ? th.confidence_band'));
+chk('the fallback bands agree with intel.py (70/45)',
+    js.includes("(conf>=70?'high':conf>=45?'moderate':'low')"));
+chk('the narrative count is printed once, not twice',
+    !js.includes('Narrative Identity\'+\n      (ns.length?\'<span class="tb-badge"'));
+chk('a two-language gap reads as a list, not a comma splice',
+    js.includes("nm.slice(0,-1).join(', ')+' and '+nm[nm.length-1]"));
+chk('the pending note does not promise a pane that is not there',
+    js.includes('window.innerWidth<860'));
+
 console.log(`\n  ${P} passed, ${F} failed`);
 process.exit(F ? 1 : 0);

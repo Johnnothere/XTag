@@ -2633,7 +2633,11 @@ function reportPending(data){
         ' from <b>'+srcs+'</b> '+(srcs===1?'source':'sources')+
         (dropped?(' · <b>'+dropped+'</b> off-topic dropped'):'')+'</span>'+
       '</div>'+
-      '<div class="rp-pending-note">The evidence on the right is complete and searchable now. '+
+      /* "on the right" is false below 860px, where the grid is a separate view
+         reached by a toggle rather than a pane beside this one. */
+      '<div class="rp-pending-note">'+(window.innerWidth<860
+        ? 'The evidence is collected and searchable now \u2014 open the results view to read it. '
+        : 'The evidence on the right is complete and searchable now. ')+
       'Narratives, actors, events and the threat assessment are still being computed — '+
       'no score is shown yet because none of it is final.</div>'+
       '<div class="skel w90"></div><div class="skel w75"></div><div class="skel w60"></div>'+
@@ -2931,9 +2935,18 @@ function findingConfidence(data){
   var th=data.threat||{}, t=data.totals||{};
   var kept=t.mentions||0, deg=(data.degraded||[]).length;
   var conf=th.confidence;
-  var word = conf===undefined||conf===null
-    ? (kept>=40?'moderate':kept>=12?'low':'very low')
-    : (conf>=80?'high':conf>=55?'moderate':conf>=30?'low':'very low');
+  /* This used to band the confidence figure itself, on thresholds (80/55/30)
+     that did not match the ones the scorer bands on (70/45). For most of the
+     range the two agreed by luck; at 49 they did not, and the page printed
+     "Low" in the finding and "moderate" in the assessment for the same number.
+     The scorer owns the band — it is the thing that knows how the number was
+     built — and this reads it. The document-count fallback stays for the case
+     where no confidence was computed at all. */
+  var word = th.confidence_band
+    ? th.confidence_band
+    : (conf===undefined||conf===null
+        ? (kept>=40?'moderate':kept>=12?'low':'very low')
+        : (conf>=70?'high':conf>=45?'moderate':'low'));
   return {word:word, value:(conf===undefined?null:conf), degraded:deg, docs:kept};
 }
 
@@ -3897,14 +3910,14 @@ function renderLangGap(data){
   var empty=asked.filter(function(c){return (counts[c]||0)<Math.max(3,total*0.01);});
 
   if(empty.length){
-    var names=empty.map(function(c){return LANG_NAMES[c]||c.toUpperCase();});
+    var nm=empty.map(function(c){return LANG_NAMES[c]||c.toUpperCase();});
+    var names=nm.length>1?nm.slice(0,-1).join(', ')+' and '+nm[nm.length-1]:nm[0];
     var found=asked.filter(function(c){return empty.indexOf(c)<0;})
                    .map(function(c){return (LANG_NAMES[c]||c)+' '+(counts[c]||0);});
     return'<div class="lang-gap">'+
       '<i class="ti ti-alert-triangle" aria-hidden="true"></i>'+
       '<div><b>Collection gap — this corpus is '+Math.round((1-share)*100)+'% English.</b> '+
-      'The query was issued in '+esc(names.join(', '))+
-      (names.length===1?' and returned':' and returned')+' almost nothing'+
+      'The query was issued in '+esc(names)+' and returned almost nothing'+
       (found.length?', against '+esc(found.join(', '))+' elsewhere':'')+'. '+
       'Everything below is drawn from coverage <i>about</i> this subject rather than from '+
       'the subject\'s own information space, and framing, sentiment and coordination all '+
@@ -3988,9 +4001,10 @@ function renderNarrativeTrackingBlock(data){
   if(!ns.length&&!evs.length&&!nt.error)return'';
 
   var h='<div class="report-section">'+
-    '<div class="report-section-title"><i class="ti ti-fingerprint"></i>Narrative Identity'+
-      (ns.length?'<span class="tb-badge" style="margin-left:8px">'+ns.length+'</span>':'')+
-    '</div>';
+    /* The badge and the strip immediately below it both printed the count. One
+       of them has to go, and the strip is the one that says what the number
+       means. */
+    '<div class="report-section-title"><i class="ti ti-fingerprint"></i>Narrative Identity</div>';
 
   if(nt.error){
     // Tracking sits on top of the search and must never look like the search
