@@ -152,7 +152,11 @@ SB_BASE = "https://scrapebadger.com/v1"
 # detected, sentiment-scored and then almost entirely discarded — the #covid1948
 # probe kept 114 of 530. 150 is above every observed post-gate keep count while
 # cutting the per-source page count and the sentiment fan-out roughly threefold.
-MAX_RESULTS_PER_SOURCE = int(os.environ.get("MAX_RESULTS_PER_SOURCE", "150"))
+# Raised 150 → 250 for deeper corpora: the relevance gate still fronts the
+# analysis layer, so the extra depth only survives where it is genuinely on
+# topic. Override with the env var to go higher for watchlist depth (mind the
+# SerpApi / YouTube cost of deep pagination).
+MAX_RESULTS_PER_SOURCE = int(os.environ.get("MAX_RESULTS_PER_SOURCE", "250"))
 # MAX_PAGES was 10. YouTube's search.list costs 100 quota units per call, so ten
 # pages is ~1,000 units per XTag query against a 10,000/day default project quota
 # — roughly TEN searches a day, after which YouTube returns nothing and looks
@@ -193,7 +197,12 @@ SERPAPI_TIMEOUT = 25
 # one. Threads cannot be interrupted mid-call, so the only real lever is to
 # abandon stragglers sooner — which is safe: their results are discarded, the
 # sources that answered are kept, and the corpus is reported as degraded.
-SEARCH_POOL_TIMEOUT = int(os.environ.get("SEARCH_POOL_TIMEOUT", "25"))
+# Raised 25 → 35 so sources that answer just past 25s are kept rather than
+# stamped "timed out" and dropped into the degraded list — the main driver of a
+# long "sources failed" panel on a healthy run. Still clamped at call time
+# against the request budget (budget.slice(..., reserve=45)), so it is a ceiling
+# that can never starve the analysis stages, never a floor.
+SEARCH_POOL_TIMEOUT = int(os.environ.get("SEARCH_POOL_TIMEOUT", "35"))
 
 # Shared per-stage budgets. Each is spent ACROSS the stage's whole fan-out, not
 # per task — see _drain().
@@ -3295,16 +3304,27 @@ def generate_brief(q, snippets, narratives, entities, coordination):
 # FLASK ROUTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _security_headers(resp):
+    resp.headers["X-Content-Type-Options"]="nosniff"; resp.headers["X-Frame-Options"]="DENY"
+    resp.headers["Referrer-Policy"]="strict-origin-when-cross-origin"
+    resp.headers["Permissions-Policy"]="geolocation=(), microphone=(), camera=()"
+    return resp
+
 @app.route("/")
+def landing():
+    # Client-facing entry. A clean landing page that routes into the dashboard
+    # at /app — added so a first-time viewer meets the product, not a blank
+    # search box. The dashboard itself is unchanged and still lives at /app.
+    return _security_headers(make_response(render_template("landing.html")))
+
+@app.route("/app")
+@app.route("/dashboard")
 def index():
     resp = make_response(render_template("index.html",
         youtube_enabled=bool(YOUTUBE_API_KEY),
         cse_enabled=bool(SERPAPI_KEY),
         sentiment_enabled=SENTIMENT_ENABLED))
-    resp.headers["X-Content-Type-Options"]="nosniff"; resp.headers["X-Frame-Options"]="DENY"
-    resp.headers["Referrer-Policy"]="strict-origin-when-cross-origin"
-    resp.headers["Permissions-Policy"]="geolocation=(), microphone=(), camera=()"
-    return resp
+    return _security_headers(resp)
 
 def _gdelt_snapshot_safe(q: str) -> dict:
     """GDELT snapshot that never raises, for submission to the collection pool.

@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>XTag — Narrative &amp; Campaign Intelligence</title>
+<meta name="description" content="Hand XTag a narrative, not just a query. It collects, measures and assesses coordinated influence across platforms and languages — and shows its work."/>
+<meta name="theme-color" content="#faf9f5"/>
+<link rel="canonical" href="https://xtag.up.railway.app/"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="XTag"/>
+<meta property="og:title" content="XTag — Narrative &amp; Campaign Intelligence"/>
+<meta property="og:description" content="See the narrative before it becomes the story. Cross-platform, multilingual, measured — and honest about what it can and cannot see."/>
+<meta property="og:url" content="https://xtag.up.railway.app/"/>
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="XTag — Narrative &amp; Campaign Intelligence"/>
+<meta name="twitter:description" content="See the narrative before it becomes the story."/>
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23141413'/><text x='50' y='73' font-size='66' text-anchor='middle' font-family='Georgia,serif' fill='%23faf9f5'>%23</text></svg>"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   XTAG — marketing surface v8
+   The product-overview architecture: hero inside a floating collage of task
+   cards → numbered value props → "a day with XTag" run simulator (pick a
+   desk, watch a real task execute step by step) → source strip → capability
+   explorer → measured numbers → role × task picker → FAQ → close.
+   Warm paper, serif display, one blue. Every run shown is real product
+   behaviour; every number is a real measurement.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --paper:#faf9f5; --paper2:#f4f2ec; --panel:#eeece3; --card:#ffffff;
+  --ink:#141413; --ink2:#57564f; --ink3:#8a887f; --deco:#b0aea5;
+  --line:#e8e6dc; --line2:#dedbd0;
+  --accent:#0071e3; --accent2:#2997ff;
+  --dark:#141413; --cream:#faf9f5; --mut:#b0aea5;
+  --good:#30d158; --warn:#ff9f0a; --bad:#ff453a;
+  --serif:"Instrument Serif",Georgia,serif;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",monospace;
+  --max:1080px; --e:cubic-bezier(.22,.61,.36,1);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;line-height:1.5;overflow-x:hidden;}
+a{color:inherit;text-decoration:none;}
+button{font:inherit;background:none;border:none;cursor:pointer;color:inherit;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px;}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 24px;}
+section{scroll-margin-top:70px;}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .8s var(--e),transform .8s var(--e);}
+.reveal.in{opacity:1;transform:none;}
+.num{font-variant-numeric:tabular-nums;}
+.kick{font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);}
+.kick em{font-style:normal;color:var(--ink3);}
+
+/* ── Nav ── */
+.nav{position:sticky;top:0;z-index:100;background:rgba(250,249,245,.82);
+  -webkit-backdrop-filter:saturate(180%) blur(18px);backdrop-filter:saturate(180%) blur(18px);
+  border-bottom:1px solid transparent;transition:border-color .3s;}
+.nav.scrolled{border-bottom-color:var(--line);}
+.nav-in{max-width:var(--max);margin:0 auto;padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;}
+.logo{display:flex;align-items:center;gap:10px;font-size:19px;font-weight:600;letter-spacing:-.02em;}
+.logo .hash{width:28px;height:28px;border-radius:8px;background:var(--ink);color:var(--paper);display:grid;place-items:center;
+  font-family:var(--serif);font-size:18px;}
+.logo small{color:var(--ink3);font-weight:400;font-size:14px;}
+.nav-r{display:flex;align-items:center;gap:24px;font-size:14px;}
+.nav-r a{color:var(--ink2);transition:color .2s;}
+.nav-r a:hover{color:var(--ink);}
+.nav-pill{background:var(--ink);color:var(--paper)!important;padding:9px 18px;border-radius:999px;font-weight:500;font-size:13.5px;
+  transition:background .2s,transform .2s;}
+.nav-pill:hover{background:#2e2d2a;transform:translateY(-1px);}
+@media(max-width:680px){.nav-r a:not(.nav-pill){display:none;}}
+
+/* ── Hero + floating task collage ── */
+.hero{position:relative;text-align:center;padding:clamp(70px,11vh,130px) 0 clamp(56px,8vh,88px);overflow:hidden;}
+.hero .wrap{position:relative;z-index:2;}
+.hero .kick{display:block;margin-bottom:24px;}
+.h1{font-family:var(--serif);font-weight:400;font-size:clamp(52px,8.2vw,104px);line-height:1.0;letter-spacing:-.015em;margin:0 auto;max-width:14ch;}
+.h1 em{font-style:italic;}
+.h1 .dim{color:var(--ink3);}
+.hl{display:block;overflow:hidden;padding-bottom:.07em;margin-bottom:-.07em;}
+.hl>span{display:inline-block;transform:translateY(112%);transition:transform 1s var(--e);}
+.h1.in .hl>span{transform:none;}
+.h1.in .hl:nth-child(2)>span{transition-delay:.09s;}
+.h1.in .hl:nth-child(3)>span{transition-delay:.18s;}
+.sub{font-size:clamp(18px,2vw,22px);line-height:1.55;color:var(--ink2);max-width:600px;margin:26px auto 0;}
+.cta{display:flex;gap:14px;justify-content:center;align-items:center;margin-top:34px;flex-wrap:wrap;}
+.btn{font-size:16px;font-weight:500;padding:15px 30px;border-radius:999px;transition:all .22s ease;display:inline-flex;align-items:center;gap:8px;}
+.btn-dark{background:var(--ink);color:var(--paper);}
+.btn-dark:hover{background:#2e2d2a;transform:translateY(-1px);}
+.btn-link{color:var(--accent);padding:15px 6px;}
+.btn-link:hover{color:#005bb8;}
+.ar{transition:transform .2s;display:inline-block;}
+a:hover .ar{transform:translateX(3px);}
+/* collage */
+.collage{position:absolute;inset:0;z-index:1;pointer-events:none;}
+.tc{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+  box-shadow:0 10px 30px rgba(20,20,19,.08);width:172px;text-align:left;animation:float 7s ease-in-out infinite;}
+.tc .tcl{font-size:12px;font-weight:600;letter-spacing:-.01em;margin-bottom:8px;display:flex;align-items:center;gap:7px;}
+.tc .tcl i{width:7px;height:7px;border-radius:50%;flex:none;}
+.tc svg{width:100%;height:30px;display:block;}
+.tc .m{font-family:var(--mono);font-size:9px;color:var(--ink3);margin-top:7px;letter-spacing:.05em;}
+@keyframes float{0%,100%{transform:translateY(0) rotate(var(--r,0deg));}50%{transform:translateY(-10px) rotate(var(--r,0deg));}}
+.tc1{top:10%;left:2.5%;--r:-3deg;}
+.tc2{top:46%;left:5%;--r:2deg;animation-delay:1.2s;}
+.tc3{bottom:6%;left:12%;--r:-2deg;animation-delay:2.1s;}
+.tc4{top:12%;right:2.5%;--r:3deg;animation-delay:.6s;}
+.tc5{top:48%;right:4.5%;--r:-2deg;animation-delay:1.8s;}
+.tc6{bottom:7%;right:12%;--r:2deg;animation-delay:2.6s;}
+@media(max-width:1120px){.tc2,.tc5{display:none;}}
+@media(max-width:900px){.collage{display:none;}}
+
+/* ── numbered value props ── */
+.vals{border-top:1px solid var(--line);}
+.vals .sec{padding:clamp(56px,8vh,90px) 0;}
+.vgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(24px,4vw,56px);}
+.vp .vn{font-family:var(--mono);font-size:12px;color:var(--ink3);margin-bottom:14px;}
+.vp h3{font-family:var(--serif);font-weight:400;font-size:clamp(24px,2.6vw,32px);line-height:1.12;letter-spacing:-.01em;margin-bottom:10px;}
+.vp p{font-size:15px;line-height:1.6;color:var(--ink2);}
+@media(max-width:820px){.vgrid{grid-template-columns:1fr;}}
+
+/* ── Day simulator ── */
+.day{background:var(--paper2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+.day .sec{padding:clamp(70px,10vh,120px) 0;}
+.sec-h{text-align:center;max-width:760px;margin:0 auto clamp(36px,5vh,54px);}
+.sec-h .kick{display:block;margin-bottom:18px;}
+.sec-t{font-family:var(--serif);font-weight:400;font-size:clamp(36px,5vw,60px);line-height:1.04;letter-spacing:-.012em;}
+.sec-t em{font-style:italic;}
+.sec-s{font-size:clamp(16px,1.8vw,19px);line-height:1.6;margin-top:18px;color:var(--ink2);}
+.roles{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:30px;background:var(--panel);
+  border-radius:999px;padding:5px;width:max-content;max-width:100%;margin-left:auto;margin-right:auto;}
+.role{font-size:14px;font-weight:500;color:var(--ink2);padding:9px 18px;border-radius:999px;transition:all .2s;white-space:nowrap;}
+.role:hover{color:var(--ink);}
+.role[aria-selected="true"]{background:var(--ink);color:var(--paper);}
+.run{display:none;grid-template-columns:1fr 1.15fr;gap:clamp(26px,4vw,52px);align-items:start;}
+.run.on{display:grid;animation:pin .45s var(--e);}
+@keyframes pin{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+@media(max-width:860px){.run.on{grid-template-columns:1fr;}}
+.run-copy .rt{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--ink3);text-transform:uppercase;margin-bottom:12px;}
+.run-copy h3{font-family:var(--serif);font-weight:400;font-size:clamp(26px,3vw,38px);line-height:1.08;letter-spacing:-.01em;margin-bottom:12px;}
+.run-copy p{font-size:15.5px;line-height:1.62;color:var(--ink2);}
+.run-copy .try{display:inline-flex;align-items:center;gap:7px;margin-top:20px;color:var(--accent);font-weight:500;font-size:15px;}
+.runcard{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;
+  box-shadow:0 1px 3px rgba(20,20,19,.05),0 22px 55px rgba(20,20,19,.09);}
+.rq{padding:18px 20px 14px;font-size:15px;line-height:1.55;border-bottom:1px solid var(--line);}
+.rq .qm{font-family:var(--serif);font-style:italic;color:var(--ink3);margin-right:2px;}
+.rmeta{display:flex;gap:8px;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.mchip{font-family:var(--mono);font-size:10px;letter-spacing:.05em;padding:4px 10px;border-radius:6px;background:var(--panel);color:var(--ink2);}
+.mchip.b{color:var(--accent);background:rgba(0,113,227,.08);}
+.rthink{padding:12px 20px;font-size:13px;font-style:italic;color:var(--ink3);border-bottom:1px solid var(--line);
+  font-family:var(--serif);letter-spacing:.005em;}
+.rsteps{padding:10px 12px;}
+.rstep{display:flex;align-items:center;gap:10px;padding:9px 8px;border-radius:9px;font-size:13px;}
+.rstep:hover{background:var(--paper2);}
+.rstep .src{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--ink2);background:var(--panel);
+  padding:3px 8px;border-radius:5px;flex:none;min-width:74px;text-align:center;}
+.rstep .src.b{color:var(--accent);background:rgba(0,113,227,.08);}
+.rstep .tx{color:var(--ink);line-height:1.45;}
+.rstep .tx b{font-weight:600;}
+.rstep .ok{margin-left:auto;color:var(--good);font-size:13px;flex:none;}
+.rfoot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 20px;border-top:1px solid var(--line);
+  flex-wrap:wrap;background:var(--paper2);}
+.rfoot .std{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--ink3);}
+.rfoot .std b{color:var(--ink2);font-weight:500;}
+.rfoot a{color:var(--accent);font-weight:500;font-size:13.5px;display:inline-flex;align-items:center;gap:6px;}
+
+/* ── Source strip ── */
+.marq{border-bottom:1px solid var(--line);padding:26px 0;overflow:hidden;}
+.marq-l{text-align:center;font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink3);margin-bottom:16px;font-weight:500;}
+.marq-track{display:flex;gap:48px;width:max-content;animation:slide 34s linear infinite;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);}
+.marq:hover .marq-track{animation-play-state:paused;}
+.marq-track span{font-family:var(--serif);font-size:20px;color:var(--deco);white-space:nowrap;transition:color .2s;}
+.marq-track span:hover{color:var(--ink);}
+@keyframes slide{to{transform:translateX(-50%);}}
+
+/* ── Capability explorer ── */
+.caps .sec{padding:clamp(70px,10vh,120px) 0;}
+.cap-tabs{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:30px;}
+.ctab{font-size:14px;font-weight:500;color:var(--ink2);padding:9px 18px;border-radius:999px;border:1px solid var(--line2);transition:all .2s;}
+.ctab:hover{color:var(--ink);border-color:var(--ink3);}
+.ctab[aria-selected="true"]{background:var(--ink);border-color:var(--ink);color:var(--paper);}
+.cap-panel{display:none;max-width:840px;margin:0 auto;}
+.cap-panel.on{display:grid;grid-template-columns:1fr 1fr;gap:10px 28px;animation:pin .4s var(--e);}
+@media(max-width:700px){.cap-panel.on{grid-template-columns:1fr;}}
+.ci{display:flex;gap:12px;padding:14px 12px;border-radius:12px;transition:background .2s;}
+.ci:hover{background:var(--paper2);}
+.ci .cd{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:7px;}
+.ci h4{font-size:15px;font-weight:600;letter-spacing:-.01em;}
+.ci p{font-size:13.5px;color:var(--ink2);line-height:1.55;margin-top:3px;}
+
+/* ── Measured dark band ── */
+.meas{background:var(--dark);color:var(--cream);}
+.meas .sec{padding:clamp(70px,10vh,118px) 0;}
+.meas .sec-s{color:var(--mut);}
+.meas .kick em{color:#7c7a72;}
+.meas-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(250,249,245,.1);
+  border:1px solid rgba(250,249,245,.12);border-radius:20px;overflow:hidden;position:relative;}
+.mcell{background:var(--dark);padding:32px 26px 28px;}
+.mcell .mv{font-family:var(--serif);font-size:clamp(42px,4.6vw,60px);line-height:1;}
+.mcell .mv small{font-size:.55em;color:var(--accent2);}
+.mcell .mt{font-size:14.5px;font-weight:600;margin:15px 0 7px;}
+.mcell .md{font-size:13px;color:var(--mut);line-height:1.6;}
+.mcell .mf{font-family:var(--mono);font-size:10px;color:#8b897f;margin-top:15px;letter-spacing:.02em;line-height:1.6;}
+.tk{position:absolute;font-family:var(--mono);font-size:13px;line-height:1;color:#57564f;pointer-events:none;user-select:none;}
+.tk.tl{top:-7px;left:-7px;}.tk.tr{top:-7px;right:-7px;}.tk.bl{bottom:-7px;left:-7px;}.tk.br{bottom:-7px;right:-7px;}
+@media(max-width:900px){.meas-grid{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:520px){.meas-grid{grid-template-columns:1fr;}}
+
+/* ── Role × task picker ── */
+.pick .sec{padding:clamp(70px,10vh,120px) 0;}
+.pick-sent{font-family:var(--serif);font-weight:400;font-size:clamp(26px,3.6vw,44px);line-height:1.3;text-align:center;
+  max-width:820px;margin:0 auto clamp(30px,4vh,44px);letter-spacing:-.01em;}
+.psel{display:inline-flex;align-items:center;gap:6px;border-bottom:2px solid var(--accent);color:var(--accent);
+  padding:0 2px 2px;cursor:pointer;position:relative;white-space:nowrap;}
+.psel select{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:16px;}
+.psel .car{font-size:.55em;transform:translateY(2px);}
+.pick-frame{max-width:880px;margin:0 auto;border-radius:20px;background:linear-gradient(180deg,#121214,#0a0a0b);
+  border:1px solid rgba(20,20,19,.1);overflow:hidden;color:#f5f5f7;
+  box-shadow:0 36px 90px rgba(20,20,19,.18),0 6px 22px rgba(20,20,19,.09),inset 0 1px 0 rgba(255,255,255,.07);}
+.fbar{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.025);}
+.dots{display:flex;gap:6px;margin-right:4px;}
+.dots i{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.14);}
+.fq{flex:1;min-width:0;font-size:12.5px;color:#a1a1a6;font-family:var(--mono);background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:6px 11px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.flive{font-size:10.5px;color:var(--good);display:flex;align-items:center;gap:6px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;}
+.flive i{width:6px;height:6px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);animation:blink 2s infinite;}
+@keyframes blink{50%{opacity:.35;}}
+.pv{display:none;padding:16px;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;min-height:300px;}
+.pv.on{display:grid;animation:pin .4s var(--e);}
+@media(max-width:700px){.pv.on{grid-template-columns:minmax(0,1fr);}}
+.pc{background:#161618;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:15px 16px;min-width:0;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);}
+.lab{font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#6e6e73;font-weight:600;margin-bottom:11px;
+  display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.lab span{letter-spacing:0;text-transform:none;font-weight:500;}
+.gauge-row{display:flex;align-items:center;gap:16px;}
+.gauge{position:relative;width:92px;height:92px;flex:none;}
+.gauge .v{position:absolute;inset:0;display:grid;place-items:center;font-size:30px;font-weight:600;}
+.gm .band{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--warn);background:rgba(255,159,10,.14);padding:3px 9px;border-radius:6px;}
+.gm .band i{width:6px;height:6px;border-radius:50%;background:var(--warn);}
+.gm .c{font-size:12px;color:#a1a1a6;margin-top:9px;line-height:1.55;}
+.gm .c b{color:#f5f5f7;font-weight:600;}
+.evi{display:flex;flex-direction:column;gap:6px;}
+.ev{display:flex;align-items:center;gap:9px;font-size:11.5px;padding:8px 10px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);}
+.ev .pl{font-family:var(--mono);font-size:9.5px;color:#a1a1a6;background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px;flex:none;}
+.ev .t{flex:1;min-width:0;color:#f5f5f7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ev .cr{font-size:9.5px;color:#6e6e73;flex:none;}
+.mini svg{width:100%;height:auto;display:block;}
+.mini text{font-family:var(--sans);font-size:10.5px;fill:#f5f5f7;font-weight:600;}
+.mini text.s{fill:#a1a1a6;font-weight:500;font-size:9.5px;font-family:var(--mono);}
+.mini .e{fill:none;stroke-width:1.5;stroke-linecap:round;}
+.mini .e.co{stroke-dasharray:3 4;}
+.arow{display:flex;align-items:center;gap:9px;font-size:12px;padding:8px 10px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);flex-wrap:wrap;}
+.arow .nm{display:inline-flex;align-items:center;gap:7px;font-weight:600;color:#f5f5f7;}
+.arow .nm i{width:8px;height:8px;border-radius:50%;flex:none;}
+.chip{font-size:10px;font-weight:600;padding:3px 9px;border-radius:6px;margin-left:auto;white-space:nowrap;}
+.chip.ok{color:var(--good);background:rgba(48,209,88,.14);}
+.chip.no{color:var(--warn);background:rgba(255,159,10,.14);}
+.chip.push{color:var(--accent2);background:rgba(41,151,255,.14);margin-left:8px;}
+.pcov{display:flex;justify-content:space-between;gap:6px 14px;flex-wrap:wrap;margin-top:12px;padding-top:11px;
+  border-top:1px solid rgba(255,255,255,.1);font-size:11px;color:#a1a1a6;}
+.pcov b{color:#f5f5f7;font-weight:600;}
+.tl-ev{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:11.5px;}
+.tl-ev:last-child{border-bottom:none;}
+.tl-ev .tag{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:5px;flex:none;margin-top:1px;}
+.tl-ev .tag.b{color:var(--accent2);background:rgba(41,151,255,.13);}
+.tl-ev .tag.g{color:var(--good);background:rgba(48,209,88,.13);}
+.tl-ev .tag.w{color:var(--warn);background:rgba(255,159,10,.13);}
+.tl-ev .tx{color:#a1a1a6;line-height:1.5;}
+.tl-ev .tx b{color:#f5f5f7;font-weight:600;}
+.spark2 svg{width:100%;height:auto;display:block;}
+.spark2 text{font-family:var(--mono);font-size:9.5px;fill:#a1a1a6;}
+
+/* ── FAQ ── */
+.faq{background:var(--paper2);border-top:1px solid var(--line);}
+.faq .sec{padding:clamp(70px,10vh,118px) 0;}
+.faq-list{max-width:760px;margin:0 auto;border-top:1px solid var(--line2);}
+.qa{border-bottom:1px solid var(--line2);}
+.qa button{width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:18px;
+  padding:22px 4px;font-size:clamp(16.5px,1.9vw,19px);font-weight:600;letter-spacing:-.01em;transition:color .2s;}
+.qa button:hover{color:var(--accent);}
+.qa .pm{flex:none;width:26px;height:26px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;
+  font-size:15px;color:var(--ink2);transition:transform .3s var(--e),background .2s;font-weight:400;}
+.qa[data-open="1"] .pm{transform:rotate(45deg);background:var(--panel);}
+.qa .ans{overflow:hidden;max-height:0;transition:max-height .45s var(--e);}
+.qa .ans p{padding:0 40px 22px 4px;font-size:15.5px;line-height:1.65;color:var(--ink2);}
+
+/* ── Close ── */
+.state{padding:clamp(90px,14vh,160px) 0;text-align:center;}
+.state .kick{display:block;margin-bottom:24px;}
+.state blockquote{font-family:var(--serif);font-weight:400;font-size:clamp(34px,5.2vw,64px);line-height:1.08;
+  letter-spacing:-.012em;max-width:17ch;margin:0 auto;}
+.state blockquote em{font-style:italic;}
+.state blockquote .dim{color:var(--ink3);}
+.state .foot{font-size:clamp(15.5px,1.8vw,18px);color:var(--ink2);max-width:600px;margin:26px auto 0;line-height:1.6;}
+.state .cta{margin-top:36px;}
+
+/* ── Footer ── */
+footer{border-top:1px solid var(--line);background:var(--paper2);padding:52px 0 44px;}
+.fgrid{max-width:var(--max);margin:0 auto;padding:0 24px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:32px;}
+.fcol h5{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink3);font-weight:500;margin-bottom:14px;}
+.fcol a{display:block;font-size:14px;color:var(--ink2);padding:5px 0;}
+.fcol a:hover{color:var(--ink);}
+.fbrand .logo{margin-bottom:12px;}
+.fbrand p{font-size:13.5px;color:var(--ink3);line-height:1.6;max-width:280px;}
+.fbase{max-width:var(--max);margin:36px auto 0;padding:20px 24px 0;border-top:1px solid var(--line);
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+.fbase span{font-size:12.5px;color:var(--ink3);}
+@media(max-width:760px){.fgrid{grid-template-columns:1fr 1fr;}}
+@media(max-width:480px){.btn{width:100%;justify-content:center;}.btn-link{width:auto;}}
+@media(prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important;scroll-behavior:auto;}
+  .reveal{opacity:1;transform:none;}
+  .hl>span{transform:none;}
+  .qa .ans{transition:none;}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav" aria-label="Primary"><div class="nav-in">
+  <a class="logo" href="/"><span class="hash">#</span>XTag <small>Narrative Intelligence</small></a>
+  <div class="nav-r">
+    <a href="#day">A day with XTag</a><a href="#caps">Capabilities</a><a href="#proof">Evidence</a><a href="#faq">FAQ</a>
+    <a class="nav-pill" href="/app">Open dashboard</a>
+  </div>
+</div></nav>
+
+<!-- HERO + COLLAGE -->
+<header class="hero">
+  <div class="collage" aria-hidden="true">
+    <div class="tc tc1"><div class="tcl"><i style="background:#0071e3"></i>Hashtag surge check</div>
+      <svg viewBox="0 0 140 30"><polyline points="0,26 20,24 40,25 60,18 80,20 100,10 120,12 140,4" fill="none" stroke="#0071e3" stroke-width="2" stroke-linecap="round"/></svg>
+      <div class="m">VELOCITY · ACCELERATING</div></div>
+    <div class="tc tc2"><div class="tcl"><i style="background:#199e70"></i>Coordination sweep</div>
+      <svg viewBox="0 0 140 30"><g stroke="#dedbd0"><line x1="14" y1="22" x2="48" y2="10"/><line x1="48" y1="10" x2="86" y2="20"/><line x1="86" y1="20" x2="120" y2="8"/><line x1="86" y1="20" x2="120" y2="26"/></g><circle cx="14" cy="22" r="4" fill="#b0aea5"/><circle cx="48" cy="10" r="4" fill="#b0aea5"/><circle cx="86" cy="20" r="4" fill="#199e70"/><circle cx="120" cy="8" r="4" fill="#199e70"/><circle cx="120" cy="26" r="4" fill="#199e70"/></svg>
+      <div class="m">1 CLUSTER · COHESION 0.91</div></div>
+    <div class="tc tc3"><div class="tcl"><i style="background:#ff9f0a"></i>Breakout check</div>
+      <svg viewBox="0 0 140 30"><circle cx="70" cy="15" r="12" fill="none" stroke="#141413" stroke-dasharray="3 3" opacity=".4"/><circle cx="70" cy="15" r="3.5" fill="#0071e3"/><circle cx="30" cy="15" r="3.5" fill="none" stroke="#ff9f0a" stroke-width="1.6" stroke-dasharray="2 2"/><path d="M38 15 L54 15" stroke="#dedbd0" stroke-width="1.4"/></svg>
+      <div class="m">CONTAINED · NO PICKUP</div></div>
+    <div class="tc tc4"><div class="tcl"><i style="background:#d55181"></i>Weekly watchlist brief</div>
+      <svg viewBox="0 0 140 30"><g fill="#e8e6dc"><rect x="4" y="18" width="18" height="8" rx="2"/><rect x="28" y="12" width="18" height="14" rx="2"/><rect x="52" y="16" width="18" height="10" rx="2"/><rect x="76" y="6" width="18" height="20" rx="2" fill="#0071e3"/><rect x="100" y="14" width="18" height="12" rx="2"/></g></svg>
+      <div class="m">2 ALERTS · 1 NEW NARRATIVE</div></div>
+    <div class="tc tc5"><div class="tcl"><i style="background:#9085e9"></i>Actor map</div>
+      <svg viewBox="0 0 140 30"><g stroke="#0071e3" stroke-width="1.2" opacity=".6"><line x1="55" y1="8" x2="75" y2="22"/><line x1="75" y1="22" x2="95" y2="9"/><line x1="55" y1="8" x2="95" y2="9"/></g><circle cx="55" cy="8" r="4" fill="#0071e3"/><circle cx="75" cy="22" r="4" fill="#0071e3"/><circle cx="95" cy="9" r="4" fill="#0071e3"/><circle cx="18" cy="20" r="3.5" fill="#b0aea5"/><circle cx="124" cy="22" r="3.5" fill="#b0aea5"/></svg>
+      <div class="m">214 ACTORS · 4 COORDINATED</div></div>
+    <div class="tc tc6"><div class="tcl"><i style="background:#c98500"></i>Hearing brief</div>
+      <svg viewBox="0 0 140 30"><g fill="none" stroke="#b0aea5" stroke-width="2" stroke-linecap="round"><line x1="8" y1="8" x2="132" y2="8"/><line x1="8" y1="16" x2="100" y2="16"/><line x1="8" y1="24" x2="116" y2="24"/></g></svg>
+      <div class="m">2 PAGES · EVERY CLAIM CITED</div></div>
+  </div>
+  <div class="wrap">
+    <span class="kick reveal">Narrative &amp; campaign intelligence</span>
+    <h1 class="h1" id="h1">
+      <span class="hl"><span>Give XTag</span></span>
+      <span class="hl"><span>the narrative,</span></span>
+      <span class="hl"><span class="dim">not just a <em>query.</em></span></span>
+    </h1>
+    <p class="sub reveal">Hand it a tag, a claim, or a story that's moving. It collects across the whole
+      information environment, measures who is pushing and how — and shows its work.</p>
+    <div class="cta reveal">
+      <a class="btn btn-dark" href="/app">Open the dashboard</a>
+      <a class="btn btn-link" href="#day">See a day with XTag <span class="ar">&rsaquo;</span></a>
+    </div>
+  </div>
+</header>
+
+<!-- VALUE PROPS -->
+<section class="vals"><div class="sec"><div class="wrap">
+  <div class="vgrid">
+    <div class="vp reveal"><div class="vn">01</div><h3>Take the sweep off your desk</h3>
+      <p>Sixteen sources, four languages, deduplicated and screened for relevance — the hours of tab-hopping
+        collapse into one query, so your time goes to the judgment call.</p></div>
+    <div class="vp reveal" style="transition-delay:.07s"><div class="vn">02</div><h3>Turn a hunch into a finding</h3>
+      <p>"This feels pushed" becomes a measured answer: which accounts move together, how much reach they
+        manufactured, and which narratives they fed.</p></div>
+    <div class="vp reveal" style="transition-delay:.14s"><div class="vn">03</div><h3>Defend every number</h3>
+      <p>Each score ships its confidence, its coverage and what would change it. What XTag cannot see, it says —
+        so your name can go on the report.</p></div>
+  </div>
+</div></div></section>
+
+<!-- A DAY WITH XTAG -->
+<section class="day" id="day"><div class="sec"><div class="wrap">
+  <div class="sec-h">
+    <span class="kick reveal"><em>01</em> &nbsp;A day with XTag</span>
+    <h2 class="sec-t reveal">Pick a desk. <em>Watch it run.</em></h2>
+    <p class="sec-s reveal">Real tasks, exactly as the pipeline executes them — the request, the reasoning,
+      each stage as it fires, and where the result lands.</p>
+  </div>
+  <div class="roles reveal" role="tablist" aria-label="Choose a desk">
+    <button class="role" role="tab" aria-selected="true" aria-controls="run0">Analyst</button>
+    <button class="role" role="tab" aria-selected="false" aria-controls="run1">Strategic comms</button>
+    <button class="role" role="tab" aria-selected="false" aria-controls="run2">Investigator</button>
+    <button class="role" role="tab" aria-selected="false" aria-controls="run3">Policy desk</button>
+  </div>
+
+  <!-- RUN 0 · ANALYST -->
+  <div class="run on" id="run0" role="tabpanel">
+    <div class="run-copy reveal">
+      <div class="rt">08:00 · Analyst</div>
+      <h3>Start the day with the watchlists</h3>
+      <p>XTag re-evaluates every saved query fresh — never from cache, because a check is an observation —
+        compares each narrative's share against the last run, and raises alerts only for what genuinely moved.</p>
+      <a class="try" href="/app">Run it in the dashboard <span class="ar">&rsaquo;</span></a>
+    </div>
+    <div class="runcard">
+      <div class="rq"><span class="qm">“</span>Check my watchlists against overnight activity. Flag anything that grew
+        or picked up a new coordinated cluster, and tell me what reached mainstream news.<span class="qm">”</span></div>
+      <div class="rmeta"><span class="mchip b">6-stage pipeline</span><span class="mchip">uncached</span><span class="mchip">share-based growth</span></div>
+      <div class="rthink">Share of corpus first — a bigger crawl must never read as growth.</div>
+      <div class="rsteps">
+        <div class="rstep"><span class="src">watchlist</span><span class="tx">Evaluate <b>7 saved queries</b>, each a full fresh collection</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">gdelt</span><span class="tx">Four-window news pull, <b>~1,000 articles</b> against last week</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src b">alerts</span><span class="tx"><b>2 rules fired:</b> growth +64% on share · new 3-actor cluster</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">brief</span><span class="tx">One narrative crossed into high-credibility news overnight</span><span class="ok">✓</span></div>
+      </div>
+      <div class="rfoot"><span class="std">STANDING: <b>every morning · 06:00</b></span><a href="/app">Open watchlists <span class="ar">&rsaquo;</span></a></div>
+    </div>
+  </div>
+
+  <!-- RUN 1 · COMMS -->
+  <div class="run" id="run1" role="tabpanel" hidden>
+    <div class="run-copy reveal in">
+      <div class="rt">12:00 · Strategic communications</div>
+      <h3>Is this organic — or an operation?</h3>
+      <p>Before anyone drafts a response, XTag splits the reach: what the push generated itself versus the
+        audience it genuinely captured, and whether a single credible outlet has actually picked it up.</p>
+      <a class="try" href="/app">Run it in the dashboard <span class="ar">&rsaquo;</span></a>
+    </div>
+    <div class="runcard">
+      <div class="rq"><span class="qm">“</span>This tag is trending against our client. Is the push organic or
+        manufactured — and has it reached credible news yet?<span class="qm">”</span></div>
+      <div class="rmeta"><span class="mchip b">coordination v2</span><span class="mchip">reach split</span><span class="mchip">8s to first evidence</span></div>
+      <div class="rthink">Traits, not text — shared links and timing, weighted by what actually detects.</div>
+      <div class="rsteps">
+        <div class="rstep"><span class="src">collect</span><span class="tx"><b>16 sources</b> in parallel · 412 documents survive the gate</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">actors</span><span class="tx">One cluster: <b>4 accounts</b>, cohesion 0.91, five-minute posting waves</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src b">reach</span><span class="tx"><b>41% manufactured</b> — the operation is talking to itself</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">amplify</span><span class="tx"><b>Contained</b> — high push, zero mainstream pickup so far</span><span class="ok">✓</span></div>
+      </div>
+      <div class="rfoot"><span class="std">VERDICT SHIPS WITH <b>confidence &amp; coverage</b></span><a href="/app">Run a check <span class="ar">&rsaquo;</span></a></div>
+    </div>
+  </div>
+
+  <!-- RUN 2 · INVESTIGATOR -->
+  <div class="run" id="run2" role="tabpanel" hidden>
+    <div class="run-copy reveal in">
+      <div class="rt">15:00 · Investigator</div>
+      <h3>Map the accounts behind it</h3>
+      <p>Every document reduces to an actor and four behavioural traits. The graph keeps only the statistically
+        exceptional ties, and what remains is the network — with the evidence behind every edge retained.</p>
+      <a class="try" href="/app">Run it in the dashboard <span class="ar">&rsaquo;</span></a>
+    </div>
+    <div class="runcard">
+      <div class="rq"><span class="qm">“</span>Map the accounts pushing this narrative across platforms and show me
+        which ones behave as one group.<span class="qm">”</span></div>
+      <div class="rmeta"><span class="mchip b">actor–trait graph</span><span class="mchip">backbone filter</span><span class="mchip">deterministic</span></div>
+      <div class="rthink">A tracking parameter is the cheapest evasion there is — canonicalise the URLs first.</div>
+      <div class="rsteps">
+        <div class="rstep"><span class="src">reduce</span><span class="tx"><b>418 documents → 214 actors</b> across six platforms</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">graph</span><span class="tx">Backbone filter keeps <b>12 of 388</b> candidate pairs</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src b">cluster</span><span class="tx"><b>One 4-actor cluster</b> · same links, same five-minute windows</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">verdict</span><span class="tx">Score <b>63</b> — reported as magnitude; no baseline configured, and it says so</span><span class="ok">✓</span></div>
+      </div>
+      <div class="rfoot"><span class="std">EVERY EDGE <b>traceable to documents</b></span><a href="/app">Open the actor map <span class="ar">&rsaquo;</span></a></div>
+    </div>
+  </div>
+
+  <!-- RUN 3 · POLICY -->
+  <div class="run" id="run3" role="tabpanel" hidden>
+    <div class="run-copy reveal in">
+      <div class="rt">17:00 · Policy desk</div>
+      <h3>A brief you can put your name on</h3>
+      <p>Narrative identities persist across runs, so "how did this move over a month" is a real answer —
+        births, growth on share, drift, deaths — with every claim tied to the documents that carry it.</p>
+      <a class="try" href="/app">Run it in the dashboard <span class="ar">&rsaquo;</span></a>
+    </div>
+    <div class="runcard">
+      <div class="rq"><span class="qm">“</span>Two pages on how this narrative moved over the last month — what grew,
+        what died, what crossed languages. Cite the documents.<span class="qm">”</span></div>
+      <div class="rmeta"><span class="mchip b">persistent identity</span><span class="mchip">native multilingual</span><span class="mchip">printable dossier</span></div>
+      <div class="rthink">Same identities week to week — matched on membership, not on wording.</div>
+      <div class="rsteps">
+        <div class="rstep"><span class="src">tracking</span><span class="tx"><b>8 narratives</b> · 3 growth events · 1 drift, reported not hidden</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">language</span><span class="tx">AR <b>41%</b> · FA 22% · EN 28% · HE 9% — scored natively</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src b">verify</span><span class="tx">Every quoted line <b>checked against the corpus</b>; unverifiable quotes dropped</span><span class="ok">✓</span></div>
+        <div class="rstep"><span class="src">dossier</span><span class="tx"><b>2 pages</b>, print-ready — unavailable sections say why</span><span class="ok">✓</span></div>
+      </div>
+      <div class="rfoot"><span class="std">SUBSCRIBE: <b>emailed every 7 days</b></span><a href="/app">Build a dossier <span class="ar">&rsaquo;</span></a></div>
+    </div>
+  </div>
+</div></div></section>
+
+<!-- SOURCE STRIP -->
+<section class="marq"><div class="marq-l">Collects across the whole information environment</div>
+  <div class="marq-track" aria-hidden="true">
+    <span>X / Twitter</span><span>Telegram</span><span>GDELT</span><span>YouTube</span><span>Reddit</span><span>TikTok</span><span>Bluesky</span><span>State media</span><span>Instagram</span><span>Facebook</span><span>Podcasts</span><span>Academic</span>
+    <span>X / Twitter</span><span>Telegram</span><span>GDELT</span><span>YouTube</span><span>Reddit</span><span>TikTok</span><span>Bluesky</span><span>State media</span><span>Instagram</span><span>Facebook</span><span>Podcasts</span><span>Academic</span>
+  </div>
+</section>
+
+<!-- CAPABILITY EXPLORER -->
+<section class="caps" id="caps"><div class="sec"><div class="wrap">
+  <div class="sec-h">
+    <span class="kick reveal"><em>02</em> &nbsp;Capabilities</span>
+    <h2 class="sec-t reveal">See what XTag <em>can do.</em></h2>
+  </div>
+  <div class="cap-tabs reveal" role="tablist" aria-label="Capability areas">
+    <button class="ctab" role="tab" aria-selected="true" aria-controls="cp0">Collect</button>
+    <button class="ctab" role="tab" aria-selected="false" aria-controls="cp1">Measure</button>
+    <button class="ctab" role="tab" aria-selected="false" aria-controls="cp2">Interpret</button>
+    <button class="ctab" role="tab" aria-selected="false" aria-controls="cp3">Stay honest</button>
+    <button class="ctab" role="tab" aria-selected="false" aria-controls="cp4">Operate</button>
+  </div>
+  <div class="cap-panel on" id="cp0" role="tabpanel">
+    <div class="ci"><i class="cd"></i><div><h4>16+ live sources</h4><p>Social, news, state media, Telegram, GDELT, academic and podcasts — fired in parallel, per query.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Query expansion</h4><p>Script variants, digit forms and written surface shapes — a tag folded three ways still counts as one tag.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>The relevance gate</h4><p>Every document scored for relevance before anything else is computed; dropped documents kept for audit.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Engagement, not views</h4><p>Reactions, comments and shares are acts; impressions are not. XTag never mixes the two.</p></div></div>
+  </div>
+  <div class="cap-panel" id="cp1" role="tabpanel" hidden>
+    <div class="ci"><i class="cd"></i><div><h4>Coordination clusters</h4><p>Actor–trait graph over shared links, hashtags, wording and timing — validated against a red-team harness.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Captured vs manufactured reach</h4><p>The operation's own noise, split from the audience it genuinely won.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Velocity &amp; propagation</h4><p>Acceleration windows and first-seen platform ordering, computed over the whole corpus.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Global tone &amp; volume</h4><p>News tone, article volume in σ above baseline, source-country concentration and audience languages.</p></div></div>
+  </div>
+  <div class="cap-panel" id="cp2" role="tabpanel" hidden>
+    <div class="ci"><i class="cd"></i><div><h4>Narratives &amp; entities</h4><p>Recurring frames with their claims, actors and documents; every extracted quote verified against the corpus.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Amplification map</h4><p>Which narrative seeded which, which moved as a set — and which never reached the public domain.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Identity over time</h4><p>Births, growth on share, drift and deaths — the same story recognised week to week.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Written brief &amp; dossier</h4><p>A defensible written verdict, and a print-first dossier where every missing section says why.</p></div></div>
+  </div>
+  <div class="cap-panel" id="cp3" role="tabpanel" hidden>
+    <div class="ci"><i class="cd"></i><div><h4>Confidence, gated</h4><p>Volume, purity, source health and recency each gate the number — no amount of coverage escapes thin evidence.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Unknown is not low</h4><p>Below eight documents or a quarter of signal, the band is "unknown" — a dash, never a green light.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Degradation, named</h4><p>A failed source is excluded and named; a degraded run is returned honestly and never cached as fact.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Fenced from the evidence</h4><p>The corpus is adversarial by definition — instructions inside it are findings to analyse, never orders to obey.</p></div></div>
+  </div>
+  <div class="cap-panel" id="cp4" role="tabpanel" hidden>
+    <div class="ci"><i class="cd"></i><div><h4>Watchlists &amp; alerts</h4><p>Saved queries re-evaluated fresh on schedule; alerts only on genuine movement, never on collection size.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Email reports</h4><p>Scheduled digests with deltas since last delivery — honest about what was not assessed.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Cases, kept locally</h4><p>Every search is a case, stored in your browser — reopen it instantly, nothing re-queried, nothing spent.</p></div></div>
+    <div class="ci"><i class="cd"></i><div><h4>Time series</h4><p>Every check persisted as an observation, so trends are measured against records, not memory.</p></div></div>
+  </div>
+</div></div></section>
+
+<!-- MEASURED -->
+<section class="meas" id="proof"><div class="sec"><div class="wrap">
+  <div class="sec-h">
+    <span class="kick reveal"><em>03</em> &nbsp;Evidence</span>
+    <h2 class="sec-t reveal">Measured, <em>not promised.</em></h2>
+    <p class="sec-s reveal">Detection claims are cheap. XTag's are produced by a red-team harness that injects
+      synthetic campaigns with known ground truth into realistic organic traffic — then scores what the detector recovers.</p>
+  </div>
+  <div class="meas-grid reveal" style="position:relative;">
+    <span class="tk tl" aria-hidden="true">+</span><span class="tk tr" aria-hidden="true">+</span>
+    <span class="tk bl" aria-hidden="true">+</span><span class="tk br" aria-hidden="true">+</span>
+    <div class="mcell"><div class="mv num"><span class="cnt" data-count="100" data-suf="%">0%</span></div>
+      <div class="mt">Recall at a 32-document campaign</div>
+      <div class="md">Across all six evasion types — copy-paste, botnet, paraphrase, URL variants, slow burn, and adaptive. Precision 97–100%.</div>
+      <div class="mf">RED-TEAM INJECTION HARNESS · SMISC-STYLE SCORING</div></div>
+    <div class="mcell"><div class="mv num"><span class="cnt" data-count="0">0</span></div>
+      <div class="mt">Score on purely organic traffic</div>
+      <div class="md">Exactly zero on organic-only corpora across five random seeds. A detector that cries wolf is worse than no detector.</div>
+      <div class="mf">REGRESSION-GUARDED IN THE TEST SUITE</div></div>
+    <div class="mcell"><div class="mv num"><span class="cnt" data-count="73.4" data-dec="1" data-suf="%">0%</span></div>
+      <div class="mt">Noise removed on one live query</div>
+      <div class="md">Of 530 collected documents, 389 contained no form of the query at all. The relevance gate removes them before anything is scored.</div>
+      <div class="mf">LIVE DEPLOYMENT PROBE · 01 SEP 2026</div></div>
+    <div class="mcell"><div class="mv num">7–70<small>×</small></div>
+      <div class="mt">Where confirmed operations sit</div>
+      <div class="md">Above matched organic baseline, in the attributed archives of seven state campaigns. XTag reports magnitude against baseline — never vibes.</div>
+      <div class="mf">25M ATTRIBUTED TWEETS · 9,071 ACCOUNTS · LITERATURE</div></div>
+  </div>
+</div></div></section>
+
+<!-- ROLE × TASK PICKER -->
+<section class="pick" id="pick"><div class="sec"><div class="wrap">
+  <p class="pick-sent reveal">I work on <span class="psel"><span id="selRoleTx">a research desk</span><span class="car">▾</span>
+      <select id="selRole" aria-label="Choose a role">
+        <option value="0" selected>a research desk</option><option value="1">strategic communications</option>
+        <option value="2">an investigation</option><option value="3">a policy brief</option></select></span>
+    and I need <span class="psel"><span id="selTaskTx">a threat assessment</span><span class="car">▾</span>
+      <select id="selTask" aria-label="Choose a task">
+        <option value="0" selected>a threat assessment</option><option value="1">an amplification map</option>
+        <option value="2">an evidence audit</option><option value="3">the story over time</option></select></span>.</p>
+  <div class="pick-frame reveal">
+    <div class="fbar">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <span class="fq" id="pickq">Hezbollah psychological operations</span>
+      <span class="flive"><i></i> Live</span>
+    </div>
+    <!-- PV 0 · ASSESS -->
+    <div class="pv on" id="pv0">
+      <div class="pc">
+        <div class="lab">Threat assessment <span>8 factors</span></div>
+        <div class="gauge-row">
+          <div class="gauge">
+            <svg viewBox="0 0 100 100" width="92" height="92" aria-hidden="true">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="7"/>
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#ff9f0a" stroke-width="7" stroke-linecap="round"
+                stroke-dasharray="264" stroke-dashoffset="74" transform="rotate(-90 50 50)"/>
+            </svg>
+            <div class="v num">72</div>
+          </div>
+          <div class="gm">
+            <span class="band"><i></i>Elevated</span>
+            <div class="c">Confidence <b class="num">84</b> · <b class="num">418</b> documents<br/>Coverage <b>13 of 16</b> sources</div>
+          </div>
+        </div>
+      </div>
+      <div class="pc">
+        <div class="lab">Risk dimensions</div>
+        <div class="evi">
+          <div class="ev"><span class="t">Reputational</span><span class="cr num">61 · elevated</span></div>
+          <div class="ev"><span class="t">Information integrity</span><span class="cr num">58 · elevated</span></div>
+          <div class="ev"><span class="t">Physical security</span><span class="cr num">44 · screening aid</span></div>
+          <div class="ev"><span class="t">Operational</span><span class="cr">— not configured</span></div>
+        </div>
+      </div>
+    </div>
+    <!-- PV 1 · AMPLIFICATION -->
+    <div class="pv" id="pv1" hidden>
+      <div class="pc mini">
+        <div class="lab">Which narrative amplified which <span>deterministic</span></div>
+        <svg viewBox="0 0 330 118" aria-hidden="true">
+          <defs><marker id="m1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2997ff"/></marker></defs>
+          <path class="e" d="M50,34 C96,10 150,10 200,36" stroke="#2997ff" marker-end="url(#m1)"/>
+          <path class="e co" d="M160,86 L212,86" stroke="#6e6e73"/>
+          <circle cx="40" cy="38" r="8" fill="#2997ff"/><text x="54" y="30">Martyrdom framing</text><text class="s" x="54" y="50">seeded · 14 carriers</text>
+          <circle cx="212" cy="40" r="8" fill="#d95926"/><text x="226" y="30">Israel provocation</text><text class="s" x="226" y="50">broke through</text>
+          <circle cx="40" cy="86" r="8" fill="#199e70"/><text x="54" y="80">Domestic unity</text><text class="s" x="54" y="98">co-amplified</text>
+          <circle cx="224" cy="86" r="8" fill="#c98500"/><text x="238" y="80">Foreign meddling</text><text class="s" x="238" y="98">contained</text>
+        </svg>
+        <div class="pcov"><span>Public domain <b>2 of 4</b></span><span>Contained <b>2</b></span><span>Manufactured <b>41%</b></span></div>
+      </div>
+      <div class="pc">
+        <div class="lab">Reached the public domain, or contained</div>
+        <div class="evi">
+          <div class="arow"><span class="nm"><i style="background:#2997ff"></i>Martyrdom framing</span><span class="chip ok">broke through</span></div>
+          <div class="arow"><span class="nm"><i style="background:#d95926"></i>Israel provocation</span><span class="chip ok">broke through</span></div>
+          <div class="arow"><span class="nm"><i style="background:#c98500"></i>Foreign meddling</span><span class="chip no">contained</span><span class="chip push">high push, no pickup</span></div>
+          <div class="arow"><span class="nm"><i style="background:#d55181"></i>Retaliation threat</span><span class="chip no">contained</span></div>
+        </div>
+      </div>
+    </div>
+    <!-- PV 2 · EVIDENCE -->
+    <div class="pv" id="pv2" hidden>
+      <div class="pc">
+        <div class="lab">Collected evidence <span>418 on-topic</span></div>
+        <div class="evi">
+          <div class="ev"><span class="pl">telegram</span><span class="t">قناة المقاومة — بيان حول العملية الأخيرة</span><span class="cr">state</span></div>
+          <div class="ev"><span class="pl">x</span><span class="t">#المقاومة trending after overnight strikes — thread</span><span class="cr">low</span></div>
+          <div class="ev"><span class="pl">gdelt</span><span class="t">Reuters: Hezbollah signals response after…</span><span class="cr">high</span></div>
+          <div class="ev"><span class="pl">youtube</span><span class="t">Friday address, full speech — 1.2M views</span><span class="cr">unknown</span></div>
+        </div>
+      </div>
+      <div class="pc">
+        <div class="lab">The relevance gate <span>audit retained</span></div>
+        <div class="evi">
+          <div class="tl-ev"><span class="tag g">KEPT</span><span class="tx"><b>418 documents</b> carry a verified form of the query — only these feed the scores.</span></div>
+          <div class="tl-ev"><span class="tag w">DROPPED</span><span class="tx"><b>96 documents</b> matched nothing — removed with a sample kept for audit.</span></div>
+          <div class="tl-ev"><span class="tag b">WHY</span><span class="tx">Unfiltered noise doesn't just add error — volume-based confidence would <b>certify</b> it.</span></div>
+        </div>
+      </div>
+    </div>
+    <!-- PV 3 · OVER TIME -->
+    <div class="pv" id="pv3" hidden>
+      <div class="pc spark2">
+        <div class="lab">Narrative lifecycle <span>same identity, week to week</span></div>
+        <svg viewBox="0 0 330 120" aria-hidden="true">
+          <polyline points="14,96 60,88 106,74 152,70 198,46 244,40 290,22" fill="none" stroke="#2997ff" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="14" cy="96" r="5" fill="#30d158"/><text x="14" y="114" text-anchor="middle">birth</text>
+          <circle cx="106" cy="74" r="5" fill="#2997ff"/><text x="106" y="114" text-anchor="middle">growth</text>
+          <circle cx="198" cy="46" r="5" fill="#ff9f0a"/><text x="198" y="114" text-anchor="middle">drift</text>
+          <circle cx="290" cy="22" r="5" fill="#2997ff"/><text x="290" y="114" text-anchor="middle">+214%</text>
+        </svg>
+      </div>
+      <div class="pc">
+        <div class="lab">Tracker events</div>
+        <div class="evi">
+          <div class="tl-ev"><span class="tag g">BIRTH</span><span class="tx">A cluster no live narrative claimed — new identity issued and tracked.</span></div>
+          <div class="tl-ev"><span class="tag b">GROWTH</span><span class="tx">Share of corpus up <b>&gt;10%</b> — a bigger crawl never fakes growth.</span></div>
+          <div class="tl-ev"><span class="tag w">DRIFT</span><span class="tx">Same documents, label moved subject — reported, never hidden.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div></section>
+
+<!-- FAQ -->
+<section class="faq" id="faq"><div class="sec"><div class="wrap">
+  <div class="sec-h">
+    <span class="kick reveal"><em>04</em> &nbsp;Questions</span>
+    <h2 class="sec-t reveal">Asked <em>often.</em></h2>
+  </div>
+  <div class="faq-list reveal">
+    <div class="qa"><button aria-expanded="false"><span>Where does the data come from?</span><span class="pm">+</span></button>
+      <div class="ans"><p>Sixteen-plus live sources per query: public social platforms, news via the GDELT global
+        index, a curated state-media feed list, Telegram channels, academic indexes and podcasts. Everything is
+        collected at query time, deduplicated, and screened for relevance before anything is scored.</p></div></div>
+    <div class="qa"><button aria-expanded="false"><span>Can XTag tell me who is behind a campaign?</span><span class="pm">+</span></button>
+      <div class="ans"><p>It shows you the structure: which accounts move together, how cohesive the cluster is, how much
+        of the reach the operation generated itself, and which narratives it fed. Attribution to a sponsor is an
+        analyst's judgment — XTag deliberately does not automate it, because a tool that guesses attribution is a
+        tool you cannot cite.</p></div></div>
+    <div class="qa"><button aria-expanded="false"><span>What does "contained" mean?</span><span class="pm">+</span></button>
+      <div class="ans"><p>A narrative that is present in the collection but absent from high-credibility news — pushed,
+        sometimes hard, yet it never reached the public domain in that pull. Often that is the most interesting
+        finding on the page: an operation that has not broken out yet. A wider or later collection may show a breakout,
+        and the report says so.</p></div></div>
+    <div class="qa"><button aria-expanded="false"><span>What happens when a source fails mid-search?</span><span class="pm">+</span></button>
+      <div class="ans"><p>It is named, excluded from coverage, and the assessment renormalises over what remains — a missing
+        signal is never scored as zero. If too little survives, the verdict becomes "unknown" rather than "low",
+        and a degraded run is never cached as if it were a complete one.</p></div></div>
+    <div class="qa"><button aria-expanded="false"><span>Which languages does it read?</span><span class="pm">+</span></button>
+      <div class="ans"><p>Arabic, Persian, Hebrew and English, scored natively in each language — no translate-then-analyse
+        detour. Queries are expanded into script and surface variants so the same tag written three ways still counts
+        as one tag. Translations are produced for display only.</p></div></div>
+    <div class="qa"><button aria-expanded="false"><span>How fast is a search?</span><span class="pm">+</span></button>
+      <div class="ans"><p>First evidence is on screen in seconds — collection and relevance screening run ahead of the
+        deeper analysis, which streams in behind it. A full multi-stage assessment, including coordination, narrative
+        extraction and the scored verdict, completes within a few minutes at most.</p></div></div>
+  </div>
+</div></div></section>
+
+<!-- CLOSE -->
+<section class="state"><div class="wrap">
+  <span class="kick reveal">Why analysts trust it</span>
+  <blockquote class="reveal">A system that cannot see<br/><span class="dim">does not render <em>green.</em></span></blockquote>
+  <p class="foot reveal">Missing signals are reported, never zeroed. A degraded run says so. A coordination figure with no
+    baseline is shown as a magnitude, not a false verdict. Honesty is the feature.</p>
+  <div class="cta reveal">
+    <a class="btn btn-dark" href="/app">Open the dashboard</a>
+    <a class="btn btn-link" href="#day">Watch it run <span class="ar">&rsaquo;</span></a>
+  </div>
+</div></section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="fgrid">
+    <div class="fcol fbrand">
+      <a class="logo" href="/"><span class="hash">#</span>XTag</a>
+      <p>Narrative &amp; campaign intelligence. Built for the people who have to be right — governments,
+        research institutes, counsel and strategic communications.</p>
+    </div>
+    <div class="fcol"><h5>Product</h5>
+      <a href="/app">Dashboard</a><a href="#day">A day with XTag</a><a href="#caps">Capabilities</a><a href="#proof">Evidence</a></div>
+    <div class="fcol"><h5>Method</h5>
+      <a href="#caps">Coordination</a><a href="#caps">The relevance gate</a><a href="#caps">Languages</a><a href="#faq">FAQ</a></div>
+    <div class="fcol"><h5>System</h5>
+      <a href="/api/status">Status</a><a href="/report?q=">Printable dossier</a><a href="/app">Watchlists</a></div>
+  </div>
+  <div class="fbase"><span>XTag — Narrative &amp; Campaign Intelligence</span><span class="num">v2.1</span></div>
+</footer>
+
+<script>
+(function(){
+  var reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  },{threshold:.12,rootMargin:'0px 0px -6% 0px'});
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+
+  var h1=document.getElementById('h1');
+  if(reduce){ h1.classList.add('in'); } else { setTimeout(function(){ h1.classList.add('in'); },60); }
+
+  var nav=document.getElementById('nav');
+  addEventListener('scroll',function(){ nav.classList.toggle('scrolled',scrollY>8); },{passive:true});
+
+  /* day simulator roles */
+  function wireTabs(tabSel,panelSel){
+    var tabs=[].slice.call(document.querySelectorAll(tabSel));
+    var panels=[].slice.call(document.querySelectorAll(panelSel));
+    function select(i){
+      tabs.forEach(function(t,j){ t.setAttribute('aria-selected', j===i?'true':'false'); });
+      panels.forEach(function(p,j){ p.classList.toggle('on', j===i);
+        if(j===i){p.removeAttribute('hidden');} else {p.setAttribute('hidden','');} });
+    }
+    tabs.forEach(function(t,i){
+      t.addEventListener('click',function(){ select(i); });
+      t.addEventListener('keydown',function(e){
+        if(e.key==='ArrowRight'||e.key==='ArrowLeft'){
+          e.preventDefault();
+          var n=(i+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length;
+          select(n); tabs[n].focus();
+        }
+      });
+    });
+    return select;
+  }
+  wireTabs('.role','.run');
+  wireTabs('.ctab','.cap-panel');
+
+  /* role × task picker */
+  var selRole=document.getElementById('selRole'), selTask=document.getElementById('selTask');
+  var roleTx=document.getElementById('selRoleTx'), taskTx=document.getElementById('selTaskTx');
+  var pvs=[].slice.call(document.querySelectorAll('.pv'));
+  function pick(){
+    roleTx.textContent=selRole.options[selRole.selectedIndex].text;
+    taskTx.textContent=selTask.options[selTask.selectedIndex].text;
+    var i=+selTask.value;
+    pvs.forEach(function(p,j){ p.classList.toggle('on', j===i);
+      if(j===i){p.removeAttribute('hidden');} else {p.setAttribute('hidden','');} });
+  }
+  selRole.addEventListener('change',pick);
+  selTask.addEventListener('change',pick);
+
+  /* FAQ */
+  document.querySelectorAll('.qa').forEach(function(qa){
+    var btn=qa.querySelector('button'), ans=qa.querySelector('.ans');
+    btn.addEventListener('click',function(){
+      var open=qa.getAttribute('data-open')==='1';
+      document.querySelectorAll('.qa[data-open="1"]').forEach(function(o){
+        o.removeAttribute('data-open'); o.querySelector('button').setAttribute('aria-expanded','false');
+        o.querySelector('.ans').style.maxHeight='0px';
+      });
+      if(!open){
+        qa.setAttribute('data-open','1'); btn.setAttribute('aria-expanded','true');
+        ans.style.maxHeight=ans.scrollHeight+'px';
+      }
+    });
+  });
+
+  /* count-up */
+  function countUp(el){
+    var t=parseFloat(el.dataset.count),dec=+(el.dataset.dec||0),suf=el.dataset.suf||'',start=null,dur=1500;
+    function f(ts){ start=start||ts; var p=Math.min(1,(ts-start)/dur); p=1-Math.pow(1-p,3);
+      el.textContent=(t*p).toFixed(dec)+suf; if(p<1)requestAnimationFrame(f); }
+    requestAnimationFrame(f);
+  }
+  var cio=new IntersectionObserver(function(es){
+    es.forEach(function(e){ if(!e.isIntersecting) return; cio.unobserve(e.target);
+      if(reduce){ var el=e.target; el.textContent=el.dataset.count+(el.dataset.suf||''); } else countUp(e.target); });
+  },{threshold:.6});
+  document.querySelectorAll('.cnt').forEach(function(el){ cio.observe(el); });
+})();
+</script>
+</body>
+</html>
