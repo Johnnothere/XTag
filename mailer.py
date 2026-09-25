@@ -123,7 +123,7 @@ def render_report(query: str, payload: dict, brief: str | None = None,
 <tr><td align="center">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border-radius:14px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
   <tr><td style="padding:24px 26px 6px;border-bottom:1px solid #eeedea;">
-    <div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#c23d0c;font-weight:700;">XTag Narrative Intelligence</div>
+    <div style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#0071e3;font-weight:700;">XTag Narrative Intelligence</div>
     <div style="font-size:23px;color:#18181f;margin-top:8px;font-weight:600;line-height:1.3;">{_e(query)}</div>
     <div style="font-size:12px;color:#88889a;margin:6px 0 18px;">Automated report &middot; every {cadence_days} day{'s' if cadence_days != 1 else ''}</div>
   </td></tr>
