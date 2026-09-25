@@ -122,10 +122,12 @@
 }
 
 :root[data-theme="light"]{
-  --bg:#eceae4;--bg2:#f3f1ec;--surface:#ffffff;--surface2:#f6f5f1;--surface3:#ecebe6;
-  --ink:#14161c;--ink2:#464d5c;--ink3:#6b7385;--ink4:#98a0b0;
-  --line:rgba(0,0,0,.08);--line2:rgba(0,0,0,.04);--hair:rgba(0,0,0,.12);
-  --accent:#c14309;--accent2:#e05028;--accent-glow:rgba(193,67,9,.14);--accent-tint:rgba(193,67,9,.09);
+  /* "Warm paper" — the marketing surface's language carried into the tool:
+     ivory ground, warm near-black ink, one blue. Matches templates/landing.html. */
+  --bg:#faf9f5;--bg2:#f4f2ec;--surface:#ffffff;--surface2:#f6f4ee;--surface3:#edebe2;
+  --ink:#141413;--ink2:#57564f;--ink3:#6f6e66;--ink4:#b0aea5;
+  --line:rgba(20,20,19,.09);--line2:rgba(20,20,19,.045);--hair:rgba(20,20,19,.13);
+  --accent:#0071e3;--accent2:#005bb8;--accent-glow:rgba(0,113,227,.15);--accent-tint:rgba(0,113,227,.08);
   --pos:#0a8f66;--pos-tint:rgba(10,143,102,.11);
   --neg:#d4342c;--neg-tint:rgba(212,52,44,.1);
   --neu:#646c7d;--neu-tint:rgba(100,108,125,.1);
@@ -133,7 +135,7 @@
   --state:#6d33d6;--state-tint:rgba(109,51,214,.11);
   --academic:#0369a1;--academic-tint:rgba(3,105,161,.11);
   --glass-tint:linear-gradient(180deg,rgba(255,255,255,.62),rgba(255,255,255,.34));
-  --glass-base:rgba(246,245,241,.55);
+  --glass-base:rgba(250,249,245,.58);
   --glass-bright:.98;
   --glass-border:rgba(0,0,0,.09);
   --glass-rim-top:rgba(255,255,255,.95);
@@ -2328,7 +2330,9 @@ function parseTs(ts){
 }
 
 /* ── THEME ── */
-var theme=localStorage.getItem('xtag-theme')||'dark';
+/* Warm paper is the default face of the product, matching the landing page;
+   dark remains one toggle away and a saved preference always wins. */
+var theme=localStorage.getItem('xtag-theme')||'light';
 document.documentElement.setAttribute('data-theme',theme);
 function toggleTheme(){
   theme=theme==='dark'?'light':'dark';
@@ -2413,11 +2417,15 @@ function platCol(p){
   return c;
 }
 var SRC_LABELS={state_media:'State Media',academic:'Academic',news:'News',social:'Social',podcast:'Podcast'};
-/* Categorical narrative palette — validated for CVD separation, lightness band
-   and 3:1 contrast on the dark surface (#161617). Fixed order, never cycled:
-   an assigned hue follows its narrative. Narratives are always direct-labelled,
-   so identity never rides on colour alone. */
-var CLUSTER_COLORS=['#2997ff','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+/* Categorical narrative palette — the same eight hues, stepped per theme and
+   validated (CVD separation, lightness band, contrast) against each theme's
+   own surface. Fixed order, never cycled: an assigned hue follows its
+   narrative. Narratives are always direct-labelled, so identity never rides
+   on colour alone. Chosen once at load; a mid-session theme flip keeps the
+   loaded set until reload, which is visible but never unreadable. */
+var CLUSTER_COLORS=(document.documentElement.getAttribute('data-theme')==='light')
+  ? ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948']
+  : ['#2997ff','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
 
 /* ── HISTORY ── */
 var HIST_KEY='xtag-hist-v3';
