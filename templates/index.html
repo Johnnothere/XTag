@@ -42,28 +42,28 @@
   /* ── Ground. Near-black with a slight blue bias — a chosen neutral, not #000.
         The accent is warm, so the ground leans cool; that is what makes the
         ember read as deliberate rather than as a default orange. ── */
-  --bg:#06070a;
-  --bg2:#0a0c11;
-  --surface:#0f1218;          /* content-layer panel */
-  --surface2:#141820;         /* nested inside a panel */
-  --surface3:#1a1f29;         /* tracks, wells, bars */
+  --bg:#000000;
+  --bg2:#0a0a0a;
+  --surface:#161617;          /* content-layer panel */
+  --surface2:#1d1d1f;         /* nested inside a panel */
+  --surface3:#252528;         /* tracks, wells, bars */
 
   /* ── Ink. --ink3 was #55556e, which measured 2.6:1 on the panel colour and
         carried nearly every caption in the product. It is now 4.6:1. ── */
-  --ink:#f4f6fa;
-  --ink2:#aab2c0;
-  --ink3:#7f8797;
-  --ink4:#5a6272;             /* decorative only — never text */
+  --ink:#f5f5f7;
+  --ink2:#a1a1a6;
+  --ink3:#86868b;
+  --ink4:#6e6e73;             /* decorative only — never text */
 
   --line:rgba(255,255,255,.075);
   --line2:rgba(255,255,255,.04);
   --hair:rgba(255,255,255,.11);
 
   /* ── Brand + semantics. Severity always means the same hue anywhere. ── */
-  --accent:#e05c28;
-  --accent2:#ff7a45;
-  --accent-glow:rgba(224,92,40,.22);
-  --accent-tint:rgba(224,92,40,.11);
+  --accent:#2997ff;
+  --accent2:#5aacff;
+  --accent-glow:rgba(41,151,255,.24);
+  --accent-tint:rgba(41,151,255,.12);
   --pos:#2fd9a3;--pos-tint:rgba(47,217,163,.13);
   --neg:#ff6b6b;--neg-tint:rgba(255,107,107,.13);
   --neu:#8089a0;--neu-tint:rgba(128,137,160,.12);
@@ -74,7 +74,7 @@
   /* ── Liquid Glass tokens. Transparency is set by the BACKGROUND alpha, never
         by the filter, so a single token swap turns the whole system solid. ── */
   --glass-tint:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.035));
-  --glass-base:rgba(9,11,16,.62);
+  --glass-base:rgba(10,10,10,.62);
   --glass-blur:22px;
   --glass-sat:180%;
   --glass-bright:1.06;
@@ -92,7 +92,7 @@
   /* ── Type. Negative tracking as size rises, positive as it falls — the single
         detail that separates a real Apple-family type ramp from a fake one. ── */
   --serif:"Instrument Serif",Georgia,serif;
-  --sans:"Inter","SF Pro Display",system-ui,-apple-system,sans-serif;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Inter",system-ui,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,monospace;
   --fs-display:clamp(44px,6vw,72px); --tr-display:-.034em;
   --fs-h1:clamp(28px,3.2vw,40px);    --tr-h1:-.028em;
@@ -572,8 +572,12 @@ button{background:none;border:none;cursor:pointer;}
 .ccard-frame.neutral,.ccard-frame.grief,.ccard-frame.stable{background:var(--neu-tint);color:var(--ink2);}
 .ccard-label{font-size:var(--fs-sm);font-weight:600;color:var(--ink);line-height:1.35;margin-bottom:3px;letter-spacing:-.01em;}
 .ccard-count{font-family:var(--mono);font-size:var(--fs-micro);color:var(--ink3);}
-.ccard-vel{font-size:var(--fs-micro);color:var(--pos);display:flex;align-items:center;gap:4px;margin-top:5px;}
-.ccard-vel.declining{color:var(--neg);}
+/* Velocity colour follows attention, not cheerfulness: an accelerating
+   narrative is the one that needs eyes on it (amber), a declining one is
+   rarely urgent. Green here would be the colour contradicting the threat
+   semantics one panel above. */
+.ccard-vel{font-size:var(--fs-micro);color:var(--warn);display:flex;align-items:center;gap:4px;margin-top:5px;}
+.ccard-vel.declining{color:var(--ink3);}
 .ccard-vel.stable{color:var(--ink3);}
 
 /* ── Entity chips / lists ── */
@@ -761,6 +765,50 @@ button{background:none;border:none;cursor:pointer;}
 .limit{border-left:2px solid var(--warn);padding-left:var(--s3);}
 .limit-t{font-size:14px;font-weight:600;color:var(--ink1);margin-bottom:3px;line-height:1.4;}
 .limit-d{font-size:13px;line-height:1.55;color:var(--ink3);}
+/* Client-facing "Confidence & coverage" rendering: neutral, not alarm-amber.
+   The raw amber view is reserved for the internal diagnostics toggle. */
+.limits.clean .limits-head{color:var(--ink4);}
+.limits.clean .limit{border-left-color:var(--line);}
+.limits-diag{display:inline-block;margin-left:8px;font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;padding:1px 6px;border:1px solid var(--warn);border-radius:6px;
+  color:var(--warn);vertical-align:middle;font-weight:600;}
+
+/* ── Narrative amplification ─────────────────────────────────────────────────
+   Which narrative fed which, and which never reached the public domain. Computed
+   deterministically from shared carriers, posting order and the credibility mix
+   of each narrative's own documents. */
+.amp-sum{font-size:13.5px;line-height:1.6;color:var(--ink2);margin:0 0 var(--s5);}
+.amp-sum b{color:var(--ink);font-weight:600;}
+.amp-subhead{font-size:var(--fs-cap);letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);
+  font-weight:600;margin:var(--s5) 0 var(--s3);}
+.amp-map{display:flex;flex-direction:column;gap:var(--s2);}
+.amp-edge{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;padding:12px 14px;
+  background:var(--surface2);border:1px solid var(--line);border-radius:var(--r);}
+.amp-node{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--ink);
+  max-width:220px;}
+.amp-node .amp-dot{width:8px;height:8px;border-radius:50%;flex:none;}
+.amp-node .amp-lbl{line-height:1.3;}
+.amp-arrow{display:inline-flex;align-items:center;gap:6px;color:var(--accent2);font-size:12px;font-weight:600;
+  font-family:var(--mono);white-space:nowrap;}
+.amp-arrow.co{color:var(--ink3);}
+.amp-meta{font-size:11.5px;color:var(--ink3);margin-left:auto;white-space:nowrap;}
+.amp-none{font-size:13px;color:var(--ink3);line-height:1.6;padding:12px 14px;background:var(--surface2);
+  border:1px solid var(--line);border-radius:var(--r);}
+.amp-list{display:flex;flex-direction:column;gap:var(--s2);}
+.amp-row{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;padding:12px 14px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);}
+.amp-row .amp-rlabel{font-size:13.5px;font-weight:600;color:var(--ink);display:inline-flex;align-items:center;gap:8px;
+  min-width:160px;flex:1 1 160px;}
+.amp-status{font-size:11px;font-weight:600;letter-spacing:.02em;padding:4px 10px;border-radius:999px;white-space:nowrap;}
+.amp-status.broke{color:var(--pos);background:var(--pos-tint);}
+.amp-status.contained{color:var(--warn);background:var(--warn-tint);}
+.amp-status.laundered{color:var(--state);background:var(--state-tint);}
+.amp-mix{display:flex;gap:5px;flex-wrap:wrap;margin-left:auto;}
+.amp-chip{font-size:10.5px;color:var(--ink3);font-family:var(--mono);padding:2px 7px;border-radius:6px;
+  background:var(--surface3);border:1px solid var(--line);}
+.amp-chip.push{color:var(--accent2);border-color:var(--accent-tint);background:var(--accent-tint);}
+.amp-note{font-size:11.5px;line-height:1.55;color:var(--ink4);margin-top:var(--s4);padding-top:var(--s3);
+  border-top:1px solid var(--line);}
 
 @media (max-width:760px){
   .fd-body{font-size:17px;}
@@ -2365,7 +2413,11 @@ function platCol(p){
   return c;
 }
 var SRC_LABELS={state_media:'State Media',academic:'Academic',news:'News',social:'Social',podcast:'Podcast'};
-var CLUSTER_COLORS=['#e05c28','#9b5de5','#0ea5e9','#1ecb94','#f6a609','#f56565','#a78bfa','#38bdf8'];
+/* Categorical narrative palette — validated for CVD separation, lightness band
+   and 3:1 contrast on the dark surface (#161617). Fixed order, never cycled:
+   an assigned hue follows its narrative. Narratives are always direct-labelled,
+   so identity never rides on colour alone. */
+var CLUSTER_COLORS=['#2997ff','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
 
 /* ── HISTORY ── */
 var HIST_KEY='xtag-hist-v3';
@@ -3011,6 +3063,164 @@ function xp(title, icon, bodyHtml, open){
     '<div class="xp-body">'+bodyHtml+'</div></div>';
 }
 
+/* ── NARRATIVE AMPLIFICATION ─────────────────────────────────────────────────
+   Answers two questions the cluster view does not: which narrative amplified
+   which, and which narrative was ignored — pushed inside the corpus but never
+   picked up by high-credibility news, i.e. it did not reach the public domain.
+
+   Deterministic by design, like the finding strip: it reads the documents
+   already resolved behind each narrative (n.doc_urls) and reasons over their
+   carriers (authors), posting order and credibility mix. It never calls a model,
+   so a reloaded case renders identically. It evidences association and sequence,
+   never proven causation, and says so. */
+function narrativeProfiles(data){
+  var narr=(data.narratives||[]).filter(function(n){return n&&n.doc_urls&&n.doc_urls.length;});
+  if(!narr.length) return null;
+  var byUrl={};
+  Object.keys(data.platforms||{}).forEach(function(pid){
+    ((data.platforms[pid]||{}).results||[]).forEach(function(r){
+      if(r&&r.url&&!byUrl[r.url]){ if(!r._p)r._p=pid; byUrl[r.url]=r; }
+    });
+  });
+  function hostOf(u){try{return String(u).split('/')[2].replace(/^www\./,'');}catch(e){return'';}}
+  return narr.map(function(n,i){
+    var docs=(n.doc_urls||[]).map(function(u){return byUrl[u];}).filter(Boolean);
+    var carriers={}, plats={}, cred={}, stype={}, ts=[], reachedPublic=false, stateOrigin=false, newsCount=0;
+    docs.forEach(function(d){
+      var a=String(d.author||hostOf(d.url)||'?').toLowerCase().replace(/^@/,'');
+      carriers[a]=(carriers[a]||0)+1;
+      var p=d._p||d.platform||'?'; plats[p]=(plats[p]||0)+1;
+      var c=d.credibility||'unknown'; cred[c]=(cred[c]||0)+1;
+      var st=d.source_type||'social'; stype[st]=(stype[st]||0)+1;
+      var pub=(st==='news'||p==='gdelt'||p==='google_news'||p==='google'||c==='high');
+      if(pub)reachedPublic=true;
+      if(st==='news'||p==='gdelt'||p==='google_news')newsCount++;
+      if(c==='state'||st==='state_media')stateOrigin=true;
+      var t=parseTs(d.timestamp); if(t)ts.push(t.getTime());
+    });
+    var cset=Object.keys(carriers);
+    var top=cset.reduce(function(m,k){return carriers[k]>(carriers[m]||-1)?k:m;}, cset[0]||'');
+    return {i:i, label:n.label||('Narrative '+(i+1)), count:n.count||docs.length,
+      docs:docs.length, carriers:carriers, cset:cset,
+      topShare:docs.length?(carriers[top]||0)/docs.length:0,
+      plats:plats, cred:cred, stype:stype,
+      firstSeen:ts.length?Math.min.apply(null,ts):null, dated:ts.length,
+      reachedPublic:reachedPublic, stateOrigin:stateOrigin, newsCount:newsCount};
+  });
+}
+
+function renderAmplification(data){
+  var P=narrativeProfiles(data);
+  if(!P||P.length<2) return '';   // amplification needs at least two narratives to relate
+
+  // ── Edges: shared carriers + posting order ────────────────────────────────
+  // A directional claim ("A amplified B") needs more than order alone: over a
+  // corpus spanning months or years, "A came first" is a collection artefact,
+  // not evidence of seeding. Direction is asserted only when the later
+  // narrative appeared within SEED_WINDOW of the earlier one; a pair whose
+  // first appearances are further apart than that is reported as an
+  // association (shared carriers) with no arrow and no time gap.
+  var SEED_WINDOW=90*24*3600*1000;   // 90 days
+  var edges=[];
+  for(var a=0;a<P.length;a++){
+    for(var b=0;b<P.length;b++){
+      if(a===b) continue;
+      var A=P[a], B=P[b], shared=0;
+      A.cset.forEach(function(k){ if(B.carriers[k]) shared++; });
+      if(shared<1) continue;
+      var order=0;
+      if(A.firstSeen!=null&&B.firstSeen!=null) order=A.firstSeen<B.firstSeen?1:(A.firstSeen>B.firstSeen?-1:0);
+      if(order<0) continue;                       // only earlier→later (or undated/tied)
+      var gap=(A.firstSeen!=null&&B.firstSeen!=null)?(B.firstSeen-A.firstSeen):null;
+      var dir=(order>0&&gap!=null&&gap<=SEED_WINDOW)?'seeded':'co';
+      var union=A.cset.length+B.cset.length-shared;
+      edges.push({a:a,b:b,shared:shared,strength:shared/(union||1),
+        gap:dir==='seeded'?gap:null, dir:dir});
+    }
+  }
+  var seenCo={};                                   // one row per co-pair, whichever
+  edges=edges.filter(function(e){                  // direction produced it
+    if(e.dir!=='co') return true;
+    var k=Math.min(e.a,e.b)+'-'+Math.max(e.a,e.b);
+    if(seenCo[k]) return false; seenCo[k]=1; return true;
+  });
+  edges.sort(function(x,y){return y.strength-x.strength||y.shared-x.shared;});
+  edges=edges.slice(0,6);
+
+  function gapTxt(ms){
+    if(ms==null) return '';
+    var h=ms/3600000;
+    if(h<1) return 'within the hour';
+    if(h<48) return '~'+Math.round(h)+'h later';
+    return '~'+Math.round(h/24)+'d later';
+  }
+  function node(p){
+    var col=CLUSTER_COLORS[p.i%CLUSTER_COLORS.length];
+    return '<span class="amp-node"><span class="amp-dot" style="background:'+col+'"></span>'+
+           '<span class="amp-lbl">'+esc(p.label)+'</span></span>';
+  }
+
+  var mapHtml;
+  if(edges.length){
+    mapHtml='<div class="amp-map">'+edges.map(function(e){
+      var A=P[e.a], B=P[e.b], seeded=(e.dir==='seeded');
+      return '<div class="amp-edge">'+node(A)+
+        '<span class="amp-arrow'+(seeded?'':' co')+'">'+(seeded?'amplified &rarr;':'&harr; shared carriers')+'</span>'+
+        node(B)+
+        '<span class="amp-meta">'+e.shared+' shared carrier'+(e.shared===1?'':'s')+
+          (seeded&&e.gap!=null?' · '+esc(gapTxt(e.gap)):'')+'</span>'+
+      '</div>';
+    }).join('')+'</div>';
+  } else {
+    mapHtml='<div class="amp-none">These narratives were carried by largely separate accounts — no shared-carrier '+
+      'amplification is visible in this corpus. That is itself a finding: the frames are spreading independently, '+
+      'not being pushed as a set.</div>';
+  }
+
+  // ── Breakthrough vs contained ─────────────────────────────────────────────
+  var broke=0, contained=0, laundered=0;
+  var rows=P.slice().sort(function(x,y){return (y.count||0)-(x.count||0);}).map(function(p){
+    var status, cls;
+    if(p.reachedPublic&&p.stateOrigin){ status='State media → public domain'; cls='laundered'; laundered++; broke++; }
+    else if(p.reachedPublic){ status='Broke through to public domain'; cls='broke'; broke++; }
+    else { status='Contained — not in public domain'; cls='contained'; contained++; }
+    var col=CLUSTER_COLORS[p.i%CLUSTER_COLORS.length];
+    // Push signal: many posts but no mainstream pickup = an operation not yet broken out.
+    var pushed=(!p.reachedPublic)&&((p.topShare>=0.5&&p.docs>=3)||(p.count||0)>=8);
+    var chips='';
+    if(p.newsCount) chips+='<span class="amp-chip">'+p.newsCount+' news</span>';
+    if(p.stype.social) chips+='<span class="amp-chip">'+p.stype.social+' social</span>';
+    if(p.stype.state_media||p.cred.state) chips+='<span class="amp-chip">state</span>';
+    if(pushed) chips+='<span class="amp-chip push">high push, no pickup</span>';
+    return '<div class="amp-row">'+
+      '<span class="amp-rlabel"><span class="amp-dot" style="width:8px;height:8px;border-radius:50%;flex:none;background:'+col+'"></span>'+esc(p.label)+'</span>'+
+      '<span class="amp-status '+cls+'">'+status+'</span>'+
+      '<span class="amp-mix">'+chips+'</span>'+
+    '</div>';
+  }).join('');
+
+  var sum='<b>'+broke+'</b> of <b>'+P.length+'</b> narrative'+(P.length===1?'':'s')+
+    ' reached the public domain'+(laundered?' ('+laundered+' via state media)':'')+'; '+
+    '<b>'+contained+'</b> stayed contained to social or state channels'+
+    (contained?' — present in the collection but not picked up by high-credibility news':'')+'.';
+
+  var body=
+    '<div class="amp-sum">'+sum+'</div>'+
+    '<div class="amp-subhead">Which narrative amplified which</div>'+mapHtml+
+    '<div class="amp-subhead">Reached the public domain, or contained</div>'+
+    '<div class="amp-list">'+rows+'</div>'+
+    '<div class="amp-note">Amplification is inferred from carriers shared between narratives and the order in '+
+      'which they first appeared: it evidences association and sequence, not proven causation. A direction is '+
+      'asserted only when the later narrative emerged within 90 days of the earlier one — beyond that, first-seen '+
+      'order is a collection artefact and the pair is shown as an association. “Contained” means absent from '+
+      'high-credibility news <i>in this collection</i> — a wider or later pull may show a breakout. '+
+      'Undated documents are excluded from the ordering.</div>';
+
+  return '<div class="report-section">'+
+    '<div class="report-section-title"><i class="ti ti-affiliate"></i>Narrative Amplification</div>'+
+    body+'</div>';
+}
+
 /* ── THE FINDING ────────────────────────────────────────────────────────────
    The screen used to open on a number. That is the complaint this product has
    had from the start — "it looks good but I don't know what to do with it" —
@@ -3176,46 +3386,94 @@ function renderFinding(data){
    Stated before the detail, not after it. An analyst who is going to repeat a
    claim needs its defeaters before they repeat it, not in a footnote below the
    fold. Every entry is derived from the payload — none is boilerplate. */
-function renderLimits(data){
-  var L=[], rel=data.relevance||{}, co=data.coordination||{}, t=data.totals||{};
-  var deg=data.degraded||[], ee=data.engine_errors||{}, pr=data.propagation||{};
-  var nt=data.narrative_tracking||{};
+function xtagDiagOn(){
+  try{ if(localStorage.getItem('xtag_diag')==='1') return true; }catch(_){}
+  return /[?&]diag=1(?:&|$)/.test(location.search);
+}
 
-  (deg||[]).forEach(function(d){
-    L.push({t:'Collection was incomplete', d:String(d)});
-  });
-  Object.keys(ee||{}).forEach(function(k){
-    L.push({t:'The '+k.replace(/_/g,' ')+' stage did not return', d:String(ee[k])});
-  });
-  if(co.risk==='unbanded'||co.risk==='unknown'){
-    L.push({t:'Coordination has no baseline',
-            d:co.caveat||'No matched organic baseline is configured, so the coordination figure is a magnitude with nothing to compare it against.'});
+function renderLimits(data){
+  /* Two audiences, one payload. By default this renders a client-facing
+     "Confidence & coverage" panel: analytical caveats in the language of
+     methodological rigour, with operational failures (which sources timed out,
+     which stage errored) collapsed into a single honest coverage line and never
+     listed by name — a raw failure dump reads as a broken tool, not an honest
+     one, and the source names are plumbing, not analysis. Genuine
+     incompleteness is still disclosed: a materially partial run says so,
+     because a score over a half-collected corpus must never be shown as a
+     complete one. The full raw view — every defeater, source and stage named —
+     is one keystroke away for internal testing: Cmd/Ctrl+Shift+D, or ?diag=1. */
+  if(!window.__xtagDiagKey){
+    window.__xtagDiagKey=1;
+    document.addEventListener('keydown',function(e){
+      if((e.metaKey||e.ctrlKey)&&e.shiftKey&&(e.key==='D'||e.key==='d')){
+        e.preventDefault();
+        try{var v=localStorage.getItem('xtag_diag')==='1'?'0':'1';localStorage.setItem('xtag_diag',v);}catch(_){}
+        location.reload();
+      }
+    });
   }
-  if(pr.undated){
-    L.push({t:pr.undated+' document'+(pr.undated===1?'':'s')+' carry no usable date',
-            d:'They inform the findings but are excluded from every timing figure, including first-seen and spread.'});
+  var rel=data.relevance||{}, co=data.coordination||{}, t=data.totals||{};
+  var deg=data.degraded||[], ee=data.engine_errors||{}, pr=data.propagation||{};
+  var nt=data.narrative_tracking||{}, st=data.source_timings||{};
+
+  // ── DIAGNOSTIC (internal) VIEW — testing only ─────────────────────────────
+  if(xtagDiagOn()){
+    var L=[];
+    (deg||[]).forEach(function(d){ L.push({t:'Collection was incomplete', d:String(d)}); });
+    Object.keys(ee||{}).forEach(function(k){ L.push({t:'The '+k.replace(/_/g,' ')+' stage did not return', d:String(ee[k])}); });
+    if(co.risk==='unbanded'||co.risk==='unknown'){ L.push({t:'Coordination has no baseline', d:co.caveat||'No matched organic baseline is configured, so the coordination figure is a magnitude with nothing to compare it against.'}); }
+    if(pr.undated){ L.push({t:pr.undated+' document'+(pr.undated===1?'':'s')+' carry no usable date', d:'They inform the findings but are excluded from every timing figure, including first-seen and spread.'}); }
+    if((t.mentions||0)<12){ L.push({t:'The corpus is thin', d:(t.mentions||0)+' on-topic documents is below the volume at which ratio-based scores are stable. Read every figure here as indicative.'}); }
+    if(nt&&nt.semantic===false){ L.push({t:'Narratives were grouped on wording, not meaning', d:'No embedding backend is configured, so a claim restated in different words may appear here as two separate narratives.'}); }
+    if(rel.noise_ratio>0.65){ L.push({t:'Most of what was collected was off-topic', d:Math.round(rel.noise_ratio*100)+'% was removed by the relevance gate. A high ratio can mean the query is ambiguous as much as that the sources were noisy.'}); }
+    if(!L.length) return '';
+    return '<div class="limits"><div class="limits-head">What would change this assessment <span class="limits-diag">diagnostics</span></div><div class="limits-grid">'+
+      L.slice(0,8).map(function(x){ return '<div class="limit"><div class="limit-t">'+esc(x.t)+'</div><div class="limit-d">'+esc(x.d)+'</div></div>'; }).join('')+
+      '</div></div>';
+  }
+
+  // ── CLIENT VIEW — confidence & coverage ───────────────────────────────────
+  var A=[];
+  // Collapse every source/stage failure into one neutral coverage statement.
+  var attempted=Object.keys(st||{}).length, failedSrc=0;
+  (deg||[]).forEach(function(d){
+    var m=/sources failed:\s*(.+)$/i.exec(String(d));
+    if(m){ failedSrc=m[1].split(',').length; }
+  });
+  var engineDown=Object.keys(ee||{}).length;
+  if(failedSrc>=3 || (attempted>0 && failedSrc>0 && failedSrc/attempted>=0.25)){
+    var ok=attempted?Math.max(0,attempted-failedSrc):0;
+    A.push({t:'Coverage was partial this run',
+            d:(attempted?('Analysis drew on '+ok+' of '+attempted+' live sources; the remainder were'):(failedSrc+' sources were'))+
+              ' unreachable at query time and are excluded from coverage. Re-running usually recovers them.'});
+  } else if(engineDown){
+    A.push({t:'One analysis stage was incomplete',
+            d:'A stage of the analysis did not complete on this run; its section is shown as unavailable rather than estimated.'});
   }
   if((t.mentions||0)<12){
-    L.push({t:'The corpus is thin',
-            d:(t.mentions||0)+' on-topic documents is below the volume at which ratio-based scores are stable. Read every figure here as indicative.'});
+    A.push({t:'Small corpus for this query',
+            d:(t.mentions||0)+' on-topic documents. Below this volume the scores are directional rather than precise — read them as indicative.'});
   }
-  if(nt&&nt.semantic===false){
-    L.push({t:'Narratives were grouped on wording, not meaning',
-            d:'No embedding backend is configured, so a claim restated in different words may appear here as two separate narratives.'});
+  if(co.risk==='unbanded'||co.risk==='unknown'){
+    A.push({t:'Coordination shown as a magnitude',
+            d:'No organic baseline is set for this query, so the coordination figure is reported as a raw magnitude rather than a banded risk level. Confirmed operations typically sit well above organic noise.'});
+  }
+  if(pr.undated){
+    var one=(pr.undated===1);
+    A.push({t:'Some documents are undated',
+            d:(one?'1 document lacks':pr.undated+' documents lack')+' a reliable timestamp and '+(one?'is':'are')+' excluded from timing and spread figures only.'});
   }
   if(rel.noise_ratio>0.65){
-    L.push({t:'Most of what was collected was off-topic',
-            d:Math.round(rel.noise_ratio*100)+'% was removed by the relevance gate. A high ratio can mean the query is ambiguous as much as that the sources were noisy.'});
+    A.push({t:'Query returned mixed material',
+            d:Math.round(rel.noise_ratio*100)+'% of what was collected was off-topic and removed before analysis. A high share often points to an ambiguous query as much as to noisy sources.'});
   }
-  if(!L.length) return '';
-
-  return '<div class="limits">'+
-    '<div class="limits-head">What would change this assessment</div>'+
-    '<div class="limits-grid">'+
-      L.slice(0,6).map(function(x){
-        return '<div class="limit"><div class="limit-t">'+esc(x.t)+'</div>'+
-               '<div class="limit-d">'+esc(x.d)+'</div></div>';
-      }).join('')+
+  if(nt&&nt.semantic===false){
+    A.push({t:'Narrative grouping is lexical',
+            d:'Narratives are grouped by shared wording, so a closely paraphrased claim can appear as two entries. Semantic grouping is available and can be switched on.'});
+  }
+  if(!A.length) return '';
+  return '<div class="limits clean"><div class="limits-head">Confidence &amp; coverage</div><div class="limits-grid">'+
+    A.slice(0,6).map(function(x){ return '<div class="limit"><div class="limit-t">'+esc(x.t)+'</div><div class="limit-d">'+esc(x.d)+'</div></div>'; }).join('')+
     '</div></div>';
 }
 
@@ -4719,6 +4977,8 @@ function renderReport(data){
   // now", this answers "is it the same thing that was being said last time".
   html+=renderNarrativeTrackingBlock(data);
 
+  // Which narrative amplified which, and which never reached the public domain.
+  html+=renderAmplification(data);
 
   html+=reportFooter();
   $('report').innerHTML=html;
