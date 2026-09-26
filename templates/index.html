@@ -126,7 +126,7 @@
      ivory ground, warm near-black ink, one blue. Matches templates/landing.html. */
   --bg:#faf9f5;--bg2:#f4f2ec;--surface:#ffffff;--surface2:#f6f4ee;--surface3:#edebe2;
   --ink:#141413;--ink2:#57564f;--ink3:#6f6e66;--ink4:#b0aea5;
-  --line:rgba(20,20,19,.09);--line2:rgba(20,20,19,.045);--hair:rgba(20,20,19,.13);
+  --line:rgba(20,20,19,.09);--line2:rgba(20,20,19,.07);--hair:rgba(20,20,19,.13);
   --accent:#0071e3;--accent2:#005bb8;--accent-glow:rgba(0,113,227,.15);--accent-tint:rgba(0,113,227,.08);
   --pos:#0a8f66;--pos-tint:rgba(10,143,102,.11);
   --neg:#d4342c;--neg-tint:rgba(212,52,44,.1);
@@ -732,10 +732,13 @@ button{background:none;border:none;cursor:pointer;}
   font-size:var(--fs-cap); letter-spacing:.14em; text-transform:uppercase;
   color:var(--ink4); font-weight:600; margin-bottom:var(--s3);
 }
+/* The finding is the page's statement — it speaks in the product's serif,
+   like the landing's headlines, because it is prose to be read, not data. */
 .fd-body{
-  margin:0 0 var(--s5); max-width:62ch;
-  font-size:19px; line-height:1.62; color:var(--ink1);
-  letter-spacing:-.005em; text-wrap:pretty;
+  margin:0 0 var(--s5); max-width:56ch;
+  font-family:var(--serif); font-weight:400;
+  font-size:clamp(21px,2.1vw,26px); line-height:1.42; color:var(--ink1);
+  letter-spacing:-.008em; text-wrap:pretty;
 }
 /* Each clause is its own span so a future pass can make any of them a link to
    the evidence behind it without restructuring the sentence. */
@@ -1621,6 +1624,14 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
     radial-gradient(90% 70% at 88% 6%, color-mix(in srgb,var(--state) 11%, transparent) 0%, transparent 66%);
 }
 #report>*{position:relative;z-index:1;}
+:root[data-theme="light"] #report::before{
+  /* On paper the ambient field stays warm: a breath of accent, a breath of
+     graphite — never the violet/cool wash that suited the dark ground. */
+  opacity:.5;
+  background:
+    radial-gradient(120% 90% at 12% 0%, color-mix(in srgb,var(--accent) 6%, transparent) 0%, transparent 62%),
+    radial-gradient(90% 70% at 88% 6%, rgba(20,20,19,.05) 0%, transparent 66%);
+}
 
 /* Sections lose their boxes. A hairline and real space do the separating. */
 .report-section{
@@ -1629,13 +1640,17 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
   border-top:1px solid var(--line2) !important;
 }
 .report-section:first-of-type{border-top:0 !important;}
+/* Section headings carry the product's editorial voice — the marketing
+   surface's serif, at tool scale. The whisper-caps version made every section
+   equally quiet; a reader scanning a dossier deserves real headings. */
 .report-section-title{
-  font-size:9.5px !important;letter-spacing:.18em !important;text-transform:uppercase;
-  font-weight:600 !important;color:var(--ink3) !important;
+  font-family:var(--serif) !important;font-size:clamp(19px,1.8vw,23px) !important;
+  letter-spacing:-.01em !important;text-transform:none !important;
+  font-weight:400 !important;color:var(--ink) !important;
   margin:0 0 var(--s4) !important;padding:0 !important;border:0 !important;
-  display:flex;align-items:center;gap:8px;
+  display:flex;align-items:center;gap:10px;line-height:1.15;
 }
-.report-section-title i{font-size:12px;opacity:.5;}
+.report-section-title i{font-size:14px;opacity:.4;color:var(--accent);}
 
 /* ── Verdict: the one hero on the page ─────────────────────────────────────
    The numeral is INK, not the band colour. A 60px coloured digit is a shout,
@@ -1648,8 +1663,11 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
    breakdown and gives up the headline it was duplicating. */
 .verdict.compact{padding:var(--s4) 0 var(--s5);}
 .verdict-num{
-  font-size:clamp(58px,8.5vw,84px);font-weight:200;line-height:.86;
-  letter-spacing:-.055em;font-variant-numeric:tabular-nums;
+  /* Weight 200 read as a ghost next to the landing's confidence. 300 with
+     proportional figures keeps the restraint and gains the presence; a large
+     standalone numeral never wears tabular digits. */
+  font-size:clamp(60px,8.5vw,88px);font-weight:300;line-height:.86;
+  letter-spacing:-.045em;
   color:var(--ink);display:block;
 }
 .verdict-num .of{font-size:15px;font-weight:400;letter-spacing:0;color:var(--ink4);margin-left:6px;}
@@ -1692,8 +1710,8 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
 }
 .risk-val{display:flex;align-items:baseline;gap:6px;margin-bottom:var(--s2) !important;}
 .risk-num{
-  font-size:30px !important;font-weight:250 !important;letter-spacing:-.04em;
-  line-height:1;font-variant-numeric:tabular-nums;color:var(--tw,var(--ink)) !important;
+  font-size:32px !important;font-weight:340 !important;letter-spacing:-.035em;
+  line-height:1;color:var(--tw,var(--ink)) !important;
 }
 .risk-band{font-size:9px !important;letter-spacing:.13em;text-transform:uppercase;color:var(--ink3) !important;}
 .risk-track{height:2px !important;background:var(--line) !important;border-radius:0 !important;}
@@ -1770,10 +1788,10 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
 }
 .inline-stats{border:0 !important;background:none !important;gap:var(--s6) !important;padding:var(--s5) 0 !important;}
 .istat{background:none !important;border:0 !important;padding:0 !important;text-align:left !important;}
-.istat-val{font-size:26px !important;font-weight:250 !important;letter-spacing:-.035em;}
+.istat-val{font-size:30px !important;font-weight:340 !important;letter-spacing:-.03em;font-variant-numeric:normal;}
 .istat-label{font-size:9px !important;letter-spacing:.16em !important;text-transform:uppercase;color:var(--ink3) !important;}
 .vw{background:none !important;border:0 !important;padding:0 !important;text-align:left !important;}
-.vw-n{font-size:26px !important;font-weight:250 !important;letter-spacing:-.035em;}
+.vw-n{font-size:30px !important;font-weight:340 !important;letter-spacing:-.03em;font-variant-numeric:normal;}
 .vw-l{font-size:9px !important;letter-spacing:.16em !important;color:var(--ink3) !important;}
 .vel-grid{gap:var(--s6) !important;grid-template-columns:repeat(3,auto) !important;justify-content:start;}
 .conf-note{
@@ -1786,6 +1804,17 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
   font-weight:600 !important;color:var(--ink3) !important;
   background:none !important;border:0 !important;border-radius:0 !important;
   padding:0 !important;margin:0 0 var(--s4) !important;max-width:none !important;
+}
+
+/* ── Report motion: the landing's staggered arrival, at tool tempo ─────────
+   Sections rise in as they enter view instead of appearing as one static
+   wall. Fast (.5s) and shallow (14px), so a working analyst never waits on
+   it; gone entirely under reduced motion. */
+@media (prefers-reduced-motion: no-preference){
+  #report>.rv{opacity:0;transform:translateY(14px);
+    transition:opacity .5s var(--e-out),transform .5s var(--e-out);
+    transition-delay:var(--rvd,0s);}
+  #report>.rv.in{opacity:1;transform:none;}
 }
 .report-meta{font-size:var(--fs-cap) !important;color:var(--ink3) !important;}
 .report-meta-dot{display:none !important;}
@@ -4996,8 +5025,44 @@ function renderReport(data){
 
   html+=reportFooter();
   $('report').innerHTML=html;
+  revealReport();
   applyBrief();
   restoreTabScroll();
+}
+
+/* Staggered arrival for the report's top-level blocks, and a count-up on the
+   verdict numeral — the same motion language as the marketing surface, at
+   tool tempo. No-ops under reduced motion; never touches the data itself. */
+function revealReport(){
+  try{
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var kids=[].slice.call($('report').children);
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+    },{threshold:.06,rootMargin:'0px 0px -4% 0px'});
+    kids.forEach(function(el,i){
+      el.classList.add('rv');
+      el.style.setProperty('--rvd',Math.min(i*55,330)+'ms');
+      io.observe(el);
+    });
+    var vn=$('report').querySelector('.verdict-num');
+    if(vn&&!vn.dataset.counted){
+      vn.dataset.counted='1';
+      var tn=vn.firstChild;
+      if(tn&&tn.nodeType===3){
+        var target=parseFloat(tn.textContent);
+        if(isFinite(target)){
+          var start=null,dur=900;
+          (function step(ts){
+            start=start||ts;
+            var p=Math.min(1,(ts-start)/dur); p=1-Math.pow(1-p,3);
+            tn.textContent=String(Math.round(target*p));
+            if(p<1)requestAnimationFrame(step);
+          })(performance.now());
+        }
+      }
+    }
+  }catch(_){}
 }
 
 
