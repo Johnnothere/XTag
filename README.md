@@ -52,7 +52,7 @@ Relevance gate (`relevance.py`) — see the section below:
 - `RELEVANCE_AUDIT_SAMPLE` (20) — rejected documents retained **per platform** so the
   gate can be inspected from the payload rather than trusted.
 - `TIKTOK_REGION` (US) — ISO-3166 code selecting ScrapeBadger's regional proxy. "US" is
-  a poor default for MENA / Persian-language work; set it to the region you are watching.
+  a poor default depending on the region you are watching; set it to that region.
 
 Not yet configured, and the reason two sources report zero:
 - `BLUESKY_IDENTIFIER` / `BLUESKY_APP_PASSWORD` — Bluesky returns
@@ -78,8 +78,8 @@ GDELT needs **no key**. Its tunables (all optional, sane defaults):
 
 Every upstream source is a third-party search engine with its own fuzzy ranker, and none
 of them are obliged to respect the query. Measured against the live deployment on
-2026-09-01, `#covid1948` returned **530 documents of which 389 (73.4%) contained no form
-of the query at all** — YouTube alone supplied 450 generic COVID-19 videos, because its
+2026-09-01, `#Expo2048` returned **530 documents of which 389 (73.4%) contained no form
+of the query at all** — YouTube alone supplied 450 generic expo videos, because its
 ranker silently substitutes the nearest token it can match for one it cannot.
 
 That noise was not cosmetic. Sentiment was computed over it, narratives and entities were
@@ -88,20 +88,20 @@ confidence formula — which reads document count — reported **94.5 ("high") p
 because there were 530 documents**. Unfiltered noise does not merely add error; it
 certifies it.
 
-**The rule that matters: fused tokens do not decompose.** `#covid1948` is one identifier,
-not `covid` AND `1948`. `covid19` must never match `covid1948` and vice versa.
+**The rule that matters: fused tokens do not decompose.** `#Expo2048` is one identifier,
+not `expo` AND `2048`. `expo20` must never match `expo2048` and vice versa.
 
 Matching works by expanding the *query* into its plausible written surface forms and
 testing each against the normalised document under word boundaries — never by stripping
 separators from both sides and doing a substring test, which is wrong in the silent
-direction (with separators gone, `covid19` is a prefix of `covid1948`). `#QudsDay2020`
-expands to `qudsday2020`, `qudsday 2020`, `quds day2020` and `quds day 2020`; the Turkish
-dotted İ in `#COVİD1948` folds onto `i`; Arabic-Indic and Persian digits fold to ASCII.
+direction (with separators gone, `expo20` is a prefix of `expo2048`). `#WorldCup2022`
+expands to `worldcup2022`, `worldcup 2022`, `world cup2022` and `world cup 2022`; the Turkish
+dotted İ folds onto `i`; non-Latin digits fold to ASCII.
 
 | Tier | Score | Meaning |
 |---|---|---|
 | Exact | 1.00 | a surface form of the query is present |
-| Expansion | 0.65 | an Arabic/Persian/Hebrew rendering is present |
+| Expansion | 0.65 | a non-Latin-script rendering is present |
 | All terms | 0.45 | every term present but not adjacent — multi-word queries only |
 | Unverified | 0.40 | long-form source matched the full page; term absent from the snippet we stored |
 | No match | 0.00 | dropped |
@@ -122,9 +122,9 @@ argued about; the resulting assessment is stamped with a caveat saying so.
 
 `_top_docs` feeds the narrative, entity and event prompts. It used to sort the whole
 corpus by engagement, which is a popularity contest the largest platform always wins: on
-`#covid1948` the 160-document prompt was 43 YouTube + 17 X and **nothing else**, so the
-Persian-language posts driving the campaign and the DFRLab/Jerusalem Post reporting on it
-never reached the model. That is why the report never mentioned the protests — a sampling
+`#Expo2048` the 160-document prompt was 43 YouTube + 17 X and **nothing else**, so the
+niche-platform posts driving the campaign and the mainstream reporting on it
+never reached the model. That is why the report never mentioned the offline turnout — a sampling
 bug, not a prompt bug. It now round-robins across platforms, best-first within each.
 
 ## Real-world events (`extract_real_world_events`)
