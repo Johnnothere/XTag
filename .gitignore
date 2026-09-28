@@ -6,3 +6,10 @@ __pycache__/
 Inspire/
 XTag/
 .venv/
+
+# private — never commit
+XTag-Handover-Guide.docx
+XTag-Handover-Guide.pdf
+XTag-Handover.zip
+XTag-Design-Brief.pdf
+case*.json
