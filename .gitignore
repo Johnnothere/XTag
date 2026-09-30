@@ -13,3 +13,12 @@ XTag-Handover-Guide.pdf
 XTag-Handover.zip
 XTag-Design-Brief.pdf
 case*.json
+.mcp.json
+skills-lock.json
+.agents/
+.claude/
+CLAUDE.md
+.cursor/
+.cursorrules
+.devin/
+.windsurf/
