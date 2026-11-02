@@ -3429,7 +3429,7 @@ def api_access_request():
     row = db.access_request_create({
         "name": name, "email": email, "org": org or None, "role": role or None,
         "use_case": use_case, "heard": heard or None,
-        "source_ip": _client_ip(), "user_agent": (request.headers.get("User-Agent") or "")[:300],
+        "source_ip": _client_key(), "user_agent": (request.headers.get("User-Agent") or "")[:300],
     })
     if not row:
         return jsonify({"error": "we couldn't record your request — please try again"}), 500
