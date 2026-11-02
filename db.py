@@ -491,3 +491,69 @@ def delivery_record(sub_id: str | None, email: str, query: str, status: str,
                "mentions": mentions, "narrative_count": narrative_count,
                "alert_count": alert_count},
          extra_headers={"Prefer": "return=minimal"})
+
+
+# ── Access requests ───────────────────────────────────────────────────────────
+# Prospective-user submissions from the public landing page's request-access
+# form. Reviewed from the admin console on the private console instance. RLS is
+# deny-all; only the service key (this module) ever touches these rows.
+
+_ALLOWED_REQUEST_STATUS = {"pending", "approved", "rejected"}
+
+
+def access_request_create(entry: dict) -> dict | None:
+    """Insert one access request. Returns the stored row (with its id) or None.
+
+    `entry` is already-trimmed, already-validated field values from app.py —
+    this function does not re-validate content, it just persists. name/email
+    are required by the schema (NOT NULL); the caller guarantees them.
+    """
+    rows = _req(
+        "POST", "access_requests", json=entry,
+        extra_headers={"Prefer": "return=representation"},
+    )
+    return rows[0] if rows else None
+
+
+def access_requests_list(status: str | None = None, limit: int = 200) -> list[dict] | None:
+    """Newest-first list for the admin console, optionally filtered by status.
+
+    Returns None when the DB didn't answer (so the console can say so) and a
+    list otherwise. An unknown status filter yields an empty list rather than
+    a smuggled PostgREST filter.
+    """
+    limit = max(1, min(int(limit or 200), 1000))
+    path = f"access_requests?select=*&order=created_at.desc&limit={limit}"
+    if status:
+        if status not in _ALLOWED_REQUEST_STATUS:
+            return []
+        path += f"&status=eq.{status}"
+    rows = _req("GET", path)
+    return rows if rows is not None else None
+
+
+def access_requests_counts() -> dict:
+    """{status: count} for the console header. Degrades to an empty dict."""
+    out = {s: 0 for s in _ALLOWED_REQUEST_STATUS}
+    rows = _req("GET", "access_requests?select=status")
+    if not rows:
+        return out
+    for r in rows:
+        s = r.get("status")
+        if s in out:
+            out[s] += 1
+    return out
+
+
+def access_request_set_status(req_id: str, status: str, note: str | None = None) -> bool:
+    """Approve/reject a request. Validates id and status; stamps decided_at."""
+    req_id = _pk(req_id)
+    if not req_id or status not in _ALLOWED_REQUEST_STATUS:
+        return False
+    payload = {"status": status,
+               "decided_at": datetime.now(timezone.utc).isoformat()}
+    if note is not None:
+        payload["note"] = note
+    return _req("PATCH", f"access_requests?id=eq.{req_id}",
+                json=payload,
+                extra_headers={"Prefer": "return=minimal"}) is not None

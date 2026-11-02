@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Request access — XTag</title>
+<meta name="robots" content="noindex"/>
+<link rel="canonical" href="https://xtag.up.railway.app/request-access"/>
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23141413'/><text x='50' y='73' font-size='66' text-anchor='middle' font-family='Georgia,serif' fill='%23faf9f5'>%23</text></svg>"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --paper:#faf9f5; --paper2:#f4f2ec; --panel:#eeece3; --card:#ffffff;
+  --ink:#141413; --ink2:#57564f; --ink3:#8a887f; --deco:#b0aea5;
+  --line:#e8e6dc; --line2:#dedbd0;
+  --accent:#0071e3; --accent2:#2997ff;
+  --ok:#1a7f45; --err:#c0362c;
+  --serif:"Instrument Serif",Georgia,serif;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SF Mono",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:var(--sans);background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.5;}
+a{color:inherit;text-decoration:none;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px;}
+
+.nav{display:flex;align-items:center;justify-content:space-between;padding:20px 32px;border-bottom:1px solid transparent;max-width:1200px;margin:0 auto;}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;}
+.logo .hash{width:28px;height:28px;border-radius:8px;background:var(--ink);color:var(--paper);display:grid;place-items:center;font-family:var(--serif);font-size:18px;}
+.logo small{color:var(--ink3);font-weight:400;font-size:14px;}
+.nav-back{color:var(--ink2);font-size:14px;transition:color .2s;}
+.nav-back:hover{color:var(--ink);}
+
+.wrap{max-width:620px;margin:0 auto;padding:36px 24px 80px;}
+.kick{font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:18px;}
+h1{font-family:var(--serif);font-weight:400;font-size:clamp(40px,7vw,64px);line-height:1.02;letter-spacing:-.015em;}
+.lede{font-size:17px;line-height:1.6;color:var(--ink2);margin-top:18px;max-width:52ch;}
+
+form{margin-top:40px;display:grid;gap:22px;}
+.row{display:grid;gap:18px;}
+@media(min-width:560px){.row.two{grid-template-columns:1fr 1fr;}}
+.field{display:flex;flex-direction:column;gap:8px;}
+label{font-size:13.5px;font-weight:500;color:var(--ink);}
+label .opt{color:var(--ink3);font-weight:400;}
+label .req{color:var(--accent);}
+input,textarea{
+  font-family:var(--sans);font-size:15px;color:var(--ink);background:var(--card);
+  border:1px solid var(--line2);border-radius:11px;padding:13px 14px;transition:border-color .15s,box-shadow .15s;
+}
+input:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,113,227,.12);}
+textarea{resize:vertical;min-height:120px;line-height:1.55;}
+.hint{font-size:12.5px;color:var(--ink3);}
+
+.actions{display:flex;align-items:center;gap:16px;margin-top:4px;flex-wrap:wrap;}
+button{
+  font-family:var(--sans);font-size:15px;font-weight:500;color:var(--paper);background:var(--ink);
+  border:none;border-radius:999px;padding:14px 28px;cursor:pointer;transition:opacity .15s,transform .05s;
+}
+button:hover{opacity:.9;}
+button:active{transform:translateY(1px);}
+button:disabled{opacity:.5;cursor:default;}
+.note{font-size:13px;color:var(--ink3);}
+
+.msg{display:none;margin-top:4px;font-size:14px;line-height:1.55;padding:13px 16px;border-radius:11px;}
+.msg.err{display:block;background:#fdecea;color:var(--err);border:1px solid #f4c4bf;}
+
+.done{display:none;margin-top:40px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:32px 30px;}
+.done h2{font-family:var(--serif);font-weight:400;font-size:30px;letter-spacing:-.01em;margin-bottom:12px;}
+.done p{font-size:15px;line-height:1.6;color:var(--ink2);}
+.done .check{width:44px;height:44px;border-radius:50%;background:var(--ok);color:#fff;display:grid;place-items:center;font-size:22px;margin-bottom:18px;}
+
+footer{max-width:620px;margin:0 auto;padding:0 24px 40px;color:var(--ink3);font-size:12.5px;border-top:1px solid var(--line);padding-top:24px;}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a class="logo" href="/"><span class="hash">#</span>XTag <small>Narrative Intelligence</small></a>
+  <a class="nav-back" href="/">&lsaquo; Back to overview</a>
+</nav>
+
+<main class="wrap">
+  <div id="formView">
+    <div class="kick">Request access</div>
+    <h1>Request a look at XTag.</h1>
+    <p class="lede">XTag is a working narrative-intelligence console, not a public tool. Tell us a little about you and what you're trying to do, and we'll be in touch about a walkthrough.</p>
+
+    <form id="reqForm" novalidate>
+      <div class="row two">
+        <div class="field">
+          <label for="name">Name <span class="req">*</span></label>
+          <input id="name" name="name" type="text" autocomplete="name" required maxlength="120"/>
+        </div>
+        <div class="field">
+          <label for="email">Work email <span class="req">*</span></label>
+          <input id="email" name="email" type="email" autocomplete="email" required maxlength="160"/>
+        </div>
+      </div>
+
+      <div class="row two">
+        <div class="field">
+          <label for="org">Organisation <span class="opt">(optional)</span></label>
+          <input id="org" name="org" type="text" autocomplete="organization" maxlength="160"/>
+        </div>
+        <div class="field">
+          <label for="role">Role <span class="opt">(optional)</span></label>
+          <input id="role" name="role" type="text" autocomplete="organization-title" maxlength="120"/>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="use_case">What would you use XTag for? <span class="req">*</span></label>
+        <textarea id="use_case" name="use_case" required maxlength="2000" placeholder="The problem you're working on, the kind of narratives or campaigns you need to see, who the output is for."></textarea>
+      </div>
+
+      <div class="field">
+        <label for="heard">How did you hear about XTag? <span class="opt">(a LinkedIn or website link helps us place you)</span></label>
+        <input id="heard" name="heard" type="text" maxlength="300" placeholder="e.g. a referral, an event, or https://linkedin.com/in/…"/>
+      </div>
+
+      <div class="msg err" id="errMsg"></div>
+
+      <div class="actions">
+        <button type="submit" id="submitBtn">Send request</button>
+        <span class="note">We read every request personally.</span>
+      </div>
+    </form>
+  </div>
+
+  <div class="done" id="doneView">
+    <div class="check">&#10003;</div>
+    <h2>Request received.</h2>
+    <p>Thanks — your request is with us. If it's a fit, we'll reach out by email to arrange a walkthrough. No automated access is granted; every request is reviewed by a person.</p>
+  </div>
+</main>
+
+<footer>XTag — Narrative &amp; campaign intelligence. Access is granted on review.</footer>
+
+<script>
+(function(){
+  var form = document.getElementById('reqForm');
+  var btn = document.getElementById('submitBtn');
+  var err = document.getElementById('errMsg');
+  var formView = document.getElementById('formView');
+  var doneView = document.getElementById('doneView');
+
+  function showErr(m){ err.textContent = m; err.style.display = 'block'; }
+  function clearErr(){ err.style.display = 'none'; err.textContent = ''; }
+
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    clearErr();
+    var payload = {
+      name: form.name.value.trim(),
+      email: form.email.value.trim(),
+      org: form.org.value.trim(),
+      role: form.role.value.trim(),
+      use_case: form.use_case.value.trim(),
+      heard: form.heard.value.trim()
+    };
+    if(!payload.name){ showErr('Please tell us your name.'); return; }
+    if(!payload.email || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(payload.email)){ showErr('Please enter a valid email address.'); return; }
+    if(!payload.use_case){ showErr("Please tell us briefly what you'd use XTag for."); return; }
+
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try{
+      var r = await fetch('/api/access-request', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+      });
+      var data = await r.json().catch(function(){ return {}; });
+      if(r.ok && data.ok){
+        formView.style.display = 'none';
+        doneView.style.display = 'block';
+        window.scrollTo({top:0, behavior:'smooth'});
+        return;
+      }
+      showErr((data && data.error) ? data.error : 'Something went wrong. Please try again, or email us directly.');
+    }catch(_){
+      showErr('Network error — please try again.');
+    }finally{
+      btn.disabled = false; btn.textContent = 'Send request';
+    }
+  });
+})();
+</script>
+</body>
+</html>

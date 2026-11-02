@@ -40,7 +40,7 @@ from urllib.parse import quote_plus, urlparse
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, jsonify, render_template, request, make_response
+from flask import Flask, jsonify, render_template, request, make_response, redirect, url_for, abort
 
 import db      # Supabase persistence; degrades to in-memory when unconfigured
 import mailer  # Resend email delivery; no-ops cleanly when unconfigured
@@ -52,6 +52,29 @@ import intel   # Assessment layer: threat score, risk, audience, inauthenticity
 import relevance  # Query planning + per-document relevance gate (see module docstring)
 
 app = Flask(__name__)
+
+# ── Instance role: public vs console ─────────────────────────────────────────
+# XTag runs as two Railway services off this one repo.
+#
+#   public  (xtag.up.railway.app)  — the marketing landing page, the public
+#           API, and the request-access form. The analyst dashboard is NOT
+#           served here: /app redirects visitors to the request-access form.
+#
+#   console (its own private Railway URL, for Tej only) — the full analyst
+#           dashboard plus the admin console that reviews access requests.
+#
+# XTAG_ROLE picks which one this process is. Default is "public" so a misconfig
+# fails closed: the worst case is the dashboard is unreachable, never that it is
+# accidentally exposed on the public domain.
+XTAG_ROLE = os.environ.get("XTAG_ROLE", "public").strip().lower()
+IS_CONSOLE = XTAG_ROLE == "console"
+
+# Optional lock for the console instance. Left UNSET by default — the console
+# relies on its unguessable Railway URL (Tej's choice). Set CONSOLE_KEY to any
+# value and the console starts requiring ?key=<value> once (it drops a cookie),
+# with no code change or redeploy of logic needed. Public instance ignores it.
+CONSOLE_KEY = os.environ.get("CONSOLE_KEY", "").strip()
+_CONSOLE_COOKIE = "xtag_console"
 
 
 @contextmanager
@@ -3310,21 +3333,155 @@ def _security_headers(resp):
     resp.headers["Permissions-Policy"]="geolocation=(), microphone=(), camera=()"
     return resp
 
+def _console_gate_ok() -> bool:
+    """Whether this console request may proceed.
+
+    True on the public instance's own pages (they never call this), and always
+    True when CONSOLE_KEY is unset — the console is open on its unguessable URL
+    by default. When CONSOLE_KEY IS set, a request passes if it carries the key
+    as ?key=... (which then sets a cookie) or already holds the matching cookie.
+    """
+    if not CONSOLE_KEY:
+        return True
+    if request.args.get("key", "").strip() == CONSOLE_KEY:
+        return True
+    return request.cookies.get(_CONSOLE_COOKIE, "") == CONSOLE_KEY
+
+
+def _console_response(resp):
+    """Attach the console cookie when the key was just supplied in the URL."""
+    if CONSOLE_KEY and request.args.get("key", "").strip() == CONSOLE_KEY:
+        resp.set_cookie(_CONSOLE_COOKIE, CONSOLE_KEY, max_age=60 * 60 * 24 * 365,
+                        httponly=True, samesite="Lax",
+                        secure=request.is_secure)
+    return resp
+
+
 @app.route("/")
 def landing():
-    # Client-facing entry. A clean landing page that routes into the dashboard
-    # at /app — added so a first-time viewer meets the product, not a blank
-    # search box. The dashboard itself is unchanged and still lives at /app.
+    # Public entry. On the public instance this is the marketing landing page.
+    # On the console instance there is no marketing to show, so "/" goes
+    # straight to the dashboard.
+    if IS_CONSOLE:
+        return redirect(url_for("index"))
     return _security_headers(make_response(render_template("landing.html")))
 
 @app.route("/app")
 @app.route("/dashboard")
 def index():
+    # The analyst dashboard. Served only on the console instance. On the public
+    # instance there is no dashboard to open — a visitor who hits /app (old
+    # bookmark, or the pre-change "Open dashboard" button) is sent to the
+    # request-access form instead.
+    if not IS_CONSOLE:
+        return redirect(url_for("request_access"))
+    if not _console_gate_ok():
+        abort(404)   # fail closed and silent when a key is set but not supplied
     resp = make_response(render_template("index.html",
         youtube_enabled=bool(YOUTUBE_API_KEY),
         cse_enabled=bool(SERPAPI_KEY),
         sentiment_enabled=SENTIMENT_ENABLED))
+    return _console_response(_security_headers(resp))
+
+@app.route("/request-access")
+def request_access():
+    # The form the public "Open dashboard" button now opens. Lives on the
+    # public instance; harmless (but pointless) on the console instance.
+    resp = make_response(render_template("request_access.html"))
     return _security_headers(resp)
+
+
+# ── Access requests: public submit, console review ───────────────────────────
+
+_ACCESS_FIELD_MAX = {       # per-field length caps, trimmed server-side
+    "name": 120, "email": 160, "org": 160, "role": 120,
+    "use_case": 2000, "heard": 300,
+}
+
+
+@app.route("/api/access-request", methods=["POST"])
+@rate_limit(5, 3600)        # a prospect needs one submission, not a flood
+def api_access_request():
+    # Public endpoint — prospective users have no API key. Spam is bounded by
+    # the rate limit and by requiring a valid email + name + use case.
+    body = request.get_json(silent=True) or request.form.to_dict() or {}
+
+    def field(k: str) -> str:
+        return (body.get(k) or "").strip()[: _ACCESS_FIELD_MAX[k]]
+
+    name     = field("name")
+    email    = field("email").lower()
+    org      = field("org")
+    role     = field("role")
+    use_case = field("use_case")
+    heard    = field("heard")
+
+    if not name:
+        return jsonify({"error": "please tell us your name"}), 400
+    if not EMAIL_RE.match(email):
+        return jsonify({"error": "please enter a valid email address"}), 400
+    if not use_case:
+        return jsonify({"error": "please tell us briefly what you'd use XTag for"}), 400
+    if not db.DB_ENABLED:
+        app.logger.error("access request received but DB not configured: %s <%s>", name, email)
+        return jsonify({"error": "we couldn't record your request right now — please email directly"}), 503
+
+    row = db.access_request_create({
+        "name": name, "email": email, "org": org or None, "role": role or None,
+        "use_case": use_case, "heard": heard or None,
+        "source_ip": _client_ip(), "user_agent": (request.headers.get("User-Agent") or "")[:300],
+    })
+    if not row:
+        return jsonify({"error": "we couldn't record your request — please try again"}), 500
+    return jsonify({"ok": True, "id": row.get("id")})
+
+
+def _require_console():
+    """Guard console-only routes. 404 on the public instance so the admin
+    surface isn't even discoverable there, and respect CONSOLE_KEY if set."""
+    if not IS_CONSOLE:
+        abort(404)
+    if not _console_gate_ok():
+        abort(404)
+
+
+@app.route("/console/admin")
+def admin_console():
+    _require_console()
+    status = (request.args.get("status") or "").strip().lower() or None
+    if status and status not in {"pending", "approved", "rejected"}:
+        status = None
+    rows = db.access_requests_list(status=status) if db.DB_ENABLED else None
+    counts = db.access_requests_counts() if db.DB_ENABLED else {}
+    resp = make_response(render_template(
+        "admin.html",
+        requests=rows or [],
+        db_down=(rows is None and db.DB_ENABLED),
+        db_enabled=db.DB_ENABLED,
+        counts=counts,
+        active_status=status or "all",
+    ))
+    return _console_response(_security_headers(resp))
+
+
+@app.route("/api/access-request/<req_id>/status", methods=["POST"])
+def api_access_request_status(req_id):
+    _require_console()
+    body = request.get_json(silent=True) or {}
+    new_status = (body.get("status") or "").strip().lower()
+    note = body.get("note")
+    if isinstance(note, str):
+        note = note.strip()[:2000] or None
+    else:
+        note = None
+    if new_status not in {"pending", "approved", "rejected"}:
+        return jsonify({"error": "status must be pending, approved, or rejected"}), 400
+    if not db.DB_ENABLED:
+        return jsonify({"error": "persistence not configured"}), 503
+    ok = db.access_request_set_status(req_id, new_status, note=note)
+    if not ok:
+        return jsonify({"error": "could not update request"}), 500
+    return jsonify({"ok": True})
 
 def _gdelt_snapshot_safe(q: str) -> dict:
     """GDELT snapshot that never raises, for submission to the collection pool.
