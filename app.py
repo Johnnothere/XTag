@@ -3357,6 +3357,48 @@ def _console_response(resp):
     return resp
 
 
+# ── Public-instance surface guard ────────────────────────────────────────────
+# The public instance (xtag.up.railway.app) is a marketing surface plus the
+# request-access flow — nothing else. The analyst API, search, intel, debug,
+# report and dossier endpoints must NOT be reachable there, regardless of any
+# per-route key (XTAG_API_KEY is unset in practice, so require_api_key is a
+# no-op — this guard is the real gate). Without this, a stranger with only the
+# URL could read watchlists/alerts/status and, worse, run billed searches.
+#
+# Allowlist is matched on the request PATH so it does not depend on endpoint
+# resolution. Everything not explicitly allowed returns 404 on the public
+# instance (404, not 403, so the surface isn't even advertised). The console
+# instance serves everything and is unaffected.
+_PUBLIC_EXACT_PATHS = {
+    "/", "/request-access", "/healthz", "/unsubscribe", "/favicon.ico",
+    "/robots.txt",
+}
+_PUBLIC_PATH_PREFIXES = (
+    "/static/",          # Flask static assets for the landing/form pages
+    "/api/reports/",     # cron-triggered report send, token-gated, hits this URL
+)
+# The only API the public form itself calls:
+_PUBLIC_EXACT_PATHS_POST = {"/api/access-request"}
+
+
+@app.before_request
+def _restrict_public_surface():
+    if IS_CONSOLE:
+        return None                      # console serves the full surface
+    p = request.path.rstrip("/") or "/"
+    if p in _PUBLIC_EXACT_PATHS or request.path in _PUBLIC_EXACT_PATHS:
+        return None
+    if p in _PUBLIC_EXACT_PATHS_POST or request.path in _PUBLIC_EXACT_PATHS_POST:
+        return None
+    if any(request.path.startswith(pre) for pre in _PUBLIC_PATH_PREFIXES):
+        return None
+    # /app and /dashboard are allowed through so they can issue their friendly
+    # redirect to the request-access form (handled in index()).
+    if p in ("/app", "/dashboard"):
+        return None
+    abort(404)
+
+
 @app.route("/")
 def landing():
     # Public entry. On the public instance this is the marketing landing page.
