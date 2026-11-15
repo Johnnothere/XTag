@@ -553,11 +553,17 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
             })
         fast = acct_profile["high_cadence"]
         if fast:
+            fshare = len(fast) / n
+            # News feeds and aggregators post at this rate too (first live run,
+            # 15 Nov: @IMLebanonNews and @lebanonfile among 19 of 232 authors),
+            # so the count alone is not evidence. Medium needs both a count and
+            # a share well above what a normal news-heavy corpus produces.
             signals.append({
                 "type": "high_cadence_accounts",
-                "severity": "medium" if len(fast) >= 3 else "low",
-                "description": (f"{len(fast)} X author(s) average {HIGH_CADENCE_PER_DAY}+ posts a day "
-                                f"over their account's lifetime"),
+                "severity": "medium" if (len(fast) >= 5 and fshare >= 0.10) else "low",
+                "description": (f"{len(fast)} of {n} distinct X authors ({fshare:.0%}) average "
+                                f"{HIGH_CADENCE_PER_DAY}+ posts a day over their account's lifetime "
+                                f"— news feeds also post at this rate; check the examples"),
                 "examples": [{"author": a, "posts_per_day": r} for a, r in fast[:8]],
             })
 
