@@ -422,3 +422,58 @@ All optional; every one has a default that preserves current behaviour.
 | `KB_MAX_TURN_CHARS` | `1200` | B1 |
 | `KB_MAX_QUESTION_CHARS` | `1200` | B1 |
 | `KB_MAX_TOKENS` | `600` | B1 (was already the hardcoded value) |
+
+---
+
+## S — ScrapeBadger collection, persistence and sentiment coverage (15 Nov 2026)
+
+Measured with the production ScrapeBadger key before changing anything. Billing
+showed 599,652 of 600,000 monthly credits unused: XTag was spending ~60 credits a
+search because the collectors were shallow or broken.
+
+### S1 — X stopped at ~40 tweets · `app.py`
+`advanced_search` returns 20 tweets per call whatever `count` says, plus a
+`next_cursor`. XTag made two calls (Top, Latest) and never followed the cursor.
+Now: Top (2 pages) and Latest (8 pages) inside a `since:` window
+(`X_WINDOW_DAYS`, default 7), plus one Latest page per earlier day the chain did
+not reach, so the corpus has a timeline. Lexicon terms are expanded in place
+(Arabic/Farsi/Hebrew) with the query's words still AND-ed. Whole X pass is
+time-boxed by `X_BUDGET` (26s). "Hezbollah": 38 → 316 tweets, 6 languages,
+7 days, 17s, ~340 credits.
+
+### S2 — X account metadata was discarded · `app.py`, `intel.py`
+Every tweet carries the author's creation date, follower/following and lifetime
+tweet counts. Now kept on the document as `account`; `detect_inauthenticity`
+reports young accounts (< `YOUNG_ACCOUNT_DAYS`, 90) and sustained high cadence
+(>= `HIGH_CADENCE_PER_DAY`, 72) over distinct authors, capped at "medium".
+
+### S3 — TikTok returned nothing on every search · `app.py`
+The endpoint takes `query` (required) and `count` <= 50. XTag sent `keyword` +
+`count=100`, retried with `query` + `count=100`: two 422s per search, forever.
+Fixed; spoken text (`voice_to_text`) is appended when present.
+
+### S4 — Instagram paid for empty pages · `app.py`
+ScrapeBadger's hashtag feeds and keyword search return zero posts even for
+`#travel` (checked 15 Nov), still charging 8–12 credits. `/search/top` never
+returned posts at all (accounts/hashtags/places). Paused behind
+`INSTAGRAM_ENABLED` (default off) with a clear status message.
+
+### S5 — Reddit skewed old · `app.py`
+Added a `sort=new, t=month` pass alongside `relevance, year`, deduplicated.
+"Hezbollah": 100 → 193 posts, spread across the last 10 days.
+
+### S6 — every Supabase read failed · `db.py`
+Timestamps were embedded raw (`+00:00`); `+` decodes to a space in a query
+string, so PostgREST rejected every filtered read with 400 (22007). Writes were
+fine, so the tables filled while nothing was read back: the search cache never
+hit, narrative tracking never saw the previous run, watchlist history and due
+report subscriptions never loaded. `_qts()` now emits `Z` timestamps.
+
+### S7 — two thirds of the corpus never got sentiment · `app.py`
+One Claude call per language capped each language at 120 texts; on "Hezbollah"
+257 of 378 documents were unscored. Language groups are now split into chunks
+(`SENTIMENT_CHUNK`, 60) scored in parallel (`SENTIMENT_WORKERS`, 8) up to
+`SENTIMENT_MAX_CHUNKS` (20).
+
+### S8 — `/debug/scrapebadger` called a non-existent route
+`/v1/account` → `/v1/account/me`.

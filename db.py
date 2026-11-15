@@ -45,6 +45,22 @@ _REST = f"{SUPABASE_URL}/rest/v1" if SUPABASE_URL else ""
 TIMEOUT = 8
 
 
+def _qts(dt: datetime | None = None) -> str:
+    """A UTC timestamp that is safe to drop into a PostgREST query string.
+
+    Every filter here used to embed `datetime.isoformat()` raw, which ends in
+    `+00:00`. In a URL query string a bare `+` decodes to a SPACE, so PostgREST
+    received `2026-11-15T12:00:00.000000 00:00` and rejected every one of these
+    reads with HTTP 400 (22007, invalid timestamp). Writes send JSON bodies and
+    were unaffected, which is why the table kept filling while nothing was ever
+    read back: the search cache never hit, narrative tracking never saw the
+    previous run, watchlist history and scheduled reports never loaded.
+    `Z` notation has no `+`, so there is nothing to mis-decode.
+    """
+    dt = dt or datetime.now(timezone.utc)
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
 def _headers(extra: dict | None = None) -> dict:
     h = {
         "apikey": SUPABASE_SERVICE_KEY,
@@ -285,7 +301,7 @@ def snapshots_history(query: str, limit: int = 200, days: int | None = None) -> 
     else:
         q = f"watchlist_snapshots?query=ilike.{requests.utils.quote(_like_literal(query))}"
     if days:
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        since = _qts(datetime.now(timezone.utc) - timedelta(days=days))
         q += f"&checked_at=gte.{since}"
     # A3: this ordered ASC with the limit applied, which truncates the RECENT
     # end — once a query had more snapshots than `limit`, history froze at the
@@ -320,7 +336,7 @@ def alerts_recent(limit: int = 50, days: int | None = None,
                   unacknowledged_only: bool = False) -> list[dict] | None:
     q = "alerts?select=*"
     if days:
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        since = _qts(datetime.now(timezone.utc) - timedelta(days=days))
         q += f"&triggered_at=gte.{since}"
     if unacknowledged_only:
         q += "&acknowledged=eq.false"
@@ -331,7 +347,7 @@ def alerts_recent(limit: int = 50, days: int | None = None,
 # ── Search cache ──────────────────────────────────────────────────────────────
 
 def cache_get(key: str) -> dict | None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = _qts()
     rows = _req("GET",
                 f"search_cache?query_key=eq.{requests.utils.quote(key)}"
                 f"&expires_at=gt.{now}&select=payload&limit=1")
@@ -355,7 +371,7 @@ def cache_set(key: str, query: str, payload: dict, ttl_seconds: int) -> None:
 
 
 def cache_prune() -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = _qts()
     _req("DELETE", f"search_cache?expires_at=lt.{now}",
          extra_headers={"Prefer": "return=minimal"})
 
@@ -420,7 +436,7 @@ def subscriptions_for_email(email: str) -> list[dict] | None:
 
 
 def subscriptions_due(limit: int = 25) -> list[dict] | None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = _qts()
     return _req("GET", f"report_subscriptions?active=eq.true&next_run_at=lte.{now}"
                        f"&select=*&order=next_run_at.asc&limit={int(limit)}")
 

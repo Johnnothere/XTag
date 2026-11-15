@@ -986,20 +986,28 @@ def search_reddit(q):
     if not SCRAPEBADGER_KEY:
         return official if official is not None else _empty(
             "reddit","REDDIT_CLIENT_ID/SECRET and SCRAPEBADGER_KEY both unset")
-    try:
-        r = requests.get(f"{SB_BASE}/reddit/search/posts",
-            params={"q":keyword,"sort":"relevance","t":"year","limit":100},
-            headers={"x-api-key":SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
-    except Exception as e: return _empty("reddit", str(e)[:120])
-    if r.status_code >= 400: return _empty("reddit", _sb_error(r.status_code, r.text[:400]))
-    try: data = r.json()
-    except Exception: return _empty("reddit","bad JSON")
-    items = data if isinstance(data,list) else (data.get("posts") or data.get("data") or [])
-    results = []
+    # Two passes: the most relevant posts of the year, and the newest posts of
+    # the month. Relevance alone skews old and popular, which leaves the
+    # velocity and lifecycle stages with nothing recent to measure.
+    items, errors = [], []
+    with bounded_pool(2) as ex:
+        futs = [ex.submit(_sb_get, "/reddit/search/posts",
+                          {"q": keyword, "sort": srt, "t": tw, "limit": 100}, "reddit")
+                for srt, tw in (("relevance", "year"), ("new", "month"))]
+        for f in futs:
+            try: data, err = f.result(timeout=SERPAPI_TIMEOUT + 2)
+            except Exception: data, err = None, "timed out"
+            if err: errors.append(err); continue
+            items.extend(data if isinstance(data, list) else
+                         ((data or {}).get("posts") or (data or {}).get("data") or []))
+    if not items: return _empty("reddit", "; ".join(errors) or None)
+    results, seen_rd = [], set()
     for d in items:
         if not isinstance(d,dict): continue
         permalink = d.get("permalink") or d.get("url") or ""
         if permalink.startswith("/"): permalink = f"https://www.reddit.com{permalink}"
+        if permalink and permalink in seen_rd: continue
+        seen_rd.add(permalink)
         sub = d.get("subreddit") or ""; author = d.get("author") or "unknown"
         score = d.get("score") or 0; nc = d.get("num_comments") or 0
         ts = d.get("created_utc") or d.get("created")
@@ -1048,134 +1056,318 @@ def _sb_error(status: int, body: str | None = None) -> str:
         return _with("ScrapeBadger denied this endpoint (403) — plan may not include it")
     return _with(f"HTTP {status}")
 
+# ── ScrapeBadger collection depth (15 Nov 2026) ────────────────────────────────
+# Measured against the live API with the production key:
+#   * X advanced_search returns 20 tweets per call whatever `count` says, plus a
+#     `next_cursor`. XTag sent count=100 once for Top and once for Latest and
+#     never followed the cursor, so every search stopped at ~40 tweets — on a
+#     topic where 20 Latest tweets span under 30 minutes. 21 credits per page.
+#   * `since:` / `until:` operators work inside the query, so a day-sliced pass
+#     gives a time-distributed sample instead of "the last half hour + whatever
+#     Top ranks from 2024". Velocity, propagation and lifecycle need that spread.
+#   * OR-ing the Arabic/Farsi/Hebrew renderings into the X query returned a
+#     mostly Arabic page for "Hezbollah"; the English-only query returned none.
+#   * Each tweet already carries the author's account creation date, follower,
+#     following and tweet counts. They were being discarded; they now ride on
+#     the document as `account` for the inauthenticity layer.
+# Credit maths at the defaults: ~16 X pages x 21 credits = ~340 credits for
+# ~300 tweets. The Starter plan's 600k credits/month covers ~1,500 searches.
+X_WINDOW_DAYS  = max(1, int(os.environ.get("X_WINDOW_DAYS", "7")))
+X_TOP_PAGES    = max(0, int(os.environ.get("X_TOP_PAGES", "2")))
+X_LATEST_PAGES = max(1, int(os.environ.get("X_LATEST_PAGES", "8")))
+X_SLICE_PAGES  = max(0, int(os.environ.get("X_SLICE_PAGES", "1")))
+X_MAX_EXPANSION_TERMS = int(os.environ.get("X_MAX_EXPANSION_TERMS", "6"))
+X_PAGE_TIMEOUT = int(os.environ.get("X_PAGE_TIMEOUT", "15"))
+# Whole-X wall clock. The collection pool abandons any source still running at
+# SEARCH_POOL_TIMEOUT (35s) and keeps NOTHING from it, so X must finish inside
+# that with room to spare even when query expansion spends its 6s first.
+X_BUDGET = float(os.environ.get("X_BUDGET", "26"))
+# TikTok search is slow (17s measured from the US proxy, 37s from Lebanon), so
+# one page per search is the default; `count` is capped at 50 by the API.
+TIKTOK_PAGES   = max(1, int(os.environ.get("TIKTOK_PAGES", "1")))
+TIKTOK_TIMEOUT = int(os.environ.get("TIKTOK_TIMEOUT", "33"))
+# Instagram: verified 15 Nov 2026 that ScrapeBadger's hashtag feeds (top/recent)
+# and keyword search (top/reels) return zero posts even for #travel, while still
+# charging 8-12 credits per call. Off until the provider fixes it.
+INSTAGRAM_ENABLED = os.environ.get("INSTAGRAM_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
+INSTAGRAM_PAGES   = max(1, int(os.environ.get("INSTAGRAM_PAGES", "2")))
+
+
+def _x_created(t: dict):
+    """X's created_at is 'Sun Nov 15 12:48:07 +0000 2026'."""
+    raw = t.get("created_at")
+    if not raw: return None
+    try: return datetime.strptime(str(raw), "%a %b %d %H:%M:%S %z %Y")
+    except Exception: return None
+
+
+def _x_or_group(term: str, variants: list) -> str:
+    out, seen = [term], {term.lower()}
+    for v in variants:
+        v = str(v).strip().replace('"', "")
+        if not v or v.lower() in seen: continue
+        seen.add(v.lower())
+        out.append(f'"{v}"' if re.search(r"\s", v) else v)
+        if len(out) > X_MAX_EXPANSION_TERMS: break
+    return out[0] if len(out) == 1 else "(" + " OR ".join(out) + ")"
+
+
+def _x_query(q: str) -> str:
+    """The X search expression for an XTag query, with native-language forms.
+
+    Lexicon terms are expanded IN PLACE and the query's words stay AND-ed:
+    "gaza ceasefire" becomes (gaza OR غزة OR עזה) (ceasefire OR "وقف إطلاق النار" …).
+    OR-ing every rendering into one flat group — the first version of this —
+    turned it into "anything mentioning Gaza" and collected 212 Arabic tweets
+    that were not about a ceasefire. A query the lexicon does not cover falls
+    back to the whole-phrase translations from expand_query (Claude), which are
+    renderings of the full query and so safe to OR. Hashtags are left alone.
+    """
+    is_tag, tag, plain = _query_parts(q)
+    if is_tag: return tag
+    key = plain.lower()
+    langs = ("ar", "fa", "he")
+    matched = [t for t in QUERY_LEXICON
+               if re.search(rf"(?<![\w]){re.escape(t)}(?![\w])", key)]
+    # Drop a matched term contained in a longer matched term.
+    matched = [t for t in matched if not any(t != o and t in o for o in matched)]
+    if matched:
+        expr, rest = key, key
+        for t in sorted(matched, key=len, reverse=True):
+            variants = [v for lg in langs for v in (QUERY_LEXICON[t].get(lg) or [])]
+            group = _x_or_group(t, variants)
+            expr = re.sub(rf"(?<![\w]){re.escape(t)}(?![\w])", lambda _m, g=group: g, expr, count=1)
+        expr = re.sub(r"\s+", " ", expr).strip()
+        return expr if len(expr) <= 480 else plain
+    try:
+        exp = expand_query(plain) or {}
+    except Exception:
+        exp = {}
+    variants = [v for lg in langs for v in (exp.get(lg) or [])]
+    base = f"({plain})" if re.search(r"\s", plain) else plain
+    group = _x_or_group(base, variants)
+    return group if len(group) <= 480 else plain
+
+
+def _x_chain(query: str, query_type: str, pages: int, deadline: float | None = None):
+    """Follow next_cursor for up to `pages` pages, stopping early at `deadline`
+    (a time.monotonic() value) so a slow API cannot cost the whole source.
+    Returns (tweets, error)."""
+    tweets, cursor = [], None
+    for _ in range(max(0, pages)):
+        if deadline is not None and time.monotonic() > deadline - 2.5: break
+        params = {"query": query, "query_type": query_type}
+        if cursor: params["cursor"] = cursor
+        data, err = _sb_get("/twitter/tweets/advanced_search", params, "x",
+                            timeout=X_PAGE_TIMEOUT)
+        if err: return tweets, err
+        batch = (data.get("data") or []) if isinstance(data, dict) \
+                else (data if isinstance(data, list) else [])
+        tweets.extend(t for t in batch if isinstance(t, dict))
+        cursor = data.get("next_cursor") if isinstance(data, dict) else None
+        if not batch or not cursor: break
+    return tweets, None
+
+
+def _x_doc(t: dict):
+    tid = str(t.get("id") or ""); username = t.get("username") or ""
+    media = t.get("media") or []; thumb = None
+    if media and isinstance(media[0], dict):
+        thumb = media[0].get("preview_image_url") or media[0].get("url") or media[0].get("media_url_https")
+    favs = t.get("favorite_count") or 0; rts = t.get("retweet_count") or 0
+    reps = t.get("reply_count") or 0; views = t.get("view_count") or 0
+    try: views = int(views)
+    except Exception: views = 0
+    meta = f"♥ {favs} · ↺ {rts} · 💬 {reps}" + (f" · ▶ {views}" if views else "")
+    doc = make_doc("x",
+        f"https://x.com/{username}/status/{tid}" if username and tid else "https://x.com",
+        _strip_html(t.get("full_text") or t.get("text") or ""),
+        author=f"@{username}" if username else None,
+        author_url=f"https://x.com/{username}" if username else None,
+        thumbnail=thumb, timestamp=t.get("created_at"), meta=meta, source_type="social")
+    # Account metadata ScrapeBadger returns with every tweet. Kept as observed
+    # facts; intel.detect_inauthenticity decides what (if anything) they mean.
+    doc["account"] = {
+        "platform": "x", "handle": username or None, "id": t.get("user_id"),
+        "created_at": t.get("user_created_at"),
+        "followers": t.get("user_followers_count"), "following": t.get("user_following_count"),
+        "statuses": t.get("user_tweet_count"),
+        "verified": bool(t.get("user_verified")), "blue": bool(t.get("user_is_blue_verified")),
+        "location": t.get("user_location") or None,
+    }
+    doc["post_lang"] = t.get("lang")
+    doc["is_retweet"] = bool(t.get("is_retweet"))
+    doc["quoted_status_id"] = t.get("quoted_status_id")
+    doc["retweeted_status_id"] = t.get("retweeted_status_id")
+    doc["conversation_id"] = t.get("conversation_id")
+    return doc
+
+
 def search_sb_twitter(q):
-    is_tag,tag,plain = _query_parts(q); keyword = tag if is_tag else plain
-    if not keyword: return _empty("x","empty query")
-    if not SCRAPEBADGER_KEY: return _empty("x","SCRAPEBADGER_KEY not set")
-    # "Top" is algorithmically ranked and returned only 19 tweets for a campaign
-    # hashtag with far more behind it. "Latest" is reverse-chronological and
-    # surfaces the long tail — which for an influence operation is the part that
-    # matters, because coordination shows up in the bulk, not in the popular few.
-    #
-    # Top and Latest overlap heavily — anything popular AND recent appears in
-    # both. Without a seen-set the same tweet became two documents with the same
-    # URL and the same make_doc id, inflating totals.mentions, engagement, the
-    # `reach` threat factor and every persisted time-series point. TikTok and
-    # Instagram below both dedupe; this pass was added without it.
-    tweets, errors, seen_ids = [], [], set()
-    for qt in ("Top", "Latest"):
-        data, err = _sb_get("/twitter/tweets/advanced_search",
-                            {"query":keyword,"query_type":qt,
-                             "count":min(100,MAX_RESULTS_PER_SOURCE)}, "x")
-        if err: errors.append(f"{qt}: {err}"); continue
-        batch = (data.get("data") or []) if isinstance(data,dict) \
-                else (data if isinstance(data,list) else [])
+    """X via ScrapeBadger: Top + paginated Latest + day slices across a window.
+
+    Three passes, because each one answers a different question:
+      Top     (since: window)  — what the platform amplified most
+      Latest  (cursor chain)   — the dense recent tail, where coordination shows
+      Slices  (since/until)    — one page per earlier day, so the corpus has a
+                                 timeline rather than a single half-hour burst.
+    Slices only run for days the Latest chain did not already reach, so a quiet
+    topic whose Latest chain covers the whole window costs nothing extra.
+    """
+    is_tag, tag, plain = _query_parts(q)
+    if not (tag if is_tag else plain): return _empty("x", "empty query")
+    if not SCRAPEBADGER_KEY: return _empty("x", "SCRAPEBADGER_KEY not set")
+
+    t0 = time.monotonic()
+    query = _x_query(q)
+    deadline = t0 + X_BUDGET
+    now = datetime.now(timezone.utc)
+    window_start = (now - timedelta(days=X_WINDOW_DAYS)).date()
+    windowed = f"{query} since:{window_start.isoformat()}"
+
+    tweets, errors, seen = [], [], set()
+    def _take(batch):
         for t in batch:
-            if not isinstance(t, dict): continue
-            # Fall back to the object's identity when a tweet carries no id, so
-            # an id-less payload is kept rather than silently collapsed to one.
-            tid = str(t.get("id") or "") or f"_noid{len(tweets)}"
-            if tid in seen_ids: continue
-            seen_ids.add(tid)
-            tweets.append(t)
-    if not tweets: return _empty("x", "; ".join(errors) or None)
-    # A partial failure must not look like a healthy source running at half depth.
-    partial_err = "; ".join(errors) or None
-    results = []
-    for t in (tweets or []):
-        if not isinstance(t,dict): continue
-        tid = t.get("id",""); username = t.get("username") or ""
-        media = t.get("media") or []; thumb = None
-        if media and isinstance(media[0],dict): thumb = media[0].get("preview_image_url") or media[0].get("url")
-        favs=t.get("favorite_count",0); rts=t.get("retweet_count",0); reps=t.get("reply_count",0)
-        results.append(make_doc("x",
-            f"https://x.com/{username}/status/{tid}" if username and tid else "https://x.com",
-            _strip_html(t.get("full_text") or t.get("text") or ""),
-            author=f"@{username}" if username else None,
-            author_url=f"https://x.com/{username}" if username else None,
-            thumbnail=thumb, timestamp=t.get("created_at"),
-            meta=f"♥ {favs} · ↺ {rts} · 💬 {reps}", source_type="social"))
-    return {"platform":"x","results":results,"error":partial_err,
-            "partial": bool(partial_err and results)}
+            tid = str(t.get("id") or "")
+            if not tid or tid in seen: continue
+            seen.add(tid); tweets.append(t)
+
+    with bounded_pool(8) as ex:
+        # Latest stops ~8s early so the day slices still fit inside the budget.
+        f_latest = ex.submit(_x_chain, windowed, "Latest", X_LATEST_PAGES, deadline - 8)
+        f_top = ex.submit(_x_chain, windowed, "Top", X_TOP_PAGES, deadline) if X_TOP_PAGES else None
+        try:
+            latest, err = f_latest.result(timeout=max(1.0, deadline - 8 - time.monotonic() + X_PAGE_TIMEOUT))
+        except Exception as e:
+            latest, err = [], f"Latest: {str(e)[:80] or 'timed out'}"
+        if err: errors.append(f"Latest: {err}")
+        _take(latest)
+
+        # Which earlier days did the Latest chain NOT reach?
+        dts = [d for d in (_x_created(t) for t in latest) if d]
+        oldest = min(dts).date() if dts else now.date()
+        slice_days = []
+        if X_SLICE_PAGES:
+            d = oldest - timedelta(days=1) if dts else now.date() - timedelta(days=1)
+            while d >= window_start:
+                slice_days.append(d); d -= timedelta(days=1)
+            # The day the chain stopped in is only partly covered — sample it too.
+            if dts and oldest > window_start: slice_days.insert(0, oldest)
+        f_slices = [ex.submit(_x_chain,
+                              f"{query} since:{d.isoformat()} until:{(d + timedelta(days=1)).isoformat()}",
+                              "Latest", X_SLICE_PAGES, deadline) for d in slice_days]
+        slow_slices = 0
+        for f in ([f_top] if f_top else []) + f_slices:
+            try:
+                batch, err = f.result(timeout=max(0.5, deadline - time.monotonic()))
+            except Exception as e:
+                batch, err = [], None
+                if f is f_top: errors.append("Top: timed out")
+                else: slow_slices += 1
+            if err: errors.append(err)
+            _take(batch)
+        if slow_slices:
+            errors.append(f"{slow_slices} of {len(f_slices)} day slices did not finish in time")
+
+    if not tweets: return _empty("x", "; ".join(dict.fromkeys(errors)) or None)
+    results = [_x_doc(t) for t in tweets]
+    partial_err = "; ".join(dict.fromkeys(errors)) or None
+    return {"platform": "x", "results": results, "error": partial_err,
+            "partial": bool(partial_err and results),
+            "collection": {"query": query, "window_days": X_WINDOW_DAYS,
+                           "slices": len(slice_days), "tweets": len(results)}}
+
+
+def _tt_doc(v: dict):
+    author = v.get("author") or v.get("author_info") or {}
+    if not isinstance(author, dict): author = {}
+    handle = author.get("unique_id") or author.get("uniqueId") or ""
+    stats = v.get("stats") or v.get("statistics") or {}
+    def _tt(*keys):
+        for key in keys:
+            val = stats.get(key)
+            if val is None: val = v.get(key)
+            if val is not None:
+                try: return int(val)
+                except Exception: pass
+        return 0
+    plays = _tt("play_count", "playCount"); likes = _tt("digg_count", "diggCount", "like_count")
+    comms = _tt("comment_count", "commentCount"); shares = _tt("share_count", "shareCount")
+    vmeta = v.get("video") or {}
+    if not isinstance(vmeta, dict): vmeta = {}
+    turl = v.get("url") or v.get("share_url") or "https://www.tiktok.com"
+    text = _strip_html(v.get("description") or v.get("desc") or v.get("title") or "")
+    spoken = v.get("voice_to_text")
+    if isinstance(spoken, str) and spoken.strip():
+        text = (text + " " + spoken.strip()[:600]).strip()
+    doc = make_doc("tiktok", turl, text,
+        author=f"@{handle}" if handle else None,
+        author_url=f"https://www.tiktok.com/@{handle}" if handle else None,
+        thumbnail=vmeta.get("cover") or v.get("cover") or v.get("thumbnail"),
+        timestamp=v.get("create_time_at") or v.get("create_time"),
+        meta=f"▶ {plays} · ♥ {likes} · 💬 {comms}" + (f" · ↺ {shares}" if shares else ""),
+        source_type="social")
+    music = v.get("music") if isinstance(v.get("music"), dict) else {}
+    doc["account"] = {"platform": "tiktok", "handle": handle or None, "id": author.get("id"),
+                      "followers": author.get("follower_count"), "following": author.get("following_count"),
+                      "statuses": author.get("video_count"), "verified": bool(author.get("verified")),
+                      "region": author.get("region") or v.get("region")}
+    # The sound is the strongest TikTok template-reuse signal (one script, many uploads).
+    doc["music_id"] = music.get("id"); doc["post_lang"] = v.get("text_language")
+    return doc
+
 
 def search_sb_tiktok(q):
-    is_tag,tag,plain = _query_parts(q); keyword = tag if is_tag else plain
-    if not keyword: return _empty("tiktok","empty query")
-    if not SCRAPEBADGER_KEY: return _empty("tiktok","SCRAPEBADGER_KEY not set")
-    try:
-        # This endpoint takes `keyword`. It was being sent `query`, which is what
-        # the live 422 ("rejected the request parameters") was — TikTok has been
-        # returning nothing at all, not failing intermittently. The retry below
-        # keeps the old spelling as a fallback so a future API rename surfaces as
-        # a log line rather than another silent dead source.
-        r = requests.get(f"{SB_BASE}/tiktok/search/videos",
-            params={"keyword":keyword,"region":TIKTOK_REGION,"count":min(100,MAX_RESULTS_PER_SOURCE)},
-            headers={"x-api-key":SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
-        if r.status_code == 422:
-            app.logger.warning("tiktok: 422 on `keyword`, retrying with `query` — %s", r.text[:160])
-            r = requests.get(f"{SB_BASE}/tiktok/search/videos",
-                params={"query":keyword,"region":TIKTOK_REGION,"count":min(100,MAX_RESULTS_PER_SOURCE)},
-                headers={"x-api-key":SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
-    except Exception as e: return _empty("tiktok", str(e)[:120])
-    if r.status_code >= 400: return _empty("tiktok", _sb_error(r.status_code, r.text[:400]))
-    try: data = r.json()
-    except: return _empty("tiktok","bad JSON")
-    videos = []
-    if isinstance(data,list): videos = data
-    elif isinstance(data,dict):
-        for key in ("videos","data","results","aweme_list","item_list","videoList","items"):
-            v = data.get(key)
-            if isinstance(v,list) and v: videos = v; break
-        if not videos and isinstance(data.get("data"),dict):
-            for key in ("videos","aweme_list","item_list","videoList","items"):
-                v = data["data"].get(key)
-                if isinstance(v,list) and v: videos = v; break
-    # The hashtag feed is a different index from keyword search and carries the
-    # posts that use the tag rather than the ones a ranker thinks are similar.
-    if is_tag:
+    is_tag, tag, plain = _query_parts(q); keyword = tag if is_tag else plain
+    if not keyword: return _empty("tiktok", "empty query")
+    if not SCRAPEBADGER_KEY: return _empty("tiktok", "SCRAPEBADGER_KEY not set")
+    # The endpoint takes `query` (required) and `count` <= 50. XTag sent
+    # `keyword` + count=100, then retried with `query` + count=100: both were
+    # 422s, so TikTok returned nothing on every search. Failed calls are not
+    # billed, which is why it never showed on the invoice either.
+    videos, errors = [], []
+    def _search():
+        out, cursor = [], None
+        for _ in range(TIKTOK_PAGES):
+            params = {"query": keyword, "region": TIKTOK_REGION, "count": 50}
+            if cursor: params["cursor"] = cursor
+            data, err = _sb_get("/tiktok/search/videos", params, "tiktok", timeout=TIKTOK_TIMEOUT)
+            if err: return out, err
+            out.extend(_sb_items(data, "videos", "aweme_list", "item_list"))
+            pag = (data or {}).get("pagination") if isinstance(data, dict) else None
+            cursor = pag.get("cursor") if isinstance(pag, dict) and pag.get("has_more") else None
+            if not cursor: break
+        return out, None
+    def _hashtag():
         slug = re.sub(r"[^0-9A-Za-z_]", "", plain)
-        if slug:
-            hdata, _herr = _sb_get(f"/tiktok/hashtags/{quote_plus(slug)}/videos",
-                                   {"region": TIKTOK_REGION, "count": 100}, "tiktok")
-            if hdata: videos = list(videos) + _sb_items(hdata, "videos", "aweme_list", "item_list")
-
-    results = []
-    seen_tt = set()
-    for v in (videos or []):
-        if not isinstance(v,dict): continue
-        author = v.get("author") or v.get("author_info") or {}
-        if not isinstance(author,dict): author = {}
-        handle = author.get("unique_id") or author.get("uniqueId") or ""
-        stats = v.get("stats") or v.get("statistics") or {}
-        def _tt(k, *keys):
-            for key in (k,)+keys:
-                val = stats.get(key)
-                if val is None: val = v.get(key)
-                if val is not None:
-                    try: return int(val)
-                    except: pass
-            return 0
-        plays=_tt("play_count","playCount"); likes=_tt("digg_count","diggCount","like_count")
-        comms=_tt("comment_count","commentCount")
-        vmeta = v.get("video") or {}
-        turl = v.get("url") or v.get("share_url") or "https://www.tiktok.com"
-        if turl in seen_tt: continue
+        if not slug: return [], None
+        data, err = _sb_get(f"/tiktok/hashtags/{quote_plus(slug)}/videos",
+                            {"region": TIKTOK_REGION, "count": 50}, "tiktok", timeout=TIKTOK_TIMEOUT)
+        return _sb_items(data, "videos", "aweme_list", "item_list") if data else [], err
+    with bounded_pool(2) as ex:
+        futs = [ex.submit(_search)] + ([ex.submit(_hashtag)] if is_tag else [])
+        for f in futs:
+            try: batch, err = f.result(timeout=TIKTOK_TIMEOUT * TIKTOK_PAGES + 5)
+            except Exception: batch, err = [], "timed out"
+            if err: errors.append(err)
+            videos.extend(batch or [])
+    results, seen_tt = [], set()
+    for v in videos:
+        if not isinstance(v, dict): continue
+        turl = v.get("url") or v.get("share_url") or ""
+        if not turl or turl in seen_tt: continue
         seen_tt.add(turl)
-        results.append(make_doc("tiktok", turl,
-            _strip_html(v.get("description") or v.get("desc") or v.get("title") or ""),
-            author=f"@{handle}" if handle else None,
-            author_url=f"https://www.tiktok.com/@{handle}" if handle else None,
-            thumbnail=vmeta.get("cover") or v.get("cover") or v.get("thumbnail"),
-            timestamp=v.get("create_time_at") or v.get("create_time"),
-            meta=f"▶ {plays} · ♥ {likes} · 💬 {comms}", source_type="social"))
-    return {"platform":"tiktok","results":results,"error":None}
+        results.append(_tt_doc(v))
+    if not results: return _empty("tiktok", "; ".join(errors) or None)
+    err = "; ".join(errors) or None
+    return {"platform": "tiktok", "results": results, "error": err, "partial": bool(err)}
 
-def _sb_get(path, params, platform):
+def _sb_get(path, params, platform, timeout=None):
     """One ScrapeBadger GET. Returns (json, error_string). Never raises."""
     if not SCRAPEBADGER_KEY: return None, "SCRAPEBADGER_KEY not set"
     try:
         r = requests.get(f"{SB_BASE}{path}", params=params,
-                         headers={"x-api-key":SCRAPEBADGER_KEY}, timeout=SERPAPI_TIMEOUT)
+                         headers={"x-api-key":SCRAPEBADGER_KEY}, timeout=timeout or SERPAPI_TIMEOUT)
     except Exception as e: return None, str(e)[:120]
     if r.status_code >= 400: return None, _sb_error(r.status_code, r.text[:400])
     try: return r.json(), None
@@ -1204,28 +1396,35 @@ def _sb_items(data, *keys):
 
 def search_sb_instagram(q):
     """
-    Instagram via ScrapeBadger's real hashtag feed.
+    Instagram via ScrapeBadger's hashtag feed.
 
-    Instagram was previously reachable only through a site-restricted Google
-    search, which returns whatever Google has indexed rather than the tag's own
-    feed — 16 results for "#covid1948", half of them unrelated. The hashtag
-    endpoint (8 credits) reads the feed itself.
+    Paused by default (INSTAGRAM_ENABLED). Measured 15 Nov 2026 with the
+    production key: /instagram/hashtags/{tag}/recent and /top returned zero
+    items for #hezbollah, #lebanon and even #travel (12 credits each), and
+    /instagram/search/top and /search/reels returned empty payloads (8 credits
+    each). The old code also called /search/top expecting posts; that endpoint
+    returns accounts, hashtags and places, never posts, so it could not have
+    produced a document even when the provider was healthy.
     """
     is_tag, tag, plain = _query_parts(q)
     if not plain: return _empty("instagram","empty query")
+    if not INSTAGRAM_ENABLED:
+        return _empty("instagram", "paused: the provider's Instagram feeds are returning no posts "
+                                   "(set INSTAGRAM_ENABLED=1 to retry)")
     if not SCRAPEBADGER_KEY: return _empty("instagram","SCRAPEBADGER_KEY not set")
-
-    raw, err = [], None
-    slug = re.sub(r"[^0-9A-Za-z_\u0600-\u06FF\u0590-\u05FF]", "", plain)
-    if slug:
-        data, err = _sb_get(f"/instagram/hashtags/{quote_plus(slug)}/recent",
-                            {"amount": min(100, MAX_RESULTS_PER_SOURCE)}, "instagram")
-        if data: raw.extend(_sb_items(data, "posts", "media"))
-    # Top-search covers phrases and accounts the tag feed misses.
-    data2, err2 = _sb_get("/instagram/search/top",
-                          {"query": plain, "amount": 50}, "instagram")
-    if data2: raw.extend(_sb_items(data2, "posts", "media"))
-    if not raw: return _empty("instagram", err or err2)
+    slug = re.sub(r"[^0-9A-Za-z_؀-ۿ֐-׿]", "", plain)
+    if not slug: return _empty("instagram", "query has no usable hashtag form")
+    raw, err, cursor = [], None, None
+    for _ in range(INSTAGRAM_PAGES):
+        params = {"amount": 50}
+        if cursor: params["cursor"] = cursor
+        data, err = _sb_get(f"/instagram/hashtags/{quote_plus(slug)}/recent", params, "instagram")
+        if err or not data: break
+        raw.extend(_sb_items(data, "posts", "media"))
+        cursor = data.get("next_cursor") if isinstance(data, dict) and data.get("has_more") else None
+        if not cursor: break
+    if not raw:
+        return _empty("instagram", err or "provider returned no posts for this hashtag")
 
     results, seen = [], set()
     for it in raw:
@@ -1246,7 +1445,7 @@ def search_sb_instagram(q):
             author_url=f"https://www.instagram.com/{handle}/" if handle else None,
             thumbnail=it.get("thumbnail_url") or it.get("display_url") or it.get("image"),
             timestamp=it.get("taken_at") or it.get("timestamp") or it.get("created_at"),
-            meta=f"\u2665 {likes} \u00b7 \U0001f4ac {comments}", source_type="social"))
+            meta=f"♥ {likes} · \U0001f4ac {comments}", source_type="social"))
     return {"platform":"instagram","results":results,"error":None}
 
 
@@ -2788,6 +2987,11 @@ BABEL_CAP=24; BABEL_WORKERS=12; BABEL_BUDGET=12; BABEL_TIMEOUT=10
 # language group is not scored at all, and must be reported as unscored rather
 # than filled in (A2).
 CLAUDE_SENTIMENT_BATCH = 120
+# attach_sentiment splits each language group into chunks of this size, one
+# Claude call each, so a large corpus is scored in full instead of capped.
+SENTIMENT_CHUNK = max(10, min(CLAUDE_SENTIMENT_BATCH, int(os.environ.get("SENTIMENT_CHUNK", "60"))))
+SENTIMENT_MAX_CHUNKS = int(os.environ.get("SENTIMENT_MAX_CHUNKS", "20"))
+SENTIMENT_WORKERS = int(os.environ.get("SENTIMENT_WORKERS", "8"))
 _SCORE={"positive":1.0,"neutral":0.0,"negative":-1.0}
 
 def _norm_label(raw):
@@ -2907,12 +3111,20 @@ def attach_sentiment(platforms):
             if local_i < len(s): claude_s[global_i] = s[local_i]
             if f and local_i < len(f): claude_f[global_i] = f[local_i]
 
+    # Every language group is cut into chunks and every chunk is its own call.
+    # One call per language capped each language at CLAUDE_SENTIMENT_BATCH and
+    # silently left the rest unscored: on "Hezbollah" (15 Nov) 257 of 378
+    # documents never reached the model, so the headline sentiment described a
+    # third of the corpus. Chunks run in parallel against the same budget.
+    chunks = []
+    for lang, idxs in sorted(lang_groups.items(), key=lambda kv: len(kv[1]), reverse=True):
+        for k in range(0, len(idxs), SENTIMENT_CHUNK):
+            chunks.append((lang, idxs[k:k + SENTIMENT_CHUNK]))
+    chunks = chunks[:SENTIMENT_MAX_CHUNKS]
+
     if ANTHROPIC_API_KEY:
-        with bounded_pool(5) as ex:
-            futs = [ex.submit(_run_lang, lang, idxs)
-                    for lang, idxs in sorted(lang_groups.items(),
-                                             key=lambda kv: len(kv[1]), reverse=True)[:6]]
-            # was 30s per language × 6 languages = a 180-second worst case
+        with bounded_pool(SENTIMENT_WORKERS) as ex:
+            futs = [ex.submit(_run_lang, lang, idxs) for lang, idxs in chunks]
             _drain(futs, SENTIMENT_BUDGET)
         if any(x is not None for x in claude_s): engines.append("claude")
 
@@ -4924,7 +5136,7 @@ def debug_scrapebadger():
     if not _debug_auth(): return {"error":"auth required"},401
     if not SCRAPEBADGER_KEY: return {"set":False},200
     try:
-        acct=requests.get(f"{SB_BASE}/account",headers={"x-api-key":SCRAPEBADGER_KEY},timeout=SERPAPI_TIMEOUT)
+        acct=requests.get(f"{SB_BASE}/account/me",headers={"x-api-key":SCRAPEBADGER_KEY},timeout=SERPAPI_TIMEOUT)
         acct_body=acct.json() if acct.ok else None
         if isinstance(acct_body,dict): acct_body.pop("api_key",None)
         return {"key_last4":_mask_key(SCRAPEBADGER_KEY),"status":acct.status_code,"account":acct_body},200

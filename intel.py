@@ -273,6 +273,42 @@ def _norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+YOUNG_ACCOUNT_DAYS = int(os.environ.get("YOUNG_ACCOUNT_DAYS", "90"))
+HIGH_CADENCE_PER_DAY = int(os.environ.get("HIGH_CADENCE_PER_DAY", "72"))
+
+
+def _x_account_profile(docs: list) -> dict:
+    """Distinct-author account facts for X documents that carry `account`."""
+    now = datetime.now(timezone.utc)
+    seen: dict[str, dict] = {}
+    for d in docs:
+        acct = d.get("account")
+        if not isinstance(acct, dict) or acct.get("platform") != "x": continue
+        h = (acct.get("handle") or "").lower()
+        if h and h not in seen: seen[h] = acct
+    young, fast, followers = [], [], []
+    for h, a in seen.items():
+        created = None
+        try: created = datetime.strptime(str(a.get("created_at")), "%a %b %d %H:%M:%S %z %Y")
+        except Exception: pass
+        age = max(1, (now - created).days) if created else None
+        if age is not None and age <= YOUNG_ACCOUNT_DAYS:
+            young.append((f"@{a.get('handle')}", age))
+        try: statuses = int(a.get("statuses") or 0)
+        except Exception: statuses = 0
+        if age and statuses and statuses / age >= HIGH_CADENCE_PER_DAY:
+            fast.append((f"@{a.get('handle')}", round(statuses / age, 1)))
+        try: followers.append(int(a.get("followers") or 0))
+        except Exception: pass
+    followers.sort()
+    young.sort(key=lambda x: x[1]); fast.sort(key=lambda x: -x[1])
+    return {"x_authors": len(seen), "young": young, "high_cadence": fast,
+            "young_count": len(young), "high_cadence_count": len(fast),
+            "median_followers": followers[len(followers) // 2] if followers else None,
+            "young_threshold_days": YOUNG_ACCOUNT_DAYS,
+            "cadence_threshold_per_day": HIGH_CADENCE_PER_DAY}
+
+
 def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> dict:
     """
     Content- and account-level markers of inauthentic amplification.
@@ -492,6 +528,39 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
             "examples": impersonators[:8],
         })
 
+    # ── Account-level markers (X, from ScrapeBadger tweet payloads) ──────────
+    # Every X document now carries its author's creation date and lifetime
+    # status count (see app._x_doc). Two well-established markers are computed
+    # over DISTINCT authors, never per post, so one prolific account counts once:
+    #   * young accounts — created within YOUNG_ACCOUNT_DAYS of collection;
+    #   * sustained high cadence — a lifetime average at or above
+    #     HIGH_CADENCE_PER_DAY posts a day (DFRLab's 72/day benchmark).
+    # Either can be entirely innocent (news aggregators post constantly; real
+    # people open accounts during a crisis). They are reported as observed
+    # facts with examples, and weighted no higher than "medium".
+    acct_profile = _x_account_profile(docs)
+    if acct_profile["x_authors"] >= 5:
+        n = acct_profile["x_authors"]; young = acct_profile["young"]
+        share = len(young) / n
+        if len(young) >= 3:
+            sev = "medium" if (share >= 0.30 and len(young) >= 6) else "low"
+            signals.append({
+                "type": "young_accounts",
+                "severity": sev,
+                "description": (f"{len(young)} of {n} distinct X authors ({share:.0%}) were created "
+                                f"in the last {YOUNG_ACCOUNT_DAYS} days"),
+                "examples": [{"author": a, "age_days": d} for a, d in young[:8]],
+            })
+        fast = acct_profile["high_cadence"]
+        if fast:
+            signals.append({
+                "type": "high_cadence_accounts",
+                "severity": "medium" if len(fast) >= 3 else "low",
+                "description": (f"{len(fast)} X author(s) average {HIGH_CADENCE_PER_DAY}+ posts a day "
+                                f"over their account's lifetime"),
+                "examples": [{"author": a, "posts_per_day": r} for a, r in fast[:8]],
+            })
+
     # ── Composite inauthenticity score ───────────────────────────────────────
     # A9: the coordination score used to be folded in here at 0.33 weight. That
     # double-counted it, because score_threat and assess_risk BOTH already score
@@ -512,10 +581,13 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
         "suspicious_handle_ratio": round(handle_ratio, 3),
         "laundering_chains": len(laundering),
         "assessed_docs": len(docs),
+        "account_profile": {k: v for k, v in acct_profile.items()
+                            if k not in ("young", "high_cadence")},
         "method_note": ("Campaign-shape analysis, not per-account bot classification. "
-                        "Account age, follower graphs and posting history are not "
-                        "available from these sources, so no claim is made about any "
-                        "individual account being automated."),
+                        "For X authors, account age and lifetime posting rate are "
+                        "measured; follower graphs and posting history are not "
+                        "collected, so no claim is made about any individual account "
+                        "being automated."),
     }
 
 
