@@ -11,6 +11,7 @@ Backend: Flask + Gunicorn on Railway.
 from __future__ import annotations
 
 import base64
+import contextvars
 import functools
 import hmac
 import html
@@ -189,6 +190,48 @@ MAX_RESULTS_PER_SOURCE = int(os.environ.get("MAX_RESULTS_PER_SOURCE", "250"))
 # deep paging collects (530 documents became 114 on "#covid1948"), so pages 3-10
 # were being paid for, waited on, and then thrown away.
 MAX_PAGES              = int(os.environ.get("MAX_PAGES", "2"))
+
+# ── Search window (16 Nov 2026) ───────────────────────────────────────────────
+# Every source used to pick its own time range: X the last 7 days, Reddit the
+# last year, YouTube and Hacker News all time, Mastodon whatever the tag
+# timeline held. The velocity, propagation, lifecycle and "which narrative
+# amplified which" stages then ordered documents from 2011 against tweets from
+# this morning, and reported "~84 days later" amplification and a timeline
+# running from May to November for a query about this week. One window now
+# applies to every collector that can filter by date, and documents older than
+# it are set aside after collection for the ones that cannot.
+DEFAULT_WINDOW_DAYS = int(os.environ.get("SEARCH_WINDOW_DAYS", "7"))
+WINDOW_CHOICES = (1, 3, 7, 14, 30, 90)
+# Background material is collected for context, not for timing: an academic
+# paper from 2023 can explain a narrative without being part of its timeline.
+WINDOW_EXEMPT_PLATFORMS = frozenset({"academic", "notebooklm"})
+_WINDOW_CV: "contextvars.ContextVar[int | None]" = contextvars.ContextVar("xtag_window", default=None)
+
+
+def _norm_window(v) -> int:
+    """Clamp a requested window to the nearest supported choice."""
+    try:
+        d = int(str(v).strip().lower().rstrip("d") or DEFAULT_WINDOW_DAYS)
+    except Exception:
+        d = DEFAULT_WINDOW_DAYS
+    return min(WINDOW_CHOICES, key=lambda c: abs(c - d))
+
+
+def _window_days() -> int:
+    v = _WINDOW_CV.get()
+    return v or _norm_window(DEFAULT_WINDOW_DAYS)
+
+
+def _window_start() -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=_window_days())
+
+
+def _submit_ctx(ex, fn, *args, **kw):
+    """Submit with this request's context (search window) carried into the thread.
+
+    Pool threads do not inherit contextvars. Each submission gets its own copy
+    because one Context cannot be entered by two threads at once."""
+    return ex.submit(contextvars.copy_context().run, fn, *args, **kw)
 
 # Relevance gate. Measured on 2026-09-01, "#covid1948" returned 530 documents of
 # which 73.4% contained no form of the query at all — YouTube alone supplied 450
@@ -879,7 +922,9 @@ def search_youtube(q):
         raw, page_token, pages = [], None, 0
         while pages < MAX_PAGES and len(raw) < MAX_RESULTS_PER_SOURCE:
             params = {"part":"snippet","q":yq,"type":"video",
-                      "maxResults":50,"key":YOUTUBE_API_KEY}
+                      "maxResults":50,"key":YOUTUBE_API_KEY,
+                      "order":"relevance",
+                      "publishedAfter":_window_start().strftime("%Y-%m-%dT%H:%M:%SZ")}
             if page_token: params["pageToken"] = page_token
             r = requests.get("https://www.googleapis.com/youtube/v3/search",
                              params=params, timeout=TIMEOUT)
@@ -923,6 +968,12 @@ def search_youtube(q):
     except Exception as e: return _empty("youtube", str(e)[:120])
 
 _reddit_session = {"token": None, "ts": 0.0}
+
+def _reddit_t() -> str:
+    """Reddit's coarse time filter that covers the search window."""
+    d = _window_days()
+    return "day" if d <= 1 else "week" if d <= 7 else "month" if d <= 31 else "year"
+
 
 def _reddit_token():
     """Official Reddit OAuth (client_credentials, installed-app grant) — free,
@@ -993,7 +1044,7 @@ def search_reddit(q):
     with bounded_pool(2) as ex:
         futs = [ex.submit(_sb_get, "/reddit/search/posts",
                           {"q": keyword, "sort": srt, "t": tw, "limit": 100}, "reddit")
-                for srt, tw in (("relevance", "year"), ("new", "month"))]
+                for srt, tw in (("relevance", _reddit_t()), ("new", _reddit_t()))]
         for f in futs:
             try: data, err = f.result(timeout=SERPAPI_TIMEOUT + 2)
             except Exception: data, err = None, "timed out"
@@ -1076,6 +1127,7 @@ X_WINDOW_DAYS  = max(1, int(os.environ.get("X_WINDOW_DAYS", "7")))
 X_TOP_PAGES    = max(0, int(os.environ.get("X_TOP_PAGES", "2")))
 X_LATEST_PAGES = max(1, int(os.environ.get("X_LATEST_PAGES", "8")))
 X_SLICE_PAGES  = max(0, int(os.environ.get("X_SLICE_PAGES", "1")))
+X_MAX_SLICES   = max(1, int(os.environ.get("X_MAX_SLICES", "14")))
 X_MAX_EXPANSION_TERMS = int(os.environ.get("X_MAX_EXPANSION_TERMS", "6"))
 X_PAGE_TIMEOUT = int(os.environ.get("X_PAGE_TIMEOUT", "15"))
 # Whole-X wall clock. The collection pool abandons any source still running at
@@ -1099,6 +1151,31 @@ def _x_created(t: dict):
     if not raw: return None
     try: return datetime.strptime(str(raw), "%a %b %d %H:%M:%S %z %Y")
     except Exception: return None
+
+
+def _lexicon_terms(plain: str) -> list:
+    """Lexicon terms present in the query as whole words, longest first, with
+    any term contained in a longer matched term dropped ('hamas' inside a
+    hypothetical 'hamas politburo' entry)."""
+    key = (plain or "").lower()
+    matched = [t for t in QUERY_LEXICON
+               if re.search(rf"(?<![\w]){re.escape(t)}(?![\w])", key)]
+    matched = [t for t in matched if not any(t != o and t in o for o in matched)]
+    return sorted(matched, key=len, reverse=True)
+
+
+def _lexicon_groups(q: str):
+    """Per-term alternatives for the relevance gate: [[term, ar, fa, he, ...], ...].
+
+    Only when two or more query words are lexicon terms; a single translated
+    word next to untranslatable ones keeps the old any-variant behaviour,
+    because there is nothing native-language to require for the other words."""
+    is_tag, tag, plain = _query_parts(q)
+    if is_tag: return None
+    terms = _lexicon_terms(plain)
+    if len(terms) < 2: return None
+    return [[t] + [v for lg in ("ar", "fa", "he") for v in (QUERY_LEXICON[t].get(lg) or [])]
+            for t in terms]
 
 
 def _x_or_group(term: str, variants: list) -> str:
@@ -1127,10 +1204,7 @@ def _x_query(q: str) -> str:
     if is_tag: return tag
     key = plain.lower()
     langs = ("ar", "fa", "he")
-    matched = [t for t in QUERY_LEXICON
-               if re.search(rf"(?<![\w]){re.escape(t)}(?![\w])", key)]
-    # Drop a matched term contained in a longer matched term.
-    matched = [t for t in matched if not any(t != o and t in o for o in matched)]
+    matched = _lexicon_terms(plain)
     if matched:
         expr, rest = key, key
         for t in sorted(matched, key=len, reverse=True):
@@ -1222,7 +1296,8 @@ def search_sb_twitter(q):
     query = _x_query(q)
     deadline = t0 + X_BUDGET
     now = datetime.now(timezone.utc)
-    window_start = (now - timedelta(days=X_WINDOW_DAYS)).date()
+    window_days = _window_days()
+    window_start = (now - timedelta(days=window_days)).date()
     windowed = f"{query} since:{window_start.isoformat()}"
 
     tweets, errors, seen = [], [], set()
@@ -1253,8 +1328,13 @@ def search_sb_twitter(q):
                 slice_days.append(d); d -= timedelta(days=1)
             # The day the chain stopped in is only partly covered — sample it too.
             if dts and oldest > window_start: slice_days.insert(0, oldest)
+        # Long windows are sliced into wider buckets so the slice count (and the
+        # credit bill) stays bounded: 30 days -> 2-day slices, 90 -> 7-day.
+        step = max(1, -(-window_days // X_MAX_SLICES))
+        if step > 1:
+            slice_days = slice_days[::step]
         f_slices = [ex.submit(_x_chain,
-                              f"{query} since:{d.isoformat()} until:{(d + timedelta(days=1)).isoformat()}",
+                              f"{query} since:{d.isoformat()} until:{(d + timedelta(days=step)).isoformat()}",
                               "Latest", X_SLICE_PAGES, deadline) for d in slice_days]
         slow_slices = 0
         for f in ([f_top] if f_top else []) + f_slices:
@@ -1274,7 +1354,7 @@ def search_sb_twitter(q):
     partial_err = "; ".join(dict.fromkeys(errors)) or None
     return {"platform": "x", "results": results, "error": partial_err,
             "partial": bool(partial_err and results),
-            "collection": {"query": query, "window_days": X_WINDOW_DAYS,
+            "collection": {"query": query, "window_days": window_days,
                            "slices": len(slice_days), "tweets": len(results)}}
 
 
@@ -1517,7 +1597,8 @@ def search_mastodon(q):
 def search_hackernews(q):
     try:
         r = requests.get("https://hn.algolia.com/api/v1/search",
-            params={"query":_query_parts(q)[2],"hitsPerPage":20,"tags":"story"},
+            params={"query":_query_parts(q)[2],"hitsPerPage":40,"tags":"story",
+                    "numericFilters":f"created_at_i>{int(_window_start().timestamp())}"},
             headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT)
         r.raise_for_status()
         results = []
@@ -1540,7 +1621,8 @@ def search_gnews(q):
         # A bare "#covid1948" is tokenised by Google News into covid OR 1948.
         # Quoting asks for the phrase; the relevance gate catches whatever slips.
         gq = _query_parts(q)[2] or q
-        url = f"https://news.google.com/rss/search?q={quote_plus(chr(34) + gq + chr(34))}&hl=en-US&gl=US&ceid=US:en"
+        url = (f"https://news.google.com/rss/search?q={quote_plus(chr(34) + gq + chr(34) + f' when:{_window_days()}d')}"
+               f"&hl=en-US&gl=US&ceid=US:en")
         r = requests.get(url, headers={"User-Agent":USER_AGENT}, timeout=TIMEOUT)
         r.raise_for_status()
         feed = feedparser.parse(r.content); results = []
@@ -1600,7 +1682,7 @@ def search_telegram(q):
     keyword = q.lstrip("#").strip()
     if not keyword: return {"platform":"telegram","results":[],"error":"empty query"}
     if not TELEGRAM_CHANNELS: return {"platform":"telegram","results":[],"error":"no channels"}
-    try: tg_spec = relevance.plan_query(q, expand_query(keyword))
+    try: tg_spec = relevance.plan_query(q, expand_query(keyword), groups=_lexicon_groups(q))
     except Exception: tg_spec = relevance.plan_query(q)
     all_posts = []
     with bounded_pool(8) as ex:
@@ -1634,7 +1716,7 @@ def search_gdelt(q):
     plain = _query_parts(q)[2]
     if not plain: return _empty("gdelt","empty query")
     try:
-        arts, err = gdelt.articles(plain)
+        arts, err = gdelt.articles(plain, timespan_hours=_window_days() * 24)
         if err and not arts:
             return _empty("gdelt", str(err))
         results = []
@@ -1904,9 +1986,42 @@ def search_academic(q):
     return {"platform":"academic","results":results,"error":err}
 
 # ── Podcasts (Phase 1) ────────────────────────────────────────────────────────
+def _search_podcasts_itunes(plain: str):
+    """Podcast EPISODES via Apple's public iTunes Search API — no key needed.
+
+    The console has no Podcast Index credentials, so every search returned
+    "HTTP 401" and podcasts never contributed a document. Apple's index returns
+    episodes (not just feeds) with a release date and description, which is
+    what narrative tracking actually needs.
+    """
+    r = requests.get("https://itunes.apple.com/search",
+        params={"term": plain, "media": "podcast", "entity": "podcastEpisode", "limit": 40},
+        headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT)
+    if r.status_code >= 400: return _empty("podcasts", f"iTunes HTTP {r.status_code}")
+    results = []
+    for ep in (r.json().get("results") or []):
+        url_ = ep.get("trackViewUrl") or ep.get("episodeUrl") or ep.get("collectionViewUrl") or ""
+        if not url_: continue
+        show = ep.get("collectionName") or ""
+        on_watchlist = any(w.lower() in show.lower() for w in PODCAST_WATCHLIST)
+        mins = int((ep.get("trackTimeMillis") or 0) / 60000)
+        results.append(make_doc("podcasts", url_,
+            _strip_html(ep.get("description") or ep.get("shortDescription") or ""),
+            title=_strip_html(ep.get("trackName") or ""), author=show or None,
+            thumbnail=ep.get("artworkUrl160") or ep.get("artworkUrl600"),
+            timestamp=ep.get("releaseDate"),
+            meta=f"Podcast episode · {show}" + (f" · {mins} min" if mins else "")
+                 + (" · ★ Watchlist" if on_watchlist else ""),
+            source_type="podcast"))
+    return {"platform": "podcasts", "results": results, "error": None}
+
+
 def search_podcasts(q):
     plain = _query_parts(q)[2]
     if not plain: return _empty("podcasts","empty query")
+    if not (PODCAST_INDEX_KEY and PODCAST_INDEX_SECRET):
+        try: return _search_podcasts_itunes(plain)
+        except Exception as e: return _empty("podcasts", str(e)[:120])
     try:
         epoch_time = int(time.time())
         headers = {"User-Agent":USER_AGENT}
@@ -1937,8 +2052,44 @@ def search_podcasts(q):
 SERPAPI_PLATFORM_DOMAINS = {
     "instagram":["instagram.com"],"facebook":["facebook.com"],"linkedin":["linkedin.com"],
     "pinterest":["pinterest.com"],"threads":["threads.net"],"tumblr":["tumblr.com"],
-    "bluesky":["bsky.app"],"youtube":["youtube.com"],
+    "bluesky":["bsky.app"],
 }
+# Per-site Google discovery through ScrapeBadger (16 Nov 2026). The old path
+# sent ONE Google query OR-ing eight `site:` filters with num=100. Google no
+# longer honours `num` (~10 results a page whatever you ask), and YouTube pages
+# out-rank everything else, so Facebook, Threads, LinkedIn, Pinterest and Tumblr
+# came back empty on every search measured. That one call also ran up to two
+# 25-second SerpApi pages; when it overran the collection deadline all eight
+# platforms were stamped "timed out" together, which the dashboard reported as
+# "8 of 17 live sources unreachable". One small query per site, in parallel,
+# each with its own short timeout and the search window as Google's `tbs`.
+SITE_SEARCH_PAGES   = max(1, int(os.environ.get("SITE_SEARCH_PAGES", "1")))
+SITE_SEARCH_TIMEOUT = int(os.environ.get("SITE_SEARCH_TIMEOUT", "14"))
+
+
+def _google_tbs() -> str:
+    d = _window_days()
+    return "qdr:d" if d <= 1 else "qdr:w" if d <= 7 else "qdr:m" if d <= 31 else "qdr:y"
+
+
+_REL_DATE = re.compile(r"(\d+)\s+(minute|min|hour|day|week|month)s?\s+ago", re.I)
+
+
+def _google_date(raw):
+    """Google shows '3 days ago' or 'Nov 12, 2026'. Return ISO, or the raw value."""
+    if not raw: return None
+    s_ = str(raw).strip()
+    m = _REL_DATE.search(s_)
+    if m:
+        n, unit = int(m.group(1)), m.group(2).lower()
+        delta = {"minute": timedelta(minutes=n), "min": timedelta(minutes=n),
+                 "hour": timedelta(hours=n), "day": timedelta(days=n),
+                 "week": timedelta(weeks=n), "month": timedelta(days=30 * n)}[unit]
+        return (datetime.now(timezone.utc) - delta).isoformat()
+    for fmt in ("%b %d, %Y", "%d %b %Y", "%B %d, %Y"):
+        try: return datetime.strptime(s_, fmt).replace(tzinfo=timezone.utc).isoformat()
+        except Exception: pass
+    return s_
 _ALL_SOCIAL_DOMAINS = [d for domains in SERPAPI_PLATFORM_DOMAINS.values() for d in domains]
 SERPAPI_SITE_FILTER = "(" + " OR ".join(f"site:{d}" for d in _ALL_SOCIAL_DOMAINS) + ")"
 
@@ -1966,59 +2117,85 @@ def _extract_author(platform_id, url):
     except: pass
     return None
 
+def _site_doc(platform, item):
+    url_str = item.get("link","")
+    thumb = item.get("thumbnail")
+    if not thumb:
+        rich = item.get("rich_snippet") or {}
+        imgs = (rich.get("top") or {}).get("images") or [] if isinstance(rich, dict) else []
+        if imgs and isinstance(imgs[0],str): thumb = imgs[0]
+    return make_doc(platform, url_str, _strip_html(item.get("snippet","")),
+        title=_strip_html(item.get("title")), author=_extract_author(platform,url_str),
+        thumbnail=thumb, timestamp=_google_date(item.get("date")),
+        meta=(item.get("displayed_link") or "").replace("https://","").replace("www.","").split("/")[0],
+        source_type="social")
+
+
+def _sb_site_search(platform: str, domain: str, query: str):
+    """One platform via ScrapeBadger's Google light search. (docs, error)."""
+    docs, err = [], None
+    for page in range(SITE_SEARCH_PAGES):
+        params = {"q": f"{query} site:{domain}", "tbs": _google_tbs(), "gl": "us", "hl": "en"}
+        if page: params["start"] = page * 10
+        data, err = _sb_get("/google/light/search", params, platform, timeout=SITE_SEARCH_TIMEOUT)
+        if err or not isinstance(data, dict): break
+        batch = data.get("organic_results") or []
+        for item in batch:
+            link = item.get("link") or ""
+            if _detect_platform_from_url(link) == platform:
+                docs.append(_site_doc(platform, item))
+        if len(batch) < 8: break
+    return docs, (None if docs else err)
+
+
 def search_serpapi(q):
+    """Social sites we have no API for, discovered through Google site search.
+
+    Name kept for the collection pool; it prefers ScrapeBadger's Google endpoint
+    (on the 600k-credit plan, 10 credits a page) and falls back to SerpApi when
+    no ScrapeBadger key is configured.
+    """
     all_platforms = list(SERPAPI_PLATFORM_DOMAINS.keys())
     is_tag,tag,plain = _query_parts(q)
     if not plain: return {p:_empty(p,"empty query") for p in all_platforms}
-    if not SERPAPI_KEY: return {p:_empty(p,"SERPAPI_KEY not set") for p in all_platforms}
+    query = f'"{tag}"' if is_tag else (f'"{plain}"' if " " in plain else plain)
     out = {p:{"platform":p,"results":[],"error":None} for p in all_platforms}
-    query = f'"{tag}"' if is_tag else plain
-    query += f" {SERPAPI_SITE_FILTER}"
-    # Paginate. NOTE: SerpApi bills per page — deep pagination burns the monthly
-    # search quota proportionally faster. MAX_PAGES bounds the damage.
-    organic = []
-    first_error = None
-    for page in range(MAX_PAGES):
-        if len(organic) >= MAX_RESULTS_PER_SOURCE: break
+
+    if SCRAPEBADGER_KEY:
+        with bounded_pool(len(all_platforms)) as ex:
+            futs = {ex.submit(_sb_site_search, p, SERPAPI_PLATFORM_DOMAINS[p][0], query): p
+                    for p in all_platforms}
+            for f, p in futs.items():
+                try:
+                    docs, err = f.result(timeout=SITE_SEARCH_TIMEOUT * SITE_SEARCH_PAGES + 4)
+                except Exception:
+                    docs, err = [], "site search timed out"
+                out[p]["results"] = docs
+                out[p]["error"] = err
+        return out
+
+    if not SERPAPI_KEY: return {p:_empty(p,"no search key configured") for p in all_platforms}
+    def _one(p):
         try:
             r = requests.get("https://serpapi.com/search",
-                params={"engine":"google","q":query,"num":100,"start":page*100,
-                        "api_key":SERPAPI_KEY,"safe":"off"},
-                timeout=SERPAPI_TIMEOUT)
+                params={"engine":"google","q":f"{query} site:{SERPAPI_PLATFORM_DOMAINS[p][0]}",
+                        "tbs":_google_tbs(),"api_key":SERPAPI_KEY,"safe":"off"},
+                timeout=SITE_SEARCH_TIMEOUT)
+            if r.status_code >= 400: return [], f"SerpApi HTTP {r.status_code}"
+            data = r.json()
+            if isinstance(data, dict) and data.get("error") and not data.get("organic_results"):
+                msg = str(data["error"])[:120]
+                return [], (None if "hasn't returned any results" in msg else msg)
+            return [_site_doc(p, it) for it in (data.get("organic_results") or [])
+                    if _detect_platform_from_url(it.get("link","")) == p], None
         except Exception as e:
-            first_error = first_error or str(e)[:120]; break
-        if r.status_code >= 400:
-            first_error = first_error or f"SerpApi HTTP {r.status_code}"; break
-        try: data = r.json()
-        except Exception:
-            first_error = first_error or "bad JSON"; break
-        if isinstance(data,dict) and data.get("error"):
-            # SerpApi returns an "error" once results are exhausted; that's a
-            # normal end-of-pagination signal, not a failure, if we have results.
-            if not organic: first_error = str(data["error"])[:120]
-            break
-        batch = data.get("organic_results") or []
-        if not batch: break
-        organic.extend(batch)
-
-    if not organic and first_error:
-        return {p:_empty(p,first_error) for p in all_platforms}
-
-    for item in organic:
-        url_str = item.get("link","")
-        platform = _detect_platform_from_url(url_str)
-        if not platform or platform not in out: continue
-        thumb = item.get("thumbnail")
-        if not thumb:
-            rich = item.get("rich_snippet") or {}
-            imgs = (rich.get("top") or {}).get("images") or []
-            if imgs and isinstance(imgs[0],str): thumb = imgs[0]
-        doc = make_doc(platform, url_str, _strip_html(item.get("snippet","")),
-            title=_strip_html(item.get("title")), author=_extract_author(platform,url_str),
-            thumbnail=thumb, timestamp=item.get("date"),
-            meta=(item.get("displayed_link") or "").replace("https://","").replace("www.","").split("/")[0],
-            source_type="social")
-        out[platform]["results"].append(doc)
+            return [], str(e)[:120]
+    with bounded_pool(len(all_platforms)) as ex:
+        futs = {ex.submit(_one, p): p for p in all_platforms}
+        for f, p in futs.items():
+            try: docs, err = f.result(timeout=SITE_SEARCH_TIMEOUT + 4)
+            except Exception: docs, err = [], "site search timed out"
+            out[p]["results"] = docs; out[p]["error"] = err
     return out
 
 def search_google_web(q):
@@ -2159,7 +2336,7 @@ def _apply_relevance(platforms: dict, q: str, floor: float) -> dict:
         app.logger.warning("query expansion failed inside relevance gate: %s", e)
         expansions = {}
 
-    spec = relevance.plan_query(q, expansions)
+    spec = relevance.plan_query(q, expansions, groups=_lexicon_groups(q))
     by_platform, kept_total, dropped_total = {}, 0, 0
 
     for pid, group in platforms.items():
@@ -2203,6 +2380,63 @@ def _apply_relevance(platforms: dict, q: str, floor: float) -> dict:
 # one article, three collectors.
 _ARTICLE_SOURCES = {"gnews", "google", "gdelt", "academic", "state_media",
                     "serpapi", "news"}
+
+
+def _apply_window(out: dict) -> dict:
+    """Set aside documents published before the search window.
+
+    Collectors that can filter by date already do (X, YouTube, Reddit, Hacker
+    News, Google News, GDELT, Google site search). This catches the ones that
+    cannot — Telegram channel pages, state-media RSS, Mastodon tag timelines,
+    TikTok search, which is not time-ordered — so that every timing figure on
+    the page describes the same period. Undated documents stay: they are already
+    excluded from timing and counted as undated, and dropping them would hide
+    evidence for a metadata quirk. Background sources (academic) are exempt.
+    """
+    start = _window_start() - timedelta(hours=6)       # grace for clock/zone skew
+    report = {"days": _window_days(), "start": start.isoformat(),
+              "set_aside": 0, "by_platform": {}}
+    for pid, group in (out or {}).items():
+        if pid in WINDOW_EXEMPT_PLATFORMS or not isinstance(group, dict):
+            continue
+        kept, old = [], 0
+        for d in group.get("results") or []:
+            dt = intel._parse_ts(d.get("timestamp"))
+            if dt is not None and dt < start:
+                old += 1
+                continue
+            kept.append(d)
+        if old:
+            group["results"] = kept
+            group["outside_window"] = old
+            report["by_platform"][pid] = old
+            report["set_aside"] += old
+    return report
+
+
+def _dedupe_same_platform(out: dict) -> int:
+    """Drop the second copy of a document a single collector returned twice.
+
+    Different from `_dedupe_news_urls`, which collapses one article found by
+    several collectors. Here the URL is the document itself — a YouTube video
+    page, a tweet permalink — so two copies on one platform are the same item
+    counted twice (seen live: the same Al Jazeera and Times of India videos
+    listed back to back). Co-sharing evidence is untouched: it lives in what
+    posts LINK to, not in the posts' own permalinks.
+    """
+    removed = 0
+    for pid, group in (out or {}).items():
+        if not isinstance(group, dict): continue
+        seen, kept = set(), []
+        for d in group.get("results") or []:
+            key = coordination.canonical_url(d.get("url") or "") or d.get("id")
+            if key and key in seen:
+                removed += 1
+                continue
+            if key: seen.add(key)
+            kept.append(d)
+        group["results"] = kept
+    return removed
 
 
 def _dedupe_news_urls(out: dict) -> int:
@@ -2431,11 +2665,22 @@ def _claude_call(prompt, max_tokens=900, timeout=None):
                           None, "ANTHROPIC_API_KEY not set")
         return None
     try:
-        r = requests.post("https://api.anthropic.com/v1/messages",
-            headers={"x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
-            json={"model":CLAUDE_MODEL,"max_tokens":max_tokens,
-                  "messages":[{"role":"user","content":prompt}]},
-            timeout=timeout or CLAUDE_HTTP_TIMEOUT)
+        # One retry for the failures that clear on their own — rate limit (429),
+        # overload (529) and 5xx — which used to empty a whole analysis stage
+        # for one blip. Billing (400 credit balance) and auth (401) do not
+        # clear on retry, so they fail fast and are reported as such.
+        for attempt in (0, 1):
+            r = requests.post("https://api.anthropic.com/v1/messages",
+                headers={"x-api-key":ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01","content-type":"application/json"},
+                json={"model":CLAUDE_MODEL,"max_tokens":max_tokens,
+                      "messages":[{"role":"user","content":prompt}]},
+                timeout=timeout or CLAUDE_HTTP_TIMEOUT)
+            if attempt == 0 and r.status_code in (429, 500, 502, 503, 529):
+                try: wait = min(float(r.headers.get("retry-after") or 2.0), 6.0)
+                except Exception: wait = 2.0
+                time.sleep(wait)
+                continue
+            break
         if r.status_code >= 400:
             msg = r.text[:300]
             app.logger.error("Anthropic API %s: %s", r.status_code, msg)
@@ -2449,6 +2694,27 @@ def _claude_call(prompt, max_tokens=900, timeout=None):
         _set_claude_error(datetime.now(timezone.utc).isoformat(),
                           None, str(e)[:300])
         return None
+
+
+def claude_failure_kind(err: dict | None) -> tuple[str | None, str | None]:
+    """(kind, analyst-facing reason) for the most recent Claude failure."""
+    if not err or not (err.get("message") or err.get("status")):
+        return None, None
+    st = err.get("status"); msg = str(err.get("message") or "").lower()
+    if st is None and "not set" in msg:
+        return "unconfigured", "ANTHROPIC_API_KEY is not set on this service."
+    if "credit balance" in msg or "billing" in msg:
+        return "billing", ("The Anthropic account is out of credit, so Claude returned "
+                           "nothing. Top up at console.anthropic.com → Plans & Billing "
+                           "(turning on auto-reload stops this recurring).")
+    if st == 401 or "x-api-key" in msg or "authentication" in msg:
+        return "auth", ("The Anthropic API key was rejected (invalid or revoked). Put a "
+                        "working key in ANTHROPIC_API_KEY on the XTag-Console service.")
+    if st == 404 or "not_found" in msg or "model" in msg and st == 400:
+        return "model", f"The configured model ({CLAUDE_MODEL}) is not available to this key."
+    if st in (429, 529) or "overloaded" in msg or "rate" in msg:
+        return "capacity", "Anthropic was rate-limiting or overloaded; re-running usually recovers."
+    return "other", f"Claude calls failed: {str(err.get('message'))[:160]}"
 
 
 def claude_health() -> dict:
@@ -2487,6 +2753,17 @@ def _parse_claude_json(text, context=""):
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:
+        # "Extra data" means the first value parsed COMPLETELY and the model
+        # then kept writing (a second array, a note). The first value is the
+        # answer; the salvage path below treated it as truncation and kept one
+        # item out of sixty (seen live: "salvaged 1 items").
+        start = min([i for i in (cleaned.find("["), cleaned.find("{")) if i >= 0] or [0])
+        try:
+            val, _end = json.JSONDecoder().raw_decode(cleaned[start:])
+            if "Extra data" in str(e) or start:
+                return val
+        except Exception:
+            pass
         salvaged = _salvage_truncated_json(cleaned)
         if salvaged is not None:
             app.logger.warning("%s: JSON truncated (%s) — salvaged %d items",
@@ -2545,7 +2822,7 @@ def extract_real_world_events(platforms, q, max_docs=120):
         "generalise from background knowledge, or fill gaps. If nothing qualifies, return [].\n"
         "ONLY JSON array. No prose.\n\n"
         + _INJECTION_PREAMBLE + "\n" + _wrap_documents(numbered))
-    text = _claude_call(prompt, 1200, timeout=ANALYSIS_TIMEOUT)
+    text = _claude_call(prompt, 2400, timeout=ANALYSIS_TIMEOUT)
     arr = _parse_claude_json(text, "extract_real_world_events")
     if not isinstance(arr, list): return []
     out = []
@@ -2821,7 +3098,25 @@ def compute_velocity(platforms):
             "hourly_distribution":dict(sorted(hourly.items())[:24]),
             "platform_first_seen":platform_first_seen,"total_docs":len(all_docs)}
 
-def detect_coordination(platforms):
+def _query_hashtags(q: str | None) -> set:
+    """Hashtags that only restate the query (#IRGC on a search for IRGC) plus
+    generic broadcast tags. Everyone posting about a subject uses its tag, so
+    sharing it is evidence of topic, not of coordination."""
+    tags = {"shorts", "breaking", "breakingnews", "news", "live", "viral", "trending",
+            "fyp", "foryou", "video", "watch", "update", "latest", "urgent", "عاجل", "فوری"}
+    if q:
+        is_tag, tag, plain = _query_parts(q)
+        words = re.findall(r"\w+", plain.lower())
+        tags |= set(words) | {"".join(words)}
+        for t in _lexicon_terms(plain):
+            tags.add(t.replace(" ", ""))
+            for lg in ("ar", "fa", "he"):
+                for v in QUERY_LEXICON[t].get(lg) or []:
+                    tags.add(v.replace(" ", "_")); tags.add(v.replace(" ", ""))
+    return {t.lower() for t in tags if t}
+
+
+def detect_coordination(platforms, query: str | None = None):
     """Coordination detection over the FULL corpus (P4).
 
     Two changes from the previous implementation, both forced by measurement
@@ -2848,9 +3143,18 @@ def detect_coordination(platforms):
     and is still used as a fallback, because a detector that raises on a real
     corpus is worse than a weak one.
     """
-    docs = [r for g in (platforms or {}).values() for r in ((g or {}).get("results") or [])]
+    # Accounts, not newsrooms: aggregator-collected articles (GDELT, Google
+    # News, Google web) carry the publishing DOMAIN as their "author", so a
+    # radio group's three station sites syndicating one story formed a
+    # "coordinated cluster" (khow/wiba/wsyr.iheart.com, 16 Nov). Syndication is
+    # reported by intel.py's wire-syndication check; state media stays in,
+    # because synchronised state outlets ARE the thing to detect.
+    docs = [r for pid, g in (platforms or {}).items()
+            if pid not in ("gdelt", "gnews", "google", "academic", "podcasts")
+            for r in ((g or {}).get("results") or [])]
     try:
-        out = coordination.detect(docs, baseline=COORDINATION_BASELINE)
+        out = coordination.detect(docs, baseline=COORDINATION_BASELINE,
+                                  exclude_tags=_query_hashtags(query))
         # Keep the legacy field names the frontend and intel.py already read.
         out.setdefault("near_duplicate_pairs", sum(
             len(c.get("actors") or []) for c in out.get("clusters") or []))
@@ -3745,7 +4049,7 @@ def _gdelt_snapshot_safe(q: str) -> dict:
     failure mode identical to the sequential version it replaced.
     """
     try:
-        return gdelt.snapshot(_query_parts(q)[2] or q)
+        return gdelt.snapshot(_query_parts(q)[2] or q, timespan_hours=_window_days() * 24)
     except Exception as e:
         app.logger.warning("GDELT snapshot failed for q=%r: %s", q, e)
         return {"degraded": [f"snapshot failed: {str(e)[:80]}"]}
@@ -3810,7 +4114,21 @@ class _Budget:
 
 def _run_full_search(q: str, use_cache: bool = True,
                      relevance_floor: float | None = None,
-                     on_phase1=None) -> dict:
+                     on_phase1=None, window_days: int | None = None) -> dict:
+    """Wrapper that binds the search window for this request, then runs it."""
+    wd = _norm_window(window_days if window_days is not None else DEFAULT_WINDOW_DAYS)
+    token = _WINDOW_CV.set(wd)
+    try:
+        return _run_full_search_inner(q, use_cache=use_cache,
+                                      relevance_floor=relevance_floor,
+                                      on_phase1=on_phase1)
+    finally:
+        _WINDOW_CV.reset(token)
+
+
+def _run_full_search_inner(q: str, use_cache: bool = True,
+                           relevance_floor: float | None = None,
+                           on_phase1=None) -> dict:
     """Core search + analysis pipeline. Used by /api/search and watchlist checks.
 
     `relevance_floor` overrides RELEVANCE_MIN for this run; 0 disables the gate
@@ -3824,7 +4142,8 @@ def _run_full_search(q: str, use_cache: bool = True,
     original single-response behaviour exactly.
     """
     if relevance_floor is None: relevance_floor = RELEVANCE_MIN
-    cache_key=f"{q.lower()}|rel={relevance_floor}"; now=time.time()
+    cache_key=f"{q.lower()}|rel={relevance_floor}|w={_window_days()}"; now=time.time()
+    _req_started = datetime.now(timezone.utc).isoformat()
     if use_cache:
         # In-process cache first (free), then the DB cache (survives redeploys,
         # so a restart no longer means re-paying for every upstream API call).
@@ -3851,7 +4170,7 @@ def _run_full_search(q: str, use_cache: bool = True,
     # feeding only the assessment layer at the very end. Starting it here means
     # it overlaps collection entirely and costs ~0 on the critical path. It is
     # deliberately NOT part of `all_futures`: collection must not wait on it.
-    gdelt_future = ex.submit(_gdelt_snapshot_safe, q)
+    gdelt_future = _submit_ctx(ex, _gdelt_snapshot_safe, q)
     _t_collect = time.monotonic()
     # Per-source wall clock. The pool deadline told us collection took 81s; it
     # could not say WHICH source spent it, so the number could not be acted on.
@@ -3873,8 +4192,8 @@ def _run_full_search(q: str, use_cache: bool = True,
         return run
 
     try:
-        futures={ex.submit(_timed(name, fn), q):name for name,fn in API_PLATFORMS.items()}
-        cse_future=ex.submit(_timed("serpapi", search_serpapi), q)
+        futures={_submit_ctx(ex, _timed(name, fn), q):name for name,fn in API_PLATFORMS.items()}
+        cse_future=_submit_ctx(ex, _timed("serpapi", search_serpapi), q)
         all_futures=list(futures.keys())+[cse_future]
         try:
             done_iter=as_completed(all_futures,
@@ -3942,7 +4261,8 @@ def _run_full_search(q: str, use_cache: bool = True,
             r["engagement_breakdown"]=eb
 
     # ── CROSS-COLLECTOR DEDUPLICATION ────────────────────────────────────────
-    dupes_removed = _dedupe_news_urls(out)
+    window_report = _apply_window(out)
+    dupes_removed = _dedupe_same_platform(out) + _dedupe_news_urls(out)
 
     # ── RELEVANCE GATE ────────────────────────────────────────────────────────
     # Runs before ANY interpretation, because every stage below this line — the
@@ -3989,7 +4309,7 @@ def _run_full_search(q: str, use_cache: bool = True,
              "entities":entities,"velocity":velocity,"coordination":coordination,
              "propagation":propagation,"languages":languages,
              "events":events,"relevance":relevance_report,
-             "deduplicated":dupes_removed,
+             "deduplicated":dupes_removed, "window":window_report,
              "totals":agg["totals"],"source_mix":agg["source_mix"],"cached":False,
              "engine_errors":engine_errors}
 
@@ -4031,7 +4351,7 @@ def _run_full_search(q: str, use_cache: bool = True,
         f_narr=ex.submit(extract_narratives_v2,out,q)
         f_ents=ex.submit(extract_entities,out,q)
         f_vel=ex.submit(compute_velocity,out)
-        f_coord=ex.submit(detect_coordination,out)
+        f_coord=ex.submit(detect_coordination,out,q)
         f_prop=ex.submit(trace_propagation,out)
         f_evt=ex.submit(extract_real_world_events,out,q)
         # These six run CONCURRENTLY but were collected with a per-future
@@ -4283,6 +4603,41 @@ def _run_full_search(q: str, use_cache: bool = True,
                                if _is_transient(str((g or {}).get("error") or "")))
     if transient_sources:
         degraded_reasons.append(f"sources failed: {', '.join(transient_sources)}")
+
+    # ── Source coverage, classified (16 Nov 2026) ────────────────────────────
+    # The dashboard used to infer coverage by counting names in the "sources
+    # failed" string against every key in source_timings, so one slow site
+    # search that covered eight platforms read as "8 of 17 live sources
+    # unreachable", and sources with no credentials configured read as outages.
+    # Each platform is now classified once, here, and the UI shows these counts.
+    cov = {"ok": [], "partial": [], "empty": [], "unconfigured": [], "failed": []}
+    for pid, g in sorted(out.items()):
+        n = len((g or {}).get("results") or [])
+        err = str((g or {}).get("error") or "")
+        if err and _is_transient(err):
+            cov["partial" if n else "failed"].append(pid)
+        elif err and not n:
+            cov["unconfigured"].append(pid)
+        elif n:
+            cov["ok"].append(pid)
+        else:
+            cov["empty"].append(pid)
+    cov["live"] = len(out) - len(cov["unconfigured"])
+    cov["with_results"] = len(cov["ok"]) + len(cov["partial"])
+    payload["coverage"] = cov
+
+    # ── Analysis-engine status for THIS request ──────────────────────────────
+    # When Anthropic rejects calls (key revoked 2-5 Nov, credit exhausted
+    # 11 Nov) every Claude stage returns empty and the page looked like a thin
+    # corpus rather than a broken engine. Say which, and why.
+    _cerr = _get_claude_error()
+    if _cerr.get("at") and str(_cerr.get("at")) >= _req_started:
+        kind, reason = claude_failure_kind(_cerr)
+        payload["ai_status"] = {"ok": False, "kind": kind, "reason": reason}
+        if kind in ("billing", "auth", "unconfigured", "model", "capacity"):
+            degraded_reasons.append(f"analysis engine unavailable: {kind}")
+    else:
+        payload["ai_status"] = {"ok": bool(ANTHROPIC_API_KEY), "kind": None, "reason": None}
     payload["degraded"] = degraded_reasons or None
 
     # P1-1: where the seconds actually went. Returned on every response so a
@@ -4295,7 +4650,14 @@ def _run_full_search(q: str, use_cache: bool = True,
     payload["source_timings"] = source_timings
     app.logger.info("timings q=%r %s", q, payload["timings"])
 
-    if degraded_reasons:
+    _optional = {"gdelt", "academic", "podcasts", "mastodon", "hackernews",
+                 "threads", "tumblr", "pinterest", "linkedin"}
+    if (degraded_reasons and all(r.startswith("sources failed:") for r in degraded_reasons)
+            and set(transient_sources) <= _optional):
+        # Only peripheral sources missed. Remember it briefly (10 min) so a
+        # reload does not re-buy the whole collection, but not as long-term fact.
+        db.cache_set(cache_key, q, payload, 600)
+    elif degraded_reasons:
         app.logger.info("not caching degraded result for q=%r — %s",
                         q, "; ".join(degraded_reasons))
     else:
@@ -4316,8 +4678,9 @@ def api_search():
     # collected instead of debated.
     rel = (request.args.get("relevance") or "").strip().lower()
     floor = 0.0 if rel in ("off", "0", "none", "false") else None
+    wd = _norm_window(request.args.get("window") or DEFAULT_WINDOW_DAYS)
     try:
-        return jsonify(_run_full_search(q, relevance_floor=floor))
+        return jsonify(_run_full_search(q, relevance_floor=floor, window_days=wd))
     except Exception as e:
         app.logger.exception("unhandled error in /api/search for q=%r", q)
         return jsonify({"error":f"search failed: {str(e)[:200]}","query":q}),500
@@ -4352,6 +4715,7 @@ def api_search_stream():
     if len(q)>200: return jsonify({"error":"query too long"}),400
     rel = (request.args.get("relevance") or "").strip().lower()
     floor = 0.0 if rel in ("off", "0", "none", "false") else None
+    wd = _norm_window(request.args.get("window") or DEFAULT_WINDOW_DAYS)
 
     def sse(event: str, data) -> str:
         # json.dumps never emits a raw newline inside the payload, so a single
@@ -4376,7 +4740,7 @@ def api_search_stream():
         def worker():
             try:
                 full = _run_full_search(
-                    q, relevance_floor=floor,
+                    q, relevance_floor=floor, window_days=wd,
                     on_phase1=lambda p: chan.put(("phase1", p)))
                 chan.put(("phase2", {**full, "phase": 2, "partial": False}))
             except Exception as e:
@@ -4499,6 +4863,95 @@ def api_watchlist_check(wl_id):
     except Exception as e:
         app.logger.exception("watchlist check failed for %r", wl_id)
         return jsonify({"error": f"check failed: {str(e)[:200]}"}), 500
+
+# ── Background monitoring (16 Nov 2026) ──────────────────────────────────────
+# Watchlists and scheduled reports only ever ran when someone pressed a button
+# or an external cron poked an endpoint, and nothing did: the database held two
+# watchlist snapshots and one alert, all from 29 August. Without repeated
+# observations there is no lifecycle, no "what changed", no early warning —
+# the console was a search box. The console now checks its own watchlists on a
+# schedule and sends due reports itself.
+#
+# Started lazily on the first request so it runs inside the gunicorn worker
+# (a thread started at import time in a preloading master would not survive
+# the fork). One worker, one scheduler; a lock-file guard is unnecessary.
+WATCHLIST_INTERVAL_H   = float(os.environ.get("WATCHLIST_INTERVAL_HOURS", "6"))
+REPORTS_INTERVAL_MIN   = float(os.environ.get("REPORTS_INTERVAL_MINUTES", "60"))
+SCHEDULER_ENABLED      = os.environ.get("XTAG_SCHEDULER", "1").strip() not in ("0", "false", "off")
+_sched_state = {"started": False, "last_watch_run": None, "last_reports_run": None,
+                "watch_checked": 0, "watch_errors": 0, "reports_sent": 0, "next_watch": None}
+_sched_lock = threading.Lock()
+
+
+def _scheduled_watchlist_pass() -> None:
+    rows = db.watchlists_list()
+    if rows is None:
+        with _watch_lock:
+            rows = list(_watchlists.values())
+    for entry in rows or []:
+        q = (entry or {}).get("query")
+        if not q: continue
+        wl_id = entry.get("id")
+        try:
+            result = evaluate_watchlist(q, {**DEFAULT_RULES, **(entry.get("rules") or {})},
+                                        entry.get("last_snapshot"))
+            with _watch_lock:
+                if wl_id in _watchlists:
+                    _watchlists[wl_id].update({"last_checked": result["checked_at"],
+                                               "last_snapshot": result["snapshot"],
+                                               "last_alerts": result["alerts"]})
+            db.watchlist_touch(wl_id, result["checked_at"], result["snapshot"], result["alerts"])
+            _persist_check(q, result, wl_id)
+            _sched_state["watch_checked"] += 1
+        except Exception as e:
+            _sched_state["watch_errors"] += 1
+            app.logger.warning("scheduled watchlist check failed for %r: %s", q, e)
+    _sched_state["last_watch_run"] = datetime.now(timezone.utc).isoformat()
+
+
+def _scheduled_reports_pass() -> None:
+    if not db.DB_ENABLED: return
+    due = db.subscriptions_due(limit=25) or []
+    for sub in due:
+        try:
+            r = _run_one_subscription(sub)
+            if r.get("sent"): _sched_state["reports_sent"] += 1
+        except Exception as e:
+            app.logger.warning("scheduled report failed: %s", e)
+    _sched_state["last_reports_run"] = datetime.now(timezone.utc).isoformat()
+
+
+def _scheduler_loop() -> None:
+    time.sleep(120)                       # let the first request finish booting
+    next_watch = time.time()
+    next_reports = time.time()
+    while True:
+        now = time.time()
+        try:
+            if WATCHLIST_INTERVAL_H > 0 and now >= next_watch:
+                next_watch = now + WATCHLIST_INTERVAL_H * 3600
+                _sched_state["next_watch"] = datetime.fromtimestamp(next_watch, timezone.utc).isoformat()
+                _scheduled_watchlist_pass()
+            if REPORTS_INTERVAL_MIN > 0 and now >= next_reports:
+                next_reports = now + REPORTS_INTERVAL_MIN * 60
+                _scheduled_reports_pass()
+        except Exception as e:
+            app.logger.warning("scheduler pass failed: %s", e)
+        time.sleep(60)
+
+
+@app.before_request
+def _start_scheduler_once():
+    if _sched_state["started"] or not (IS_CONSOLE and SCHEDULER_ENABLED):
+        return
+    with _sched_lock:
+        if _sched_state["started"]:
+            return
+        _sched_state["started"] = True
+    threading.Thread(target=_scheduler_loop, name="xtag-scheduler", daemon=True).start()
+    app.logger.info("background monitor started: watchlists every %sh, reports every %smin",
+                    WATCHLIST_INTERVAL_H, REPORTS_INTERVAL_MIN)
+
 
 # B3: a single item here is a full _run_full_search, whose own deadline
 # (SEARCH_POOL_TIMEOUT, 240s) already exceeded the old 120s pool timeout — so on
@@ -4966,6 +5419,13 @@ def api_status():
                     # recognise paraphrase, so "two narratives" may be one story
                     # reworded — this is how an operator finds that out.
                     "embeddings":embeddings.status(),
+                    "monitoring":{"enabled": IS_CONSOLE and SCHEDULER_ENABLED,
+                                  "watchlist_interval_hours": WATCHLIST_INTERVAL_H,
+                                  "reports_interval_minutes": REPORTS_INTERVAL_MIN,
+                                  **{k: v for k, v in _sched_state.items()}},
+                    "gdelt_relay": gdelt.relay_status(),
+                    "search_window_days": {"default": _norm_window(DEFAULT_WINDOW_DAYS),
+                                           "choices": list(WINDOW_CHOICES)},
                     "telegram_channels":len(TELEGRAM_CHANNELS),
                     "state_media_feeds":len(ADVERSARY_RSS_FEEDS),
                     "podcast_watchlist":len(PODCAST_WATCHLIST)})
@@ -5195,7 +5655,7 @@ def healthz():
             # GDELT needs no API key, so "configured" would always be true and
             # tell you nothing. What actually matters is whether this IP is
             # currently being rate-limited, which is what health() reports.
-            "gdelt":{**gdelt.health(),"limiter":gdelt.stats()}}
+            "gdelt":{**gdelt.health(),"limiter":gdelt.stats(),"relay":gdelt.relay_status()}}
     with _deep_health_lock:
         _deep_health["at"] = time.time()
         _deep_health["value"] = deep

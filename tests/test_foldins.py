@@ -215,7 +215,7 @@ chk("death defaults off", app.DEFAULT_RULES["narrative_death"] is False)
 
 print("\n=== corpus denominator reaches track() ===")
 import inspect
-src = inspect.getsource(app._run_full_search)
+src = inspect.getsource(app._run_full_search) + inspect.getsource(getattr(app, "_run_full_search_inner", app._run_full_search))
 # These two used to pin the literal source text of the old implementation
 # ("corpus_size=len(claims)"), so they broke the moment the implementation was
 # corrected rather than when the behaviour regressed. They assert the property

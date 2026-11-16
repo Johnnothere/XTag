@@ -477,3 +477,69 @@ One Claude call per language capped each language at 120 texts; on "Hezbollah"
 
 ### S8 — `/debug/scrapebadger` called a non-existent route
 `/v1/account` → `/v1/account/me`.
+
+---
+
+## W — Whole-system pass: window, sources, analysis, monitoring (16 Nov 2026)
+
+Found by running the live console as an analyst ("Iran IRGC") and tracing each
+wrong number to its cause.
+
+### W1 — one search window for every source and every timing figure
+X searched 7 days, Reddit a year, YouTube and Hacker News all time. Timing
+stages ordered 2011 posts against this morning's, producing "~84 days later"
+amplification and a May–November timeline for a this-week query. New
+`?window=` (1/3/7/14/30/90 days, default `SEARCH_WINDOW_DAYS`=7) is applied by
+X (since:/day slices), YouTube (`publishedAfter`), Reddit (`t=`), HN
+(`created_at_i`), Google News (`when:`), GDELT (timespan) and Google site search
+(`tbs`); older documents from sources that cannot filter are set aside after
+collection and counted in `payload.window`. Selector added to the search bar.
+
+### W2 — GDELT unreachable from Railway → ScrapeBadger relay · `gdelt.py`
+Railway's shared egress IPs draw 429s/resets on nearly every GDELT call; the
+breaker sat open for weeks. `GDELT_RELAY=auto` retries through ScrapeBadger's
+`/web/scrape` (~2 credits/request) and keeps using it for 30 min once it works.
+
+### W3 — "8 of 17 live sources unreachable" · `app.py`, `index.html`
+One SerpApi query OR-ed eight `site:` filters; Google ignores `num` now, so
+Facebook/Threads/LinkedIn/Pinterest/Tumblr were always empty, and when that call
+overran the deadline all eight were stamped "timed out" at once. Now one small
+ScrapeBadger Google query per site, in parallel, 14s each. Backend returns
+`coverage` (ok/partial/empty/unconfigured/failed); the UI no longer counts
+unconfigured sources as outages.
+
+### W4 — Arabic/Persian docs matched on one translated word · `relevance.py`
+For "Iran IRGC", 106 kept docs matched on "Iran" alone. Multi-term queries now
+require every term group in any language (non-Latin forms match as substrings
+so prefixed/suffixed forms count).
+
+### W5 — share-button posts read as coordination · `coordination.py`, `intel.py`
+Eight accounts sharing a YouTube video with its own share text formed a
+"coordinated cluster". Share-button posts are excluded from text traits and
+reported as `share_button_cascade` (info). Query hashtags and generic tags are
+excluded from the hashtag trait; aggregator articles (GDELT/Google News) are
+excluded from actor coordination. "Iran IRGC": 6 clusters → 1 (four
+Hezbollah-linked Telegram channels: shared text, hashtags and timing).
+
+### W6 — real outlets flagged as flooding/impersonation · `intel.py`
+"Times Of India" (21 videos) as flooding; "BBC News", "DW News", "CNN-News18"
+as impersonators. Known-outlet names are institutional; impersonation only
+checks platforms where the author field is a registered handle.
+
+### W7 — Claude failures were silent · `app.py`, `index.html`
+One retry on 429/529/5xx; `ai_status` names billing/auth/model/capacity
+failures and the report shows a banner. JSON with trailing text now keeps the
+complete first value (was salvaging 1 item of 60). Events budget 1200→2400.
+
+### W8 — no background monitoring · `app.py`
+DB held 2 watchlist snapshots and 1 alert, all from 29 Aug. The console now
+checks watchlists every `WATCHLIST_INTERVAL_HOURS` (6) and sends due reports
+every `REPORTS_INTERVAL_MINUTES` (60). State in `/api/status` → `monitoring`.
+
+### W9 — smaller
+Podcasts: keyless iTunes episode search when Podcast Index keys are absent (was
+HTTP 401 every search). Same-platform duplicate URLs removed (YouTube listed
+twice). Results that only lost peripheral sources are cached 10 min instead of
+never. Actor counts fall back to the distinctive word ("Kheibar") when the full
+extracted name is absent. Language-gap and history copy corrected. Test suite:
+708/708 (fixed four stale suites).

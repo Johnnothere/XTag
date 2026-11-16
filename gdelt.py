@@ -145,6 +145,116 @@ BREAKER_COOLDOWN  = int(os.environ.get("GDELT_BREAKER_COOLDOWN", "180"))
 # ~20s. Search pool allows 240s and gunicorn 300s, so this stays well inside.
 ANALYTICS_BUDGET  = int(os.environ.get("GDELT_ANALYTICS_BUDGET", "110"))  # wall-clock seconds
 
+# ── ScrapeBadger relay (16 Nov 2026) ─────────────────────────────────────────
+# GDELT throttles per source IP, and Railway's egress IPs are shared with every
+# other app on the platform that calls GDELT. Measured on the console: 429 on
+# almost every request and connection resets the rest of the time, so the
+# breaker sat open and GDELT contributed nothing to most searches for weeks —
+# no articles, no tone, no geography, no audience panel.
+#
+# The relay sends the same GDELT request through ScrapeBadger's web scraper,
+# which exits from a different IP each time. ~2 credits a request; a full
+# snapshot is 4-5 requests. "auto" tries GDELT directly first and switches to
+# the relay on a 429, timeout or connection failure, then keeps using the relay
+# for RELAY_STICKY_S so later calls do not pay for a doomed direct attempt.
+SCRAPEBADGER_KEY  = os.environ.get("SCRAPEBADGER_KEY", "")
+RELAY_MODE        = os.environ.get("GDELT_RELAY", "auto").strip().lower()   # auto|always|off
+RELAY_TIMEOUT     = float(os.environ.get("GDELT_RELAY_TIMEOUT", "14"))
+RELAY_STICKY_S    = int(os.environ.get("GDELT_RELAY_STICKY", "1800"))
+_relay_until = 0.0
+_relay_stats = {"calls": 0, "ok": 0, "failed": 0, "last_error": None}
+
+
+def _relay_enabled() -> bool:
+    return bool(SCRAPEBADGER_KEY) and RELAY_MODE in ("auto", "always")
+
+
+def _prefer_relay() -> bool:
+    return _relay_enabled() and (RELAY_MODE == "always" or time.time() < _relay_until)
+
+
+def _relay_get(path: str, params: dict, timeout: float):
+    """Fetch a GDELT URL through ScrapeBadger. Returns (status, text, error)."""
+    from urllib.parse import urlencode
+    url = f"https://{path}?{urlencode(params)}"
+    _relay_stats["calls"] += 1
+    try:
+        r = requests.post("https://scrapebadger.com/v1/web/scrape",
+                          json={"url": url, "engine": "http", "format": "html",
+                                "max_retries": 2},
+                          headers={"x-api-key": SCRAPEBADGER_KEY,
+                                   "Content-Type": "application/json"},
+                          timeout=timeout)
+    except Exception as e:
+        _relay_stats["failed"] += 1; _relay_stats["last_error"] = str(e)[:100]
+        return None, None, f"relay: {str(e)[:80]}"
+    if r.status_code >= 400:
+        _relay_stats["failed"] += 1; _relay_stats["last_error"] = f"http {r.status_code}"
+        return None, None, f"relay http {r.status_code}"
+    try:
+        env = r.json()
+    except Exception:
+        _relay_stats["failed"] += 1; _relay_stats["last_error"] = "bad envelope"
+        return None, None, "relay: bad envelope"
+    if not env.get("success"):
+        _relay_stats["failed"] += 1; _relay_stats["last_error"] = str(env.get("error"))[:100]
+        return env.get("status_code"), None, f"relay: {str(env.get('error'))[:80]}"
+    _relay_stats["ok"] += 1
+    return int(env.get("status_code") or 200), env.get("content") or "", None
+
+
+def relay_status() -> dict:
+    return {"mode": RELAY_MODE if SCRAPEBADGER_KEY else "off (no SCRAPEBADGER_KEY)",
+            "preferred_now": _prefer_relay(), **_relay_stats}
+
+
+def _parse_body(status: int | None, body: str):
+    """Shared post-processing for a GDELT response body (direct or relayed)."""
+    if status == 204:
+        return None, None
+    if status is not None and status >= 400:
+        return None, GdeltError(f"http {status}", "http")
+    body = (body or "").strip()
+    if not body:
+        return None, None
+    if body.startswith("<"):
+        # The relay may wrap a JSON body in a minimal HTML shell.
+        m = re.search(r"<pre[^>]*>(.*)</pre>", body, re.S)
+        inner = m.group(1) if m else re.sub(r"<[^>]+>", "", body)
+        import html as _html
+        body = _html.unescape(inner).strip()
+    import json as _json
+    try:
+        return _json.loads(body), None
+    except Exception:
+        snippet = body[:60].replace("\n", " ")
+        if "limit requests" in body.lower() or "rate limit" in body.lower():
+            return None, GdeltError("rate limited (429)", "rate_limit")
+        return None, GdeltError(f"non-JSON response: {snippet}", "bad_response")
+
+
+def _get_via_relay(path: str, params: dict, deadline: float):
+    """Try the relay up to twice inside what is left of the call budget."""
+    global _relay_until
+    last = None
+    for _ in range(2):
+        left = deadline - time.monotonic()
+        if left < 1.5:
+            break
+        status, body, err = _relay_get(path, params, min(RELAY_TIMEOUT, left))
+        if err:
+            last = GdeltError(err, "transport"); continue
+        if status == 429:
+            last = GdeltError("rate limited (429) via relay", "rate_limit"); continue
+        data, perr = _parse_body(status, body)
+        if perr and perr.kind == "rate_limit":
+            last = perr; continue
+        _relay_until = time.time() + RELAY_STICKY_S
+        _record_success()
+        return data, perr
+    return None, last or GdeltError("relay failed", "transport")
+
+
 # ── Rate limiter + circuit breaker state ──────────────────────────────────────
 _lock = threading.Lock()
 _last_call_at = 0.0
@@ -362,19 +472,31 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
               retries immediately on the new transport. Only if that also fails
               does it count toward the breaker.
     """
+    _deadline = time.monotonic() + CALL_BUDGET + (RELAY_TIMEOUT if _relay_enabled() else 0)
+    # A relay that has worked recently goes first — the direct route from this
+    # host is the thing that is broken, so retrying it first only wastes time.
+    if _prefer_relay():
+        data, err = _get_via_relay(path, params, _deadline)
+        if err is None or err.kind not in ("transport", "rate_limit"):
+            return data, err
     if _breaker_is_open():
+        if _relay_enabled() and not _prefer_relay():
+            return _get_via_relay(path, params, _deadline)
         return None, GdeltError("backing off after repeated connection failures",
                                 "breaker")
 
     last_err = None
     conn_failed = False
-    _deadline = time.monotonic() + CALL_BUDGET
-    for attempt in range(max(1, RETRY_ATTEMPTS)):
+    _direct_deadline = time.monotonic() + CALL_BUDGET
+    # With a relay available, one direct attempt is enough: a 429 or a reset
+    # from this host is the norm, not a hiccup, and the relay is the retry.
+    _attempts = 1 if _relay_enabled() else max(1, RETRY_ATTEMPTS)
+    for attempt in range(_attempts):
         # Every attempt must fit inside what is LEFT of the call budget, not
         # start a fresh REQ_TIMEOUT of its own. Half a second is the floor below
         # which a request cannot usefully complete, so stop rather than fire one
         # that is certain to fail.
-        _left = _deadline - time.monotonic()
+        _left = _direct_deadline - time.monotonic()
         if _left <= 0.5:
             last_err = last_err or GdeltError(
                 f"exhausted the {CALL_BUDGET}s call budget after "
@@ -382,7 +504,7 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
             conn_failed = True
             break
         _throttle()
-        _left = _deadline - time.monotonic()
+        _left = _direct_deadline - time.monotonic()
         if _left <= 0.5:
             last_err = last_err or GdeltError(
                 f"call budget spent waiting on the rate limiter", "timeout")
@@ -423,10 +545,10 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
                 # A Retry-After of 30s cannot be honoured inside an 8s budget.
                 # Sleeping past the deadline burns the whole budget doing
                 # nothing and then fails anyway.
-                wait = min(wait, max(0.0, _deadline - time.monotonic()))
+                wait = min(wait, max(0.0, _direct_deadline - time.monotonic()))
             except (TypeError, ValueError):
                 wait = min(RETRY_BACKOFF * (attempt + 1),
-                           max(0.0, _deadline - time.monotonic()))
+                           max(0.0, _direct_deadline - time.monotonic()))
             if attempt < RETRY_ATTEMPTS - 1:
                 time.sleep(wait)
             continue
@@ -457,6 +579,11 @@ def _get(path: str, params: dict) -> tuple[object | None, str | None]:
     # outage far worse than the transient fault it was reacting to.
     if conn_failed:
         _record_failure(True)
+    if _relay_enabled() and (conn_failed or (last_err and last_err.kind == "rate_limit")):
+        data, err = _get_via_relay(path, params, _deadline)
+        if err is None or data is not None:
+            return data, err
+        return None, GdeltError(f"{last_err or 'direct failed'}; relay: {err}", err.kind)
     return None, last_err or GdeltError("request failed", "other")
 
 
@@ -1003,7 +1130,7 @@ def health() -> dict:
     "configured" is meaningless — the only question that matters is whether this
     IP can currently reach it, which the circuit breaker state answers directly.
     """
-    if _breaker_is_open():
+    if _breaker_is_open() and not _relay_enabled():
         return {"reachable": False, "working": False,
                 "reason": (f"rate-limited; backing off for "
                            f"{int(_breaker_open_until - time.time())}s more"),
@@ -1024,7 +1151,8 @@ def health() -> dict:
         got = isinstance(data, dict) and bool(data.get("articles"))
         res = {"reachable": True, "working": True,
                "reason": None if got else "reachable but probe returned no articles",
-               "breaker_open": False, "consecutive_failures": 0}
+               "via": "relay" if _prefer_relay() else "direct",
+               "breaker_open": _breaker_is_open(), "consecutive_failures": _consecutive_failures}
     _cache_set("health", res)
     return res
 

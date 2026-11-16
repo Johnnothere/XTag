@@ -391,6 +391,16 @@ button{background:none;border:none;cursor:pointer;}
 .search-bar i{font-size:15px;color:var(--accent);flex:none;}
 .search-bar input{flex:1;min-width:0;border:none;background:transparent;outline:none;font-size:var(--fs-body);color:var(--ink);}
 .search-bar input::placeholder{color:var(--ink3);}
+.search-win{
+  flex:none;height:30px;border:0;border-radius:var(--pill);padding:0 var(--s2);margin-right:var(--s2);
+  background:transparent;color:var(--ink2);font:inherit;font-size:var(--fs-sm);cursor:pointer;
+}
+.search-win:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.ai-down{display:flex;gap:10px;align-items:flex-start;margin:0 0 14px;padding:12px 14px;
+  border:1px solid color-mix(in srgb,var(--neg) 45%,transparent);border-radius:10px;
+  background:color-mix(in srgb,var(--neg) 9%,transparent);font-size:var(--fs-sm);line-height:1.45}
+.ai-down i{color:var(--neg);font-size:18px;margin-top:1px}
+.win-note{font-size:var(--fs-xs,12px);color:var(--ink3);margin:-4px 0 12px}
 .search-go{
   background:linear-gradient(180deg,var(--accent2),var(--accent));color:#fff;border-radius:var(--pill);
   padding:0 var(--s4);height:30px;font-size:var(--fs-sm);font-weight:600;letter-spacing:.01em;flex:none;
@@ -2158,6 +2168,10 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
       <div class="search-bar">
         <i class="ti ti-search"></i>
         <input id="q" type="text" placeholder="Search narratives, hashtags, topics, entities…" autocomplete="off" spellcheck="false"/>
+        <select id="win" class="search-win" title="Time window — every source and every timing figure uses it" aria-label="Time window">
+          <option value="1">24 h</option><option value="3">3 days</option><option value="7" selected>7 days</option>
+          <option value="14">14 days</option><option value="30">30 days</option><option value="90">90 days</option>
+        </select>
         <button class="search-go" onclick="doSearch()">Analyse</button>
       </div>
       <div class="mode-tabs">
@@ -2822,8 +2836,15 @@ function gridState(kind,detail){
 
 /* Reads text/event-stream off fetch(). Returns a promise that resolves with the
    final payload, so the caller's .catch() keeps working unchanged. */
+function searchWindow(){
+  var el=document.getElementById('win'); var v=el&&el.value;
+  try{ if(v)localStorage.setItem('xtag_win',v); }catch(_){}
+  return v||'7';
+}
+(function(){ try{ var v=localStorage.getItem('xtag_win'), el=document.getElementById('win');
+  if(v&&el&&el.querySelector('option[value="'+v+'"]'))el.value=v; }catch(_){} })();
 function streamSearch(q,onPhase1,onDone){
-  var url='/api/search/stream?q='+encodeURIComponent(q);
+  var url='/api/search/stream?q='+encodeURIComponent(q)+'&window='+encodeURIComponent(typeof searchWindow==='function'?searchWindow():'7');
   var opts=searchCtl?{signal:searchCtl.signal}:{};
   var canStream=(typeof ReadableStream!=='undefined'&&typeof TextDecoder!=='undefined');
   if(!canStream)return plainSearch(q).then(onDone);
@@ -2868,7 +2889,7 @@ function streamSearch(q,onPhase1,onDone){
 }
 
 function plainSearch(q){
-  return fetch('/api/search?q='+encodeURIComponent(q),
+  return fetch('/api/search?q='+encodeURIComponent(q)+'&window='+encodeURIComponent(typeof searchWindow==='function'?searchWindow():'7'),
                searchCtl?{signal:searchCtl.signal}:undefined)
     .then(function(r){
       if(!r.ok)throw new Error('HTTP '+r.status+(r.status===429?' — rate limited, wait a moment':''));
@@ -3380,6 +3401,25 @@ function findingConfidence(data){
   return {word:word, value:(conf===undefined?null:conf), degraded:deg, docs:kept};
 }
 
+/* The analysis engine's own state, said plainly. When Anthropic rejects calls
+   (key revoked, credit exhausted) every Claude stage returns empty and the page
+   used to look like a thin corpus rather than a broken engine. */
+function renderAiDown(data){
+  var a=data&&data.ai_status;
+  if(!a||a.ok||!a.reason)return'';
+  return '<div class="ai-down" role="alert"><i class="ti ti-alert-octagon" aria-hidden="true"></i>'+
+    '<div><b>AI analysis did not run on this search.</b> '+esc(a.reason)+
+    ' Narratives, entities, events, sentiment and the brief depend on it; the documents and '+
+    'measured signals below are unaffected.</div></div>';
+}
+function renderWindowNote(data){
+  var w=data&&data.window;
+  if(!w||!w.days)return'';
+  var lbl=w.days===1?'the last 24 hours':'the last '+w.days+' days';
+  var aside=w.set_aside?' · '+w.set_aside+' older document'+(w.set_aside===1?'':'s')+
+    ' set aside so every timing figure covers the same period':'';
+  return '<div class="win-note">Window: '+lbl+aside+'.</div>';
+}
 function renderFinding(data){
   // No evidence, no finding. A page that states "no narrative clusters were
   // identified" over zero documents is describing an empty search as though it
@@ -3431,7 +3471,7 @@ function renderFinding(data){
    fold. Every entry is derived from the payload — none is boilerplate. */
 function xtagDiagOn(){
   try{ if(localStorage.getItem('xtag_diag')==='1') return true; }catch(_){}
-  return /[?&]diag=1(?:&|$)/.test(location.search);
+  return typeof location!=='undefined'&&/[?&]diag=1(?:&|$)/.test(location.search);
 }
 
 function renderLimits(data){
@@ -3445,7 +3485,7 @@ function renderLimits(data){
      because a score over a half-collected corpus must never be shown as a
      complete one. The full raw view — every defeater, source and stage named —
      is one keystroke away for internal testing: Cmd/Ctrl+Shift+D, or ?diag=1. */
-  if(!window.__xtagDiagKey){
+  if(typeof window!=='undefined'&&typeof document!=='undefined'&&!window.__xtagDiagKey){
     window.__xtagDiagKey=1;
     document.addEventListener('keydown',function(e){
       if((e.metaKey||e.ctrlKey)&&e.shiftKey&&(e.key==='D'||e.key==='d')){
@@ -3479,10 +3519,19 @@ function renderLimits(data){
   var A=[];
   // Collapse every source/stage failure into one neutral coverage statement.
   var attempted=Object.keys(st||{}).length, failedSrc=0;
-  (deg||[]).forEach(function(d){
-    var m=/sources failed:\s*(.+)$/i.exec(String(d));
-    if(m){ failedSrc=m[1].split(',').length; }
-  });
+  var cov=data.coverage||null;
+  if(cov){
+    /* Classified server-side: sources with no credentials or deliberately
+       paused are not "unreachable", and one site search covering several
+       platforms no longer counts as several outages. */
+    attempted=cov.live||attempted;
+    failedSrc=(cov.failed||[]).length;
+  } else {
+    (deg||[]).forEach(function(d){
+      var m=/sources failed:\s*(.+)$/i.exec(String(d));
+      if(m){ failedSrc=m[1].split(',').length; }
+    });
+  }
   var engineDown=Object.keys(ee||{}).length;
   if(failedSrc>=3 || (attempted>0 && failedSrc>0 && failedSrc/attempted>=0.25)){
     var ok=attempted?Math.max(0,attempted-failedSrc):0;
@@ -3818,6 +3867,15 @@ function iaExamples(s){
   var rows=ex.slice(0,8).map(function(e){
     if(typeof e==='string')
       return'<span class="ia-ex">@'+esc(e.replace(/^@/,''))+'</span>';
+    if(e&&e.author!==undefined&&e.age_days!==undefined)
+      return'<span class="ia-ex">@'+esc(String(e.author).replace(/^@/,''))+
+        '<b>'+e.age_days+' day'+(e.age_days===1?'':'s')+' old</b></span>';
+    if(e&&e.author!==undefined&&e.posts_per_day!==undefined)
+      return'<span class="ia-ex">@'+esc(String(e.author).replace(/^@/,''))+
+        '<b>'+e.posts_per_day+'/day</b></span>';
+    if(e&&e.author!==undefined&&e.url)
+      return'<span class="ia-ex"><a href="'+esc(e.url)+'" target="_blank" rel="noopener noreferrer">@'+
+        esc(String(e.author||'').replace(/^@/,''))+'</a></span>';
     if(e&&e.author!==undefined)
       return'<span class="ia-ex">@'+esc(String(e.author).replace(/^@/,''))+
         '<b>'+(e.posts||0)+' posts</b></span>';
@@ -4411,14 +4469,21 @@ function renderLangGap(data){
     var names=nm.length>1?nm.slice(0,-1).join(', ')+' and '+nm[nm.length-1]:nm[0];
     var found=asked.filter(function(c){return empty.indexOf(c)<0;})
                    .map(function(c){return (LANG_NAMES[c]||c)+' '+(counts[c]||0);});
-    return'<div class="lang-gap">'+
+    /* The old wording — "the query was issued in Hebrew and returned almost
+       nothing" — read as if Hebrew had been the query's language. It was one of
+       several languages the query was ALSO searched in. Say that, and only use
+       the alarm styling when every native language came back thin. */
+    var allThin=(found.length===0);
+    return'<div class="lang-gap'+(allThin?'':' soft')+'">'+
       '<i class="ti ti-alert-triangle" aria-hidden="true"></i>'+
-      '<div><b>Collection gap — this corpus is '+Math.round((1-share)*100)+'% English.</b> '+
-      'The query was issued in '+esc(names)+' and returned almost nothing'+
-      (found.length?', against '+esc(found.join(', '))+' elsewhere':'')+'. '+
-      'Everything below is drawn from coverage <i>about</i> this subject rather than from '+
-      'the subject\'s own information space, and framing, sentiment and coordination all '+
-      'measure the reporting rather than the thing reported on.</div></div>';
+      '<div><b>'+(allThin?'Collection gap — ':'')+Math.round((1-share)*100)+'% of this corpus is English.</b> '+
+      'The query was also searched in '+esc(names)+', which returned almost nothing'+
+      (found.length?' (against '+esc(found.join(', '))+' in the other searched languages)':'')+'. '+
+      (allThin?'Everything below is drawn from coverage <i>about</i> this subject rather than from '+
+        'the subject\'s own information space, and framing, sentiment and coordination all '+
+        'measure the reporting rather than the thing reported on.'
+        :'Treat findings about '+esc(names)+'-language audiences as unmeasured, not as absent.')+
+      '</div></div>';
   }
   if(share<0.05){
     return'<div class="lang-gap soft">'+
@@ -4763,7 +4828,9 @@ function renderReport(data){
   //   5. how the corpus was built
 
   //
+  html+=renderAiDown(data);
   html+=renderFinding(data);
+  html+=renderWindowNote(data);
   /* M10. Monitoring work asks "what is new since Tuesday", never "what is
      there". The tracking section that answers it sat below coordination and
      propagation, and on the one run where it had nothing to say it spent the
@@ -6198,7 +6265,7 @@ function wireTimeline(data){
       }
       var s=h.series||[];
       if(s.length<2){
-        el.innerHTML='<div class="ve-text">Only '+s.length+' snapshot recorded so far. Add this query to a watchlist and history builds up on each check — trends appear from the second snapshot onward.</div>';
+        el.innerHTML='<div class="ve-text">'+(s.length?'Only one snapshot recorded so far.':'No snapshots recorded yet.')+' Add this query to a watchlist and the console re-checks it on a schedule — trends appear from the second snapshot onward.</div>';
         return;
       }
       var maxM=Math.max.apply(null,s.map(function(p){return p.mentions||0;}).concat([1]));
@@ -6340,17 +6407,48 @@ function applyBrief(){
 /* How many documents an entity chip will actually produce. Same normalisation
    the grid filter uses, so the number on the chip and the number in the grid
    cannot disagree. */
+/* Actor names come from the extractor in canonical form ("Kheibar Ballistic
+   Missile", "Saudi Arabia", "Iraq Kurdistan Region"), while documents say
+   "rudal balistik Kheibar" or "Saudi" or "Kurdistan" — so exact-name matching
+   showed 0 for actors the extractor had found in those very documents, and the
+   rows were disabled. When the full name matches nothing, fall back to its most
+   distinctive word (longest, 5+ letters, not a generic noun). The full name
+   still wins whenever it matches anything. */
+var ENT_GENERIC={region:1,ballistic:1,missile:1,missiles:1,drone:1,drones:1,central:1,
+  headquarters:1,airbase:1,forces:1,ministry:1,government:1,united:1,states:1,state:1,
+  international:1,national:1,islamic:1,republic:1,party:1,group:1,company:1,companies:1,
+  systems:1,system:1,province:1,strait:1,north:1,south:1,eastern:1,western:1,northern:1,
+  southern:1,military:1,command:1,council:1,office:1,agency:1,service:1,minister:1,
+  president:1,general:1,people:1,movement:1,organization:1,organisation:1,network:1};
+var _entResolveCache={data:null,map:{}};
+var _entBlobs=(typeof WeakMap!=='undefined')?new WeakMap():null;
+function _entBlob(it){
+  var b=_entBlobs&&_entBlobs.get(it);
+  if(b===undefined){
+    b=entNorm((it.title||'')+' '+(it.title_en||'')+' '+(it.excerpt||'')+' '+
+              (it.excerpt_en||'')+' '+(it.author||''));
+    if(_entBlobs)_entBlobs.set(it,b);
+  }
+  return b;
+}
+function entNeedle(name){
+  if(!name||!lastData)return '';
+  if(_entResolveCache.data!==lastData){_entResolveCache={data:lastData,map:{}};}
+  if(_entResolveCache.map[name]!==undefined)return _entResolveCache.map[name];
+  var full=entNorm(name).slice(1,-1), items=allItems(), needle=full;
+  if(full&&!items.some(function(it){return _entBlob(it).indexOf(full)>=0;})){
+    var words=full.split(' ').filter(function(w){return w.length>=5&&!ENT_GENERIC[w];})
+                  .sort(function(a,b){return b.length-a.length;});
+    if(words.length)needle=words[0];
+  }
+  _entResolveCache.map[name]=needle;
+  return needle;
+}
 function entDocCount(name){
-  if(!name||!lastData)return 0;
-  var needle=entNorm(name);
-  needle=needle.slice(1,-1);
+  var needle=entNeedle(name);
   if(!needle)return 0;
   var n=0;
-  allItems().forEach(function(it){
-    var blob=entNorm((it.title||'')+' '+(it.title_en||'')+' '+(it.excerpt||'')+' '+
-                     (it.excerpt_en||'')+' '+(it.author||''));
-    if(blob.indexOf(needle)>=0)n++;
-  });
+  allItems().forEach(function(it){ if(_entBlob(it).indexOf(needle)>=0)n++; });
   return n;
 }
 
@@ -6365,8 +6463,7 @@ function allItems(){
 }
 
 function filterItems(items){
-  var ef=entityFocus?entNorm(entityFocus):null;
-  var efc=ef?ef.slice(1,-1):null;
+  var efc=entityFocus?entNeedle(entityFocus):null;
   return items.filter(function(it){
     if(efc){
       var blob=entNorm((it.title||'')+' '+(it.title_en||'')+' '+(it.excerpt||'')+' '+

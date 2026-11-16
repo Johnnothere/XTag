@@ -67,6 +67,10 @@ chk('hostile strings escaped',
     narratives:[{key_claim:'<img src=x onerror=alert(1)>'}]}).indexOf('<img src=x')===-1);
 
 console.log('\n=== limits ===');
+// These checks are for the DIAGNOSTIC view (Cmd/Ctrl+Shift+D or ?diag=1). The
+// default client view deliberately collapses source/stage names into one
+// coverage line (2 Oct 2026), so switch diagnostics on the way the page does.
+globalThis.localStorage = {getItem: k => (k === 'xtag_diag' ? '1' : null), setItem(){}};
 h = renderLimits(full);
 chk('lists collection failure', /Collection was incomplete/.test(h));
 chk('lists the unbanded caveat', /Coordination has no baseline/.test(h));

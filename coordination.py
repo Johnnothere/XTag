@@ -65,6 +65,8 @@ def canonical_url(u: str) -> str:
         if p.scheme not in ("http", "https", ""):
             return ""
         host = (p.netloc or "").lower().split("@")[-1]
+        if not host or " " in host:
+            return ""            # "not a url" parses as a bare path, not a destination
         if host.startswith("www."):
             host = host[4:]
         host = _AMP.sub("", host)
@@ -98,6 +100,56 @@ def _shingles(text: str, k: int = 5) -> set[str]:
     return {" ".join(w[i:i + k]) for i in range(len(w) - k + 1)}
 
 
+_URL_RE = re.compile(r"https?://\S+|\bt\.co/\S+", re.I)
+_VIA_RE = re.compile(r"\bvia\s+@\w{1,30}\W*$", re.I)
+
+
+def _share_core(text: str) -> str:
+    """Post text with links, a trailing 'via @handle' and decoration removed."""
+    t = _URL_RE.sub(" ", text or "")
+    t = _VIA_RE.sub(" ", t.strip())
+    return " ".join(_WORD.findall(t.lower()))
+
+
+def share_button_ids(docs: list[dict]) -> set:
+    """Documents that are share-button posts of a link, not authored text.
+
+    Measured on "Iran IRGC" (16 Nov): eight unrelated X accounts posted
+    "LIVE: 19 U.S. Warships Arrive Outside Iran - IRGC Under Attack In South
+    <link> via @YouTube" — YouTube's own share text — and were reported as a
+    coordinated cluster on near-identical text. Identical text is EXPECTED when
+    a platform writes it, so it is not evidence of a script. A post counts as a
+    share when, links and 'via @x' removed, it is the title of a video or
+    article in the same corpus, or it carries a share-button 'via @x' suffix
+    and almost nothing else. Timing, hashtag and co-link traits still apply.
+    """
+    titles: dict[str, set] = {}
+    for d in docs:
+        if (d.get("platform") in ("youtube", "gnews", "gdelt", "google", "state_media",
+                                  "reddit", "hackernews", "podcasts")
+                and d.get("title")):
+            core = _share_core(d.get("title"))
+            if len(core) >= 20:
+                titles.setdefault(core, set()).add(d.get("id") or d.get("url"))
+    out = set()
+    for d in docs:
+        if d.get("platform") not in ("x", "bluesky", "mastodon", "threads",
+                                     "facebook", "telegram", "tumblr"):
+            continue
+        raw = f"{d.get('title') or ''} {d.get('excerpt') or ''}".strip()
+        if not raw or not _URL_RE.search(raw):
+            continue
+        core = _share_core(raw)
+        if len(core) < 15:
+            continue
+        me = d.get("id") or d.get("url")
+        hit = any(me not in owners and (core == t or (t in core and len(core) - len(t) < 25))
+                  for t, owners in titles.items())
+        if hit or _VIA_RE.search(_URL_RE.sub(" ", raw).strip()):
+            out.add(me)
+    return out
+
+
 def _parse_dt(v):
     if not v:
         return None
@@ -109,7 +161,9 @@ def _parse_dt(v):
 
 # ── Bipartite construction ───────────────────────────────────────────────────
 
-def _traits(docs: list[dict], bucket_minutes: int = 5) -> dict[str, dict[str, set]]:
+def _traits(docs: list[dict], bucket_minutes: int = 5,
+            share_ids: set | None = None,
+            exclude_tags: set | None = None) -> dict[str, dict[str, set]]:
     """actor -> {trait_kind -> set(trait tokens)}.
 
     Four traits, each a different way of being the same operation:
@@ -126,8 +180,11 @@ def _traits(docs: list[dict], bucket_minutes: int = 5) -> dict[str, dict[str, se
         if cu:
             out[a]["url"].add(cu)
         blob = f"{d.get('title') or ''} {d.get('excerpt') or ''}"
-        out[a]["text"] |= _shingles(blob)
+        if not (share_ids and (d.get("id") or d.get("url")) in share_ids):
+            out[a]["text"] |= _shingles(blob)
         for tag in re.findall(r"#(\w{3,40})", blob):
+            if exclude_tags and tag.lower() in exclude_tags:
+                continue
             out[a]["hashtag"].add(tag.lower())
         dt = _parse_dt(d.get("timestamp"))
         if dt:
@@ -285,7 +342,7 @@ TRAIT_WEIGHT = {          # Luceri et al. trace AUCs, normalised
 
 
 def detect(docs: list[dict], baseline: float | None = None,
-           min_cluster: int = 3) -> dict:
+           min_cluster: int = 3, exclude_tags: set | None = None) -> dict:
     """Find coordinated actor clusters and the documents they produced.
 
     Returns `flagged_urls` — the actual documents — not only a score. A
@@ -298,7 +355,8 @@ def detect(docs: list[dict], baseline: float | None = None,
                 "clusters": [], "flagged_urls": [],
                 "caveat": f"{len(docs)} documents — too few to assess coordination"}
 
-    actor_traits = _traits(docs)
+    share_ids = share_button_ids(docs)
+    actor_traits = _traits(docs, share_ids=share_ids, exclude_tags=exclude_tags)
     by_actor: dict = defaultdict(list)
     for d in docs:
         by_actor[_actor(d)].append(d)

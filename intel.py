@@ -273,6 +273,43 @@ def _norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+# Names under which established outlets publish on YouTube, TikTok and X. A
+# YouTube "author" is the channel's display name, which the domain-based
+# credibility registry cannot see, so "Times Of India" posting 21 videos was
+# scored as an anonymous account flooding the query, and "BBC News", "DW News"
+# and "CNN-News18" — the real channels — as possible impersonators of BBC, DW
+# and CNN (16 Nov). Matched after lower-casing and removing spaces/punctuation.
+KNOWN_OUTLET_NAMES = frozenset(n.replace(" ", "") for n in (
+    "bbc news", "bbcnews", "bbc world service", "bbcworld", "bbcbreaking", "bbc news arabi",
+    "bbc news farsi", "bbcpersian", "bbc urdu", "bbc hindi", "dw news", "dwnews", "dw",
+    "cnn", "cnn international", "cnnbrk", "cnn-news18", "cnnnews18", "news18",
+    "reuters", "reuters world", "associated press", "ap", "apnews", "afp", "afp news agency",
+    "al jazeera english", "aljazeera english", "aljazeeraenglish", "al jazeera", "aljazeera",
+    "al jazeera arabic", "ajarabic", "ajenglish", "france 24", "france24", "france 24 english",
+    "sky news", "skynews", "bloomberg", "bloomberg television", "the guardian", "guardian",
+    "new york times", "nytimes", "the new york times", "washington post", "npr",
+    "times of india", "timesofindia", "times now", "timesnow", "times now world", "ndtv",
+    "ndtv world", "india today", "indiatoday", "wion", "republic world", "mirror now",
+    "the daily jagran", "news18 urdu", "abc news", "nbc news", "cbs news", "fox news",
+    "msnbc", "pbs newshour", "euronews", "trt world", "cgtn", "cgtn europe", "rt",
+    "press tv", "presstv", "tasnim", "tasnimnews", "irna", "mehr news", "al arabiya",
+    "alarabiya", "al arabiya english", "sky news arabia", "i24news", "i24news english",
+    "times of israel", "timesofisrael", "jerusalem post", "the jerusalem post", "haaretz",
+    "kan news", "channel 4 news", "itv news", "gb news", "the telegraph", "the independent",
+    "new york post", "metro tv", "kompascom", "kompas tv", "tribunnews", "cnn indonesia",
+    "al mayadeen", "almayadeen", "al manar", "almanar", "the hindu", "hindustan times",
+    "dawn news", "geo news", "ary news", "the economist", "vice news", "middle east eye",
+))
+
+
+def _outlet_key(name) -> str:
+    return re.sub(r"[\s\-_.·|]+", "", str(name or "").lower().lstrip("@"))
+
+
+def is_known_outlet(name) -> bool:
+    return _outlet_key(name) in KNOWN_OUTLET_NAMES
+
+
 YOUNG_ACCOUNT_DAYS = int(os.environ.get("YOUNG_ACCOUNT_DAYS", "90"))
 HIGH_CADENCE_PER_DAY = int(os.environ.get("HIGH_CADENCE_PER_DAY", "72"))
 
@@ -349,7 +386,15 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
     # exactly identical text from DIFFERENT authors, which is the signature of a
     # supplied script rather than independent people reaching the same wording.
     by_text: dict[str, list] = defaultdict(list)
+    try:
+        from coordination import share_button_ids
+        share_ids = share_button_ids(docs)
+    except Exception:
+        share_ids = set()
+    shares = [d for d in docs if (d.get("id") or d.get("url")) in share_ids]
     for d in docs:
+        if (d.get("id") or d.get("url")) in share_ids:
+            continue
         body = _norm_text((d.get("title") or "") + " " + (d.get("excerpt") or ""))
         if len(body) < 40:
             continue
@@ -425,6 +470,18 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
             "examples": syndicated[:3],
         })
 
+    if len(shares) >= 3:
+        signals.append({
+            "type": "share_button_cascade",
+            "severity": "info",
+            "description": (f"{len(shares)} post(s) are share-button shares of a video or "
+                            f"article in this corpus — identical because the platform "
+                            f"wrote the text, so excluded from the verbatim-repost and "
+                            f"coordination text checks"),
+            "examples": [{"author": d.get("author"), "url": d.get("url")}
+                         for d in shares[:6] if d.get("url")],
+        })
+
     # ── 2. Account handle patterns ───────────────────────────────────────────
     handles = [(d.get("author") or "").strip().lstrip("@") for d in docs]
     handles = [h for h in handles if h]
@@ -451,7 +508,8 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
         (d.get("author") or "").strip().lstrip("@")
         for d in docs
         if (d.get("source_type") or "social") not in ("news", "academic")
-        and (d.get("credibility") or "unknown") not in ("high", "medium")
+        and (d.get("credibility") or "unknown") not in ("high", "medium", "state")
+        and not is_known_outlet(d.get("author"))
     ]
     social_handles = [h for h in social_handles if h]
     author_counts = Counter(h.lower() for h in social_handles)
@@ -512,8 +570,16 @@ def detect_inauthenticity(platforms: dict, coordination: dict | None = None) -> 
     OUTLETS = ["bbc", "reuters", "aljazeera", "cnn", "nytimes", "guardian", "afp",
                "apnews", "skynews", "france24", "dw", "npr", "bloomberg"]
     impersonators = []
-    for h in set(handles):
+    # Only platforms where the author field IS a handle someone registered. A
+    # YouTube or RSS "author" is a display name, and the real "BBC News" channel
+    # matched this rule as an impersonator of BBC.
+    handle_docs = {(d.get("author") or "").strip().lstrip("@") for d in docs
+                   if d.get("platform") in ("x", "tiktok", "instagram", "threads",
+                                            "telegram", "bluesky", "mastodon")}
+    for h in {h for h in handle_docs if h}:
         hl = h.lower()
+        if is_known_outlet(hl):
+            continue
         for o in OUTLETS:
             if o in hl and hl != o and not hl.endswith(".com"):
                 if re.search(rf"{o}[\W_]*(news|breaking|live|official|update|24|tv)?\d*$", hl):

@@ -88,16 +88,16 @@ for name in ("extract_real_world_events","extract_narratives_v2","_sentiment_cla
 
 print("\n=== 6. _gdelt_snapshot_safe never raises ===")
 orig = app.gdelt.snapshot
-app.gdelt.snapshot = lambda q: (_ for _ in ()).throw(RuntimeError("upstream down"))
+app.gdelt.snapshot = lambda q, **kw: (_ for _ in ()).throw(RuntimeError("upstream down"))
 r = app._gdelt_snapshot_safe("#covid1948")
 chk("returns dict on failure", isinstance(r, dict))
 chk("marks degraded", "degraded" in r and "snapshot failed" in r["degraded"][0], str(r)[:80])
-app.gdelt.snapshot = lambda q: {"ok": True}
+app.gdelt.snapshot = lambda q, **kw: {"ok": True}
 chk("passes through on success", app._gdelt_snapshot_safe("x") == {"ok": True})
 app.gdelt.snapshot = orig
 
 print("\n=== 7. tuning constants ===")
-chk("MAX_RESULTS_PER_SOURCE 150", app.MAX_RESULTS_PER_SOURCE == 150, str(app.MAX_RESULTS_PER_SOURCE))
+chk("MAX_RESULTS_PER_SOURCE bounded (100-500)", 100 <= app.MAX_RESULTS_PER_SOURCE <= 500, str(app.MAX_RESULTS_PER_SOURCE))
 # Assert the PROPERTY, not the number. Pinning 90 here meant retuning from a
 # real measurement broke a test that was only ever restating the config.
 chk("collection deadline is bounded and leaves room for analysis",

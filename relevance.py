@@ -130,9 +130,11 @@ class QuerySpec:
     """A query, decomposed into everything needed to judge a document against it."""
 
     __slots__ = ("raw", "kind", "canonical", "fused", "surface_forms",
-                 "tokens", "expansions", "_patterns", "_expansion_patterns")
+                 "tokens", "expansions", "_patterns", "_expansion_patterns",
+                 "groups", "_group_matchers")
 
-    def __init__(self, raw, kind, canonical, fused, surface_forms, tokens, expansions):
+    def __init__(self, raw, kind, canonical, fused, surface_forms, tokens, expansions,
+                 groups=None):
         self.raw = raw
         self.kind = kind                      # 'hashtag' | 'phrase' | 'term'
         self.canonical = canonical
@@ -147,11 +149,40 @@ class QuerySpec:
                 n = " ".join(_runs(t))
                 if n and n != canonical:
                     flat.append((lang, n, _boundary_re(n)))
+        # Term groups (16 Nov 2026). A multi-word query whose words the lexicon
+        # translates one by one ("Iran IRGC" -> إيران / الحرس الثوري ...) used to
+        # accept a native-language document on ANY one translated word, so an
+        # Arabic post that only said "Iran" passed as a match for "Iran IRGC"
+        # while an English post needed both words. Measured on the live console:
+        # 106 of 645 kept documents matched on "Iran" alone. With groups, a
+        # document must carry every group — in any language — just as English
+        # must carry every token.
+        self.groups = [g for g in (groups or []) if g]
+        self._group_matchers = [[_form_matcher(f) for f in g] for g in self.groups]
+        if len(self.groups) >= 2:
+            grouped = {" ".join(_runs(f)) for g in self.groups for f in g}
+            flat = [x for x in flat if x[1] not in grouped]
         self._expansion_patterns = flat
 
     def __repr__(self):
         return (f"QuerySpec({self.raw!r} kind={self.kind} canonical={self.canonical!r} "
                 f"fused={self.fused} forms={sorted(self.surface_forms)})")
+
+
+_LATIN = re.compile(r"^[0-9a-z ]+$")
+
+
+def _form_matcher(form: str):
+    """Latin forms match on word boundaries. Arabic, Persian and Hebrew forms
+    match as substrings of the folded text, because those scripts attach
+    articles and suffixes to the word itself: 'الإيراني' (the Iranian) contains
+    'ايران' but has no boundary around it."""
+    n = " ".join(_runs(form))
+    if not n:
+        return None
+    if _LATIN.match(n):
+        return _boundary_re(n)
+    return re.compile(re.escape(n.replace(" ", " ")))
 
 
 def _boundary_re(form: str):
@@ -166,7 +197,8 @@ def _boundary_re(form: str):
     return re.compile(r"(?<![^\W_])" + re.escape(form) + r"(?![^\W_])", re.UNICODE)
 
 
-def plan_query(q: str, expansions: dict | None = None) -> QuerySpec:
+def plan_query(q: str, expansions: dict | None = None,
+               groups: list | None = None) -> QuerySpec:
     """
     Turn a raw user query into a QuerySpec.
 
@@ -199,7 +231,8 @@ def plan_query(q: str, expansions: dict | None = None) -> QuerySpec:
     # loosen the match — which is the entire point.
     tokens = [] if fused else [r for r in runs if len(r) > 2]
 
-    return QuerySpec(raw, kind, canonical, fused, forms, tokens, expansions or {})
+    return QuerySpec(raw, kind, canonical, fused, forms, tokens, expansions or {},
+                     groups=groups if (groups and len(groups) >= 2 and not is_tag) else None)
 
 
 # ── Document scoring ──────────────────────────────────────────────────────────
@@ -294,6 +327,12 @@ def score_doc(doc: dict, spec: QuerySpec) -> tuple[float, str]:
     for pat, form in zip(spec._patterns, spec.surface_forms):
         if pat.search(text):
             return EXACT, f"exact match: {form!r}"
+
+    if spec._group_matchers:
+        if all(any(pat is not None and pat.search(text) for pat in g)
+               for g in spec._group_matchers):
+            labels = " + ".join(str(g[0]) for g in spec.groups[:4])
+            return EXPANSION, f"every query term present (any language): {labels}"
 
     for lang, term, pat in spec._expansion_patterns:
         if pat.search(text):

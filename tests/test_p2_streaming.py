@@ -1,5 +1,11 @@
-import time, sys, json, re
+import time, sys, json, re, os
+# The analyst API (incl. the SSE route) is served only by the console role;
+# the public role 404s it by design (commit 195df55).
+os.environ.setdefault("XTAG_ROLE", "console")
 import app
+from datetime import datetime, timezone, timedelta
+# Inside the default 7-day search window (documents older than it are set aside).
+_RECENT = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
 P=F=0
 def chk(n,c,e=""):
     global P,F
@@ -7,7 +13,7 @@ def chk(n,c,e=""):
     else: F+=1; print(f"  FAIL  {n}  {e}")
 
 def doc(pid,i,t): return {"platform":pid,"title":t,"excerpt":t,
-    "url":f"https://{pid}.ex/{i}","timestamp":"2026-08-01T00:00:00Z","meta":{"likes":i}}
+    "url":f"https://{pid}.ex/{i}","timestamp":_RECENT,"meta":{"likes":i}}
 def mk(pid,n,txt,delay=0.2):
     def f(q):
         time.sleep(delay)
@@ -17,7 +23,7 @@ def mk(pid,n,txt,delay=0.2):
 app.API_PLATFORMS={"x":mk("x",20,"#covid1948 protest Tehran"),
                    "youtube":mk("youtube",20,"covid1948 explained")}
 app.search_serpapi=lambda q:{}
-app.gdelt.snapshot=lambda q:{"volume":{"n":5}}
+app.gdelt.snapshot = lambda q, **kw:{"volume":{"n":5}}
 app.BABELSTREET_API_KEY=""
 app.SEARCH_POOL_TIMEOUT=5
 app.SSE_HEARTBEAT=0.2

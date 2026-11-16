@@ -1,5 +1,8 @@
 import time, sys, os
 import app
+from datetime import datetime, timezone, timedelta
+# Inside the default 7-day search window (documents older than it are set aside).
+_RECENT = (datetime.now(timezone.utc) - timedelta(hours=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
 P=F=0
 def chk(n,c,e=""):
     global P,F
@@ -8,7 +11,7 @@ def chk(n,c,e=""):
 
 def doc(pid, i, txt):
     return {"platform":pid,"title":txt,"excerpt":txt,
-            "url":f"https://{pid}.example/{i}","timestamp":"2026-08-01T00:00:00Z",
+            "url":f"https://{pid}.example/{i}","timestamp":_RECENT,
             "meta":{"likes":i}}
 
 # ── mock every upstream ─────────────────────────────────────────────────────
@@ -24,7 +27,7 @@ app.API_PLATFORMS = {
     "slow":   (lambda q: (time.sleep(30), {"platform":"slow","results":[],"error":None})[1]),
 }
 app.search_serpapi = lambda q: {}
-app.gdelt.snapshot = lambda q: (time.sleep(0.3), {"volume":{"n":5}})[1]
+app.gdelt.snapshot = lambda q, **kw: (time.sleep(0.3), {"volume":{"n":5}})[1]
 app.ANTHROPIC_API_KEY = ""      # no Claude on the hot path
 app.BABELSTREET_API_KEY = ""
 app.SEARCH_POOL_TIMEOUT = 3     # so the 'slow' source must be abandoned
@@ -74,7 +77,7 @@ chk("explains thin evidence instead", "insufficient_evidence" in ents, str(ents)
 
 print("\n=== J. the collection deadline is caught on EVERY interpreter ===")
 import inspect, concurrent.futures as _cf
-src = inspect.getsource(app._run_full_search)
+src = inspect.getsource(app._run_full_search) + inspect.getsource(getattr(app, "_run_full_search_inner", app._run_full_search))
 chk("does not rely on the 3.11 TimeoutError alias",
     "except (FuturesTimeout, TimeoutError)" in src,
     "concurrent.futures.TimeoutError is only the builtin on 3.11+")

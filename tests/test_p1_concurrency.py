@@ -48,7 +48,7 @@ chk("snapshot hides inside collection", el < 1.3,
 
 print("\n=== D. P1-8: thin corpus is not an engine failure ===")
 import inspect
-src = inspect.getsource(app._run_full_search)
+src = inspect.getsource(app._run_full_search) + inspect.getsource(getattr(app, "_run_full_search_inner", app._run_full_search))
 chk("guard checks corpus size", "_kept_docs < MIN_ENTITY_DOCS" in src)
 chk("thin path sets insufficient_evidence", 'insufficient_evidence' in src)
 chk("thin path does NOT set engine_errors", 
