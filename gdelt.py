@@ -165,6 +165,8 @@ RELAY_TIMEOUT     = float(os.environ.get("GDELT_RELAY_TIMEOUT", "45"))   # backg
 # relayed calls ran past 14s while ScrapeBadger retried 429s.
 RELAY_PROXY_TIER  = os.environ.get("GDELT_RELAY_PROXY_TIER", "premium")
 RELAY_STICKY_S    = int(os.environ.get("GDELT_RELAY_STICKY", "1800"))
+RELAY_ATTEMPTS    = int(os.environ.get("GDELT_RELAY_ATTEMPTS", "4"))
+RELAY_ATTEMPT_TIMEOUT = float(os.environ.get("GDELT_RELAY_ATTEMPT_TIMEOUT", "25"))
 _relay_until = 0.0
 _relay_stats = {"calls": 0, "ok": 0, "failed": 0, "last_error": None}
 
@@ -188,8 +190,14 @@ def _relay_get(path: str, params: dict, timeout: float):
                           # Field names per docs.scrapebadger.com: unknown fields
                           # are rejected with 422 (the first deploy sent
                           # `max_retries` and `engine: http` and got exactly that).
+                          # GDELT's 429 page reads as a block to ScrapeBadger,
+                          # which then retried for 20-30s before giving up
+                          # (measured: 7 of 12 relayed calls lost that way).
+                          # GDELT's 429s are random per request, so fail fast
+                          # and let _get_via_relay retry from a fresh exit.
                           json={"url": url, "engine": "auto", "format": "html",
-                                "proxy_tier": RELAY_PROXY_TIER, "retry_count": 1},
+                                "proxy_tier": RELAY_PROXY_TIER, "retry_count": 0,
+                                "retry_on_block": False},
                           headers={"x-api-key": SCRAPEBADGER_KEY,
                                    "Content-Type": "application/json"},
                           timeout=timeout)
@@ -254,11 +262,11 @@ def _get_via_relay(path: str, params: dict, deadline: float):
     """Try the relay up to twice inside what is left of the call budget."""
     global _relay_until
     last = None
-    for _ in range(2):
+    for _ in range(RELAY_ATTEMPTS):
         left = deadline - time.monotonic()
-        if left < 1.5:
+        if left < 3:
             break
-        status, body, err = _relay_get(path, params, min(RELAY_TIMEOUT, left))
+        status, body, err = _relay_get(path, params, min(RELAY_ATTEMPT_TIMEOUT, left))
         if err:
             last = GdeltError(err, "transport"); continue
         if status == 429:
