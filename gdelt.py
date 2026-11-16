@@ -159,7 +159,11 @@ ANALYTICS_BUDGET  = int(os.environ.get("GDELT_ANALYTICS_BUDGET", "110"))  # wall
 # for RELAY_STICKY_S so later calls do not pay for a doomed direct attempt.
 SCRAPEBADGER_KEY  = os.environ.get("SCRAPEBADGER_KEY", "")
 RELAY_MODE        = os.environ.get("GDELT_RELAY", "auto").strip().lower()   # auto|always|off
-RELAY_TIMEOUT     = float(os.environ.get("GDELT_RELAY_TIMEOUT", "14"))
+RELAY_TIMEOUT     = float(os.environ.get("GDELT_RELAY_TIMEOUT", "22"))
+# Residential exits (premium tier, +3 credits): GDELT throttles the shared
+# datacenter pool the same way it throttles Railway, and the first deploy's
+# relayed calls ran past 14s while ScrapeBadger retried 429s.
+RELAY_PROXY_TIER  = os.environ.get("GDELT_RELAY_PROXY_TIER", "premium")
 RELAY_STICKY_S    = int(os.environ.get("GDELT_RELAY_STICKY", "1800"))
 _relay_until = 0.0
 _relay_stats = {"calls": 0, "ok": 0, "failed": 0, "last_error": None}
@@ -178,18 +182,20 @@ def _relay_get(path: str, params: dict, timeout: float):
     from urllib.parse import urlencode
     url = f"https://{path}?{urlencode(params)}"
     _relay_stats["calls"] += 1
+    _t0 = time.monotonic()
     try:
         r = requests.post("https://scrapebadger.com/v1/web/scrape",
                           # Field names per docs.scrapebadger.com: unknown fields
                           # are rejected with 422 (the first deploy sent
                           # `max_retries` and `engine: http` and got exactly that).
                           json={"url": url, "engine": "auto", "format": "html",
-                                "retry_count": 2},
+                                "proxy_tier": RELAY_PROXY_TIER, "retry_count": 1},
                           headers={"x-api-key": SCRAPEBADGER_KEY,
                                    "Content-Type": "application/json"},
                           timeout=timeout)
     except Exception as e:
         _relay_stats["failed"] += 1; _relay_stats["last_error"] = str(e)[:100]
+        log.warning("GDELT relay failed after %.1fs: %s", time.monotonic() - _t0, str(e)[:120])
         return None, None, f"relay: {str(e)[:80]}"
     if r.status_code >= 400:
         try:
@@ -208,6 +214,9 @@ def _relay_get(path: str, params: dict, timeout: float):
         _relay_stats["failed"] += 1; _relay_stats["last_error"] = str(env.get("error"))[:100]
         return env.get("status_code"), None, f"relay: {str(env.get('error'))[:80]}"
     _relay_stats["ok"] += 1
+    log.info("GDELT relay: upstream %s, %s credits, %sms, %d bytes",
+             env.get("status_code"), env.get("credits_used"), env.get("duration_ms"),
+             len(env.get("content") or ""))
     return int(env.get("status_code") or 200), env.get("content") or "", None
 
 
