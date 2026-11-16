@@ -180,8 +180,11 @@ def _relay_get(path: str, params: dict, timeout: float):
     _relay_stats["calls"] += 1
     try:
         r = requests.post("https://scrapebadger.com/v1/web/scrape",
-                          json={"url": url, "engine": "http", "format": "html",
-                                "max_retries": 2},
+                          # Field names per docs.scrapebadger.com: unknown fields
+                          # are rejected with 422 (the first deploy sent
+                          # `max_retries` and `engine: http` and got exactly that).
+                          json={"url": url, "engine": "auto", "format": "html",
+                                "retry_count": 2},
                           headers={"x-api-key": SCRAPEBADGER_KEY,
                                    "Content-Type": "application/json"},
                           timeout=timeout)
@@ -189,8 +192,13 @@ def _relay_get(path: str, params: dict, timeout: float):
         _relay_stats["failed"] += 1; _relay_stats["last_error"] = str(e)[:100]
         return None, None, f"relay: {str(e)[:80]}"
     if r.status_code >= 400:
-        _relay_stats["failed"] += 1; _relay_stats["last_error"] = f"http {r.status_code}"
-        return None, None, f"relay http {r.status_code}"
+        try:
+            body = r.json(); why = body.get("error") or body.get("detail") or ""
+        except Exception:
+            why = (r.text or "")[:80]
+        _relay_stats["failed"] += 1
+        _relay_stats["last_error"] = f"http {r.status_code} {str(why)[:80]}".strip()
+        return None, None, f"relay http {r.status_code} {str(why)[:60]}".strip()
     try:
         env = r.json()
     except Exception:
