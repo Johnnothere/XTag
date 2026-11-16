@@ -3905,9 +3905,11 @@ function renderGeoBlock(data){
     if(!deg)return'';
     return'<div class="report-section">'+
       '<div class="report-section-title"><i class="ti ti-world"></i>Geographic Reach</div>'+
-      '<div class="unavail-note">GDELT geographic breakdown unavailable for this query '+
-      '(rate-limited or no coverage indexed). Reach and audience signals are excluded '+
-      'from the threat score rather than counted as zero.</div></div>';
+      '<div class="unavail-note">'+(((data.gdelt||{}).pending)
+        ?'GDELT is being fetched in the background — its public API answers this server slowly. '+
+         'Re-run this search in a minute or two to include geography and tone; watched searches pick it up automatically. '
+        :'GDELT geographic breakdown unavailable for this query (rate-limited or no coverage indexed). ')+
+      'Reach and audience signals are excluded from the threat score rather than counted as zero.</div></div>';
   }
   var max=Math.max.apply(null,cs.map(function(c){return c.share||0;}))||1;
   var h='<div class="report-section">'+

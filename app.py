@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import contextvars
+import copy
 import functools
 import hmac
 import html
@@ -1712,7 +1713,104 @@ def search_telegram(q):
 #      now the basis of the geographic intelligence layer.
 # Plus: the timespan was hardcoded to 72H with no pagination, capping GDELT at
 # 250 articles over 3 days regardless of how much coverage existed.
+# ── GDELT in the background (16 Nov 2026) ────────────────────────────────────
+# GDELT's public DOC API now refuses most requests from cloud IPs, and through a
+# proxy it answers — but in ~20-30 seconds per call, measured. That is too slow
+# for the live search path (the collection pool waits 35s for EVERYTHING), so
+# GDELT is fetched by a background job: articles first, then the tone /
+# geography / volume / audience snapshot, through the ScrapeBadger relay. The
+# result is cached (memory + Supabase, GDELT_BG_TTL) and used by the next run
+# of the same search, by scheduled watchlist checks, and inline whenever the
+# job happens to finish within GDELT_INLINE_WAIT.
+GDELT_BG_TTL       = int(os.environ.get("GDELT_BG_TTL", str(3 * 3600)))
+GDELT_BG_BUDGET    = int(os.environ.get("GDELT_BG_BUDGET", "240"))
+GDELT_INLINE_WAIT  = float(os.environ.get("GDELT_INLINE_WAIT", "8"))
+GDELT_PENDING_MSG  = ("pending — GDELT's public API is throttling this server, so it is being "
+                      "fetched in the background; it is included the next time this search runs")
+_gdelt_jobs: dict = {}
+_gdelt_mem: dict = {}
+_gdelt_lock = threading.Lock()
+_gdelt_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="gdelt-bg")
+
+
+def _gdelt_key(kind: str, q: str) -> str:
+    return f"gd{kind}:{(_query_parts(q)[2] or q).lower()}|w={_window_days()}"
+
+
+def _gdelt_cached(key: str):
+    with _gdelt_lock:
+        hit = _gdelt_mem.get(key)
+    if hit and time.time() < hit[0]:
+        return hit[1]
+    try:
+        row = db.cache_get(key)
+    except Exception:
+        row = None
+    if row:
+        with _gdelt_lock:
+            _gdelt_mem[key] = (time.time() + GDELT_BG_TTL, row)
+        return row
+    return None
+
+
+def _gdelt_job(kind: str, key: str, q: str, window_days: int):
+    """Fetch one GDELT product ("a" articles, "s" snapshot) and cache it.
+
+    A good result is kept GDELT_BG_TTL; a failed one 15 minutes, so a throttled
+    hour is retried soon but not on every keystroke."""
+    token = _WINDOW_CV.set(window_days)
+    try:
+        if kind == "a":
+            res = _search_gdelt_live(q)
+            good = bool(res.get("results"))
+        else:
+            try:
+                res = gdelt.snapshot(_query_parts(q)[2] or q,
+                                     timespan_hours=window_days * 24, budget=GDELT_BG_BUDGET)
+            except Exception as e:
+                res = {"degraded": [f"snapshot failed: {str(e)[:80]}"]}
+            good = not (res or {}).get("degraded")
+        res = {**res, "fetched_at": datetime.now(timezone.utc).isoformat()} if isinstance(res, dict) else res
+        ttl = GDELT_BG_TTL if good else 900
+        with _gdelt_lock:
+            _gdelt_mem[key] = (time.time() + ttl, res)
+        try: db.cache_set(key, q, res, ttl)
+        except Exception: pass
+        return res
+    finally:
+        _WINDOW_CV.reset(token)
+        with _gdelt_lock:
+            _gdelt_jobs.pop(key, None)
+
+
+def _gdelt_result(kind: str, q: str, wait: float):
+    """Cached GDELT product, or start/join the background fetch and wait briefly."""
+    key = _gdelt_key(kind, q)
+    hit = _gdelt_cached(key)
+    if hit is not None:
+        return hit
+    with _gdelt_lock:
+        fut = _gdelt_jobs.get(key)
+        if fut is None:
+            fut = _gdelt_pool.submit(_gdelt_job, kind, key, q, _window_days())
+            _gdelt_jobs[key] = fut
+    try:
+        return fut.result(timeout=max(0.1, wait))
+    except Exception:
+        return None
+
+
 def search_gdelt(q):
+    if not _query_parts(q)[2]: return _empty("gdelt","empty query")
+    res = _gdelt_result("a", q, GDELT_INLINE_WAIT)
+    if res is None:
+        return _empty("gdelt", GDELT_PENDING_MSG)
+    out = copy.deepcopy(res)
+    out.pop("fetched_at", None)
+    return out
+
+
+def _search_gdelt_live(q):
     plain = _query_parts(q)[2]
     if not plain: return _empty("gdelt","empty query")
     try:
@@ -4049,7 +4147,12 @@ def _gdelt_snapshot_safe(q: str) -> dict:
     failure mode identical to the sequential version it replaced.
     """
     try:
-        return gdelt.snapshot(_query_parts(q)[2] or q, timespan_hours=_window_days() * 24)
+        res = _gdelt_result("s", q, GDELT_INLINE_WAIT)
+        if res is None:
+            return {"degraded": [GDELT_PENDING_MSG], "pending": True}
+        out = copy.deepcopy(res)
+        out.pop("fetched_at", None)
+        return out
     except Exception as e:
         app.logger.warning("GDELT snapshot failed for q=%r: %s", q, e)
         return {"degraded": [f"snapshot failed: {str(e)[:80]}"]}
@@ -4610,11 +4713,13 @@ def _run_full_search_inner(q: str, use_cache: bool = True,
     # search that covered eight platforms read as "8 of 17 live sources
     # unreachable", and sources with no credentials configured read as outages.
     # Each platform is now classified once, here, and the UI shows these counts.
-    cov = {"ok": [], "partial": [], "empty": [], "unconfigured": [], "failed": []}
+    cov = {"ok": [], "partial": [], "empty": [], "unconfigured": [], "failed": [], "pending": []}
     for pid, g in sorted(out.items()):
         n = len((g or {}).get("results") or [])
         err = str((g or {}).get("error") or "")
-        if err and _is_transient(err):
+        if err.startswith("pending") and not n:
+            cov["pending"].append(pid)
+        elif err and _is_transient(err):
             cov["partial" if n else "failed"].append(pid)
         elif err and not n:
             cov["unconfigured"].append(pid)

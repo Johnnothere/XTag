@@ -1057,7 +1057,10 @@ def score_threat(payload: dict, gdelt_snapshot: dict | None = None,
         caveats.append("Signals unavailable: " + ", ".join(missing) + ".")
     if engine_errors:
         caveats.append("Analysis engine reported errors: " + ", ".join(sorted(engine_errors)) + ".")
-    if snap.get("degraded"):
+    if snap.get("pending"):
+        caveats.append("GDELT is still being fetched in the background — geography and tone "
+                       "join the assessment on the next run of this search.")
+    elif snap.get("degraded"):
         caveats.append("GDELT partially unavailable — geographic and tone signals may be thin.")
     # U1: the 16.4-year span of the audited corpus was visible nowhere on the
     # page. The recency gate now charges for it, but a reader who does not open

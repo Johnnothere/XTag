@@ -159,7 +159,7 @@ ANALYTICS_BUDGET  = int(os.environ.get("GDELT_ANALYTICS_BUDGET", "110"))  # wall
 # for RELAY_STICKY_S so later calls do not pay for a doomed direct attempt.
 SCRAPEBADGER_KEY  = os.environ.get("SCRAPEBADGER_KEY", "")
 RELAY_MODE        = os.environ.get("GDELT_RELAY", "auto").strip().lower()   # auto|always|off
-RELAY_TIMEOUT     = float(os.environ.get("GDELT_RELAY_TIMEOUT", "22"))
+RELAY_TIMEOUT     = float(os.environ.get("GDELT_RELAY_TIMEOUT", "45"))   # background job only
 # Residential exits (premium tier, +3 credits): GDELT throttles the shared
 # datacenter pool the same way it throttles Railway, and the first deploy's
 # relayed calls ran past 14s while ScrapeBadger retried 429s.
