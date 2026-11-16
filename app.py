@@ -4997,6 +4997,10 @@ def _scheduled_watchlist_pass() -> None:
         q = (entry or {}).get("query")
         if not q: continue
         wl_id = entry.get("id")
+        # A redeploy restarts this loop; do not re-buy a check that is still fresh.
+        last = intel._parse_ts(entry.get("last_checked"))
+        if last and (datetime.now(timezone.utc) - last).total_seconds() < WATCHLIST_INTERVAL_H * 3600 * 0.9:
+            continue
         try:
             result = evaluate_watchlist(q, {**DEFAULT_RULES, **(entry.get("rules") or {})},
                                         entry.get("last_snapshot"))
