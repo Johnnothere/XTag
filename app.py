@@ -4757,7 +4757,12 @@ def _run_full_search_inner(q: str, use_cache: bool = True,
 
     _optional = {"gdelt", "academic", "podcasts", "mastodon", "hackernews",
                  "threads", "tumblr", "pinterest", "linkedin"}
-    if (degraded_reasons and all(r.startswith("sources failed:") for r in degraded_reasons)
+    if (payload.get("coverage") or {}).get("pending") and not degraded_reasons:
+        # GDELT is still being fetched in the background. Remember this run for
+        # five minutes only, so the next search picks the GDELT data up rather
+        # than being served a 30-minute-old copy without it.
+        db.cache_set(cache_key, q, payload, 300)
+    elif (degraded_reasons and all(r.startswith("sources failed:") for r in degraded_reasons)
             and set(transient_sources) <= _optional):
         # Only peripheral sources missed. Remember it briefly (10 min) so a
         # reload does not re-buy the whole collection, but not as long-term fact.
