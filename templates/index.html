@@ -889,23 +889,80 @@ button{background:none;border:none;cursor:pointer;}
 
 /* Popovers — functional layer, glass */
 .filter-panel,.sort-panel{position:absolute;top:52px;z-index:200;border-radius:var(--r-shell);display:none;}
-.filter-panel{right:var(--s3);padding:var(--s5);width:288px;max-height:min(70vh,560px);overflow-y:auto;overscroll-behavior:contain;}
+.filter-panel{right:var(--s3);padding:0;width:min(352px,calc(100vw - 24px));max-height:min(76vh,640px);overflow:hidden;}
 .sort-panel{right:110px;padding:var(--s2);width:200px;}
 .filter-panel.show,.sort-panel.show{display:block;}
+.filter-panel.show{display:flex;flex-direction:column;}
 .filter-panel>*,.sort-panel>*{position:relative;z-index:1;}
-.fp-note{font-size:var(--fs-micro);color:var(--ink3);line-height:1.5;margin-top:var(--s2);}
-.date-pill.empty{opacity:.45;}
-.fp-title,.fp-label{font-size:var(--fs-micro);letter-spacing:.13em;text-transform:uppercase;color:var(--ink3);margin-bottom:var(--s2);}
-.fp-pills{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:var(--s4);}
-.fp-pill{font-size:var(--fs-cap);color:var(--ink2);background:var(--on-glass);border:1px solid var(--on-glass-line);border-radius:var(--pill);padding:5px var(--s3);cursor:pointer;display:flex;align-items:center;gap:5px;transition:border-color var(--t-fast),background var(--t-fast),color var(--t-fast);}
-.fp-pill:hover{border-color:var(--hair);}
-.fp-pill.on{background:var(--accent-tint);border-color:var(--accent);color:var(--accent2);}
-.fp-pill .fpn{font-family:var(--mono);font-size:var(--fs-micro);color:var(--ink3);}
-.fp-sep{height:1px;background:var(--glass-border);margin:var(--s3) 0;}
-.date-pills{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:var(--s3);}
-.date-pill{font-size:var(--fs-cap);color:var(--ink2);background:var(--on-glass);border:1px solid var(--on-glass-line);border-radius:var(--pill);padding:5px var(--s3);cursor:pointer;transition:border-color var(--t-fast),background var(--t-fast),color var(--t-fast);}
-.date-pill.on{background:var(--accent-tint);border-color:var(--accent);color:var(--accent2);}
-.fp-actions{display:flex;gap:var(--s2);margin-top:var(--s3);}
+/* A control panel has to be read, so its fill is near-opaque: the posts behind
+   it no longer show through the options. The glass rim and shadow stay. */
+.filter-panel.glass{background:var(--surface);}
+.filter-panel.glass::before{opacity:.35;}
+
+/* ── Filter panel: head, four sections, actions ─────────────────────────── */
+.fp-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s3);
+  padding:var(--s4) var(--s5) var(--s3);border-bottom:1px solid var(--line);}
+.fp-h{font-size:var(--fs-sm);font-weight:600;color:var(--ink);letter-spacing:-.005em;}
+.fp-shown{font-size:var(--fs-cap);color:var(--ink3);font-variant-numeric:tabular-nums;}
+.fp-shown b{color:var(--ink);font-weight:600;}
+.fp-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--s5);}
+.fp-sec{padding:var(--s4) 0;border-top:1px solid var(--line);}
+.fp-sec:first-child{border-top:0;}
+.fp-sec[hidden]{display:none !important;}
+.fp-sec-h{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);
+  min-height:18px;margin-bottom:var(--s2);}
+.fp-title,.fp-label{font-size:var(--fs-micro);letter-spacing:.13em;text-transform:uppercase;color:var(--ink3);font-weight:600;}
+.fp-all{font:inherit;font-size:var(--fs-cap);color:var(--accent2);background:none;border:0;padding:2px 0;cursor:pointer;}
+.fp-all:hover{text-decoration:underline;text-underline-offset:2px;}
+
+/* Multi-select checklist in two columns, filled top-to-bottom so the largest
+   counts read down the left column. Unchecked everywhere means no filter. */
+.fp-list{columns:2;column-gap:var(--s2);}
+.fp-list .fp-row{break-inside:avoid;margin-bottom:2px;}
+.fp-row{font:inherit;display:flex;align-items:center;gap:8px;width:100%;min-width:0;padding:6px 8px;
+  border:0;border-radius:var(--r-xs);background:none;color:var(--ink2);font-size:var(--fs-sm);
+  text-align:left;cursor:pointer;transition:background var(--t-fast),color var(--t-fast);}
+.fp-row:hover{background:var(--on-glass);color:var(--ink);}
+.fp-row.on{color:var(--ink);}
+.fp-box{flex:none;width:14px;height:14px;border-radius:4px;border:1px solid var(--hair);
+  display:grid;place-items:center;background:var(--surface);}
+.fp-box i{font-size:10px;line-height:1;color:#fff;opacity:0;}
+.fp-row.on .fp-box{background:var(--accent);border-color:var(--accent);}
+.fp-row.on .fp-box i{opacity:1;}
+.fp-row-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fp-n{margin-left:auto;font-family:var(--mono);font-size:var(--fs-micro);color:var(--ink3);
+  font-variant-numeric:tabular-nums;letter-spacing:0;}
+
+/* Single choice with an explanation under each option. */
+.fp-opts{display:flex;flex-direction:column;gap:2px;}
+.fp-opt{font:inherit;display:flex;align-items:flex-start;gap:10px;width:100%;padding:8px;border:0;
+  border-radius:var(--r-xs);background:none;text-align:left;cursor:pointer;
+  transition:background var(--t-fast);}
+.fp-opt:hover{background:var(--on-glass);}
+.fp-opt.on{background:var(--accent-tint);}
+.fp-opt.empty{opacity:.5;}
+.fp-radio{flex:none;width:14px;height:14px;margin-top:1px;border-radius:50%;
+  border:1px solid var(--hair);background:var(--surface);}
+.fp-opt.on .fp-radio{border:4px solid var(--accent);}
+.fp-opt-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.fp-opt-l{font-size:var(--fs-sm);color:var(--ink);font-weight:500;}
+.fp-opt-d{font-size:var(--fs-cap);color:var(--ink3);line-height:1.45;}
+.fp-opt .fp-n{margin-top:2px;}
+
+/* Date range: a 3x2 grid, count under each label. */
+.fp-seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+.fp-segb{font:inherit;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:7px 10px;
+  border:1px solid var(--on-glass-line);border-radius:var(--r-sm);background:var(--on-glass);
+  color:var(--ink2);font-size:var(--fs-sm);text-align:left;cursor:pointer;
+  transition:border-color var(--t-fast),background var(--t-fast),color var(--t-fast);}
+.fp-segb:hover{border-color:var(--hair);color:var(--ink);}
+.fp-segb.on{background:var(--accent-tint);border-color:var(--accent);color:var(--accent2);}
+.fp-segb.on .fp-n{color:var(--accent2);}
+.fp-segb .fp-n{margin-left:0;}
+.fp-segb.empty{opacity:.45;}
+.fp-note{font-size:var(--fs-cap);color:var(--ink3);line-height:1.5;margin-top:var(--s3);}
+
+.fp-actions{display:flex;gap:var(--s2);padding:var(--s3) var(--s5);border-top:1px solid var(--line);}
 .fp-reset{flex:1;font-size:var(--fs-cap);color:var(--ink2);background:var(--on-glass);border:1px solid var(--on-glass-line);border-radius:var(--r-sm);padding:8px;transition:color var(--t-fast);}
 .fp-reset:hover{color:var(--ink);}
 .fp-apply{flex:2;font-size:var(--fs-cap);font-weight:600;color:#fff;background:linear-gradient(180deg,var(--accent2),var(--accent));border-radius:var(--r-sm);padding:8px;transition:filter var(--t-fast);}
@@ -1602,7 +1659,6 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
 /* The sort popover was pinned at right:110px regardless of where its button
    actually sits, so it drifted off its anchor on any narrow panel. */
 .sort-panel{right:var(--s3) !important;}
-.fp-sep[hidden]{display:none !important;}
 
 /* Case rail — a search is a record with an outcome, not just a string. The
    heading only exists in the expanded state; collapsed, the rail is icons. */
@@ -2273,19 +2329,29 @@ text.tlx{fill:var(--ink3);font-size:11px;font-family:var(--mono);text-anchor:mid
           <button type="button" class="sort-btn" data-act="sort" aria-expanded="false" aria-controls="sortPanel"><i class="ti ti-arrows-sort" aria-hidden="true"></i> Sort</button>
           <!-- FILTER PANEL -->
           <div class="filter-panel glass glass--deep" id="filterPanel" role="dialog" aria-label="Filter results">
-            <div class="fp-title">Platform</div>
-            <div class="fp-pills" id="fpPlatforms"></div>
-            <div class="fp-sep"></div>
-            <div class="fp-label">Source Type</div>
-            <div class="fp-pills" id="fpSrcTypes"></div>
-            <div class="fp-sep" id="fpRelWrap" hidden>
-              <div class="fp-label">Relevance</div>
-              <div class="fp-pills" id="fpRelevance"></div>
+            <div class="fp-head">
+              <span class="fp-h">Filter results</span>
+              <span class="fp-shown" id="fpShown" role="status" aria-live="polite"></span>
             </div>
-            <div class="fp-sep"></div>
-            <div class="fp-label">Date Range</div>
-            <div class="date-pills" id="fpDates"></div>
-            <div class="fp-note" id="fpDateNote" hidden></div>
+            <div class="fp-body">
+              <section class="fp-sec" aria-labelledby="fpLblPlat">
+                <div class="fp-sec-h"><span class="fp-label" id="fpLblPlat">Platform</span><span id="fpPlatAll"></span></div>
+                <div class="fp-list" id="fpPlatforms"></div>
+              </section>
+              <section class="fp-sec" aria-labelledby="fpLblSrc">
+                <div class="fp-sec-h"><span class="fp-label" id="fpLblSrc">Source type</span><span id="fpSrcAll"></span></div>
+                <div class="fp-list" id="fpSrcTypes"></div>
+              </section>
+              <section class="fp-sec" id="fpRelWrap" aria-labelledby="fpLblRel" hidden>
+                <div class="fp-sec-h"><span class="fp-label" id="fpLblRel">Relevance</span></div>
+                <div class="fp-opts" id="fpRelevance"></div>
+              </section>
+              <section class="fp-sec" aria-labelledby="fpLblDate">
+                <div class="fp-sec-h"><span class="fp-label" id="fpLblDate">Date range</span></div>
+                <div class="fp-seg" id="fpDates"></div>
+                <div class="fp-note" id="fpDateNote" hidden></div>
+              </section>
+            </div>
             <div class="fp-actions">
               <button type="button" class="fp-reset" data-act="fpreset">Reset all</button>
               <button type="button" class="fp-apply" data-act="fpapply">Done</button>
@@ -2707,12 +2773,20 @@ function openCase(entry){
     filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
     pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
     restoredAt=entry.ts;
+    /* The summary is stored with the case once it has been generated, so a
+       reopened case shows it with no model call. Cases saved before that have
+       no summary; they say so instead of spending tokens to rebuild one. Set
+       before renderReport(), which draws the summary from this state. */
+    briefSeq++;   // a brief still in flight for another search must not land here
+    if(data._brief){
+      briefState='ready';briefHTML=briefSummary(data._brief);
+    }else{
+      briefState='none';
+      briefHTML='<div class="ve-text">No summary was saved with this case. '+
+        '<button type="button" class="eg-retry" data-act="rerun">Re-run this search</button> to generate one.</div>';
+    }
     renderReport(data);
     renderGrid(allItems());
-    briefHTML='';briefState='idle';
-    var bb=$('briefBody');
-    if(bb)bb.innerHTML='<div class="ve-text">The written brief is not stored with a case. '+
-      '<button type="button" class="eg-retry" data-act="rerun">Re-run this search</button> to regenerate it.</div>';
     renderRailHist();
   });
 }
@@ -2735,7 +2809,7 @@ var gridTimeFocus=null;
 /* The brief resolves asynchronously and setMode() re-renders #report wholesale,
    so a tab switch mid-flight used to lose it permanently. It is kept here and
    re-applied by renderReport(). */
-var briefHTML='',briefState='idle';
+var briefHTML='',briefState='idle',briefSeq=0;
 var searchCtl=null,searchSeq=0,loaderIv=null,loaderHideT=null;
 var filterState={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
 var pendingFilter={platforms:new Set(['all']),srcTypes:new Set(['all']),dateRange:'all',rel:'all'};
@@ -2960,7 +3034,7 @@ function doSearch(){
   searchCtl=(typeof AbortController!=='undefined')?new AbortController():null;
   var seq=++searchSeq;
   lastQ=q;
-  briefHTML='';briefState='loading';
+  briefHTML='';briefState='loading';briefSeq++;
   /* Filters were only reset by newSearch(), so a filter left on query A silently
      applied to query B — the grid could read "0 / 412 posts" with no explanation
      while the report above summarised all 412. */
@@ -3007,7 +3081,7 @@ function doSearch(){
     finishCase(caseId,data);
     renderReport(data);
     renderGrid(allItems());
-    requestBrief(data);
+    requestBrief(data,caseId);
   }
   streamSearch(q,onPhase1,onComplete)
     .catch(function(e){
@@ -3334,17 +3408,10 @@ function findingClauses(data){
   var vel=data.velocity||{}, ents=(data.entities||{}).entities||[];
   var c=[];
 
-  var kept=t.mentions||0;
-  var srcs=Object.keys(data.platforms||{}).filter(function(k){
-    return ((data.platforms[k]||{}).results||[]).length;}).length;
-
-  /* 1. What this is built from. Always first — the reader should know the size
-        of the evidence before reading a claim drawn from it. */
-  if(kept){
-    var s1=kept+' on-topic document'+(kept===1?'':'s')+' from '+srcs+' source'+(srcs===1?'':'s');
-    if(rel.dropped) s1+=', after removing '+rel.dropped+' that were not about this query';
-    c.push({k:'base', t:s1+'.'});
-  }
+  /* 1. The document count ("568 on-topic documents from 14 sources, after
+        removing 150…") used to open the finding. Removed at Tej's instruction
+        (18 Nov 2026): it is corpus bookkeeping, not part of the finding, and
+        the relevance section and the results panel already state it. */
 
   /* 2. What is being said. The top narrative's own claim, quoted from the
         model's output — not a paraphrase of a paraphrase. */
@@ -3446,14 +3513,20 @@ function renderAiDown(data){
    It is filled asynchronously by /api/brief through #briefBody (requestBrief →
    applyBrief), so the block renders skeletons first. No evidence, no summary:
    over an empty corpus there is nothing for it to summarise. */
+/* The summary is generated ONCE per search (requestBrief, on completion) and
+   kept in briefHTML. Every tab renders it straight from that state, so
+   switching Narrative / Entities / Timeline shows the same summary instantly
+   and never calls the model. Skeletons appear only while that one request is
+   actually in flight. Previously the Entities and Timeline tabs drew skeletons
+   and never filled them, which read as the summary being regenerated. */
 function renderSummary(data){
   if(!((data.totals||{}).mentions)) return '';
+  var inner=(briefState==='loading'||!briefHTML)
+    ? '<div class="skel w90"></div><div class="skel w75"></div><div class="skel w60"></div>'
+    : briefHTML;
   return '<section class="sum" aria-label="Summary">'+
-    '<div class="sum-head"><span class="sum-eyebrow">Summary</span>'+
-      '<span class="sum-src" title="Written by the model from the collected posts and the measured coordination signal. The measured figures below take precedence.">AI-written</span></div>'+
-    '<div id="briefBody" class="report-body sum-body">'+
-      '<div class="skel w90"></div><div class="skel w75"></div><div class="skel w60"></div>'+
-    '</div>'+
+    '<div class="sum-head"><span class="sum-eyebrow">Summary</span></div>'+
+    '<div id="briefBody" class="report-body sum-body">'+inner+'</div>'+
   '</section>';
 }
 function renderWindowNote(data){
@@ -6367,7 +6440,12 @@ function reportFooter(){
 }
 
 /* ── BRIEF ── */
-function requestBrief(data){
+/* One request per completed search. The text is also written into the saved
+   case, so reopening the search from history shows the same summary without
+   another model call. `seq` stops a brief that arrives after a NEWER search has
+   started from landing on that newer search's screen. */
+function requestBrief(data,caseId){
+  var seq=briefSeq;
   var snippets=[];
   Object.values(data.platforms||{}).forEach(function(group){
     (group.results||[]).slice(0,3).forEach(function(r){
@@ -6381,6 +6459,9 @@ function requestBrief(data){
     .then(function(r){return r.json();})
     .then(function(j){
       if(j.brief){
+        data._brief=j.brief;
+        if(caseId)casePut(caseId,data);
+        if(seq!==briefSeq)return;
         briefState='ready';
         briefHTML=briefSummary(j.brief);
         applyBrief();
@@ -6394,14 +6475,16 @@ function requestBrief(data){
           }
         }
       }else{
+        if(seq!==briefSeq)return;
         briefState='failed';
-        briefHTML='<span style="color:var(--ink3)">'+esc(j.reason||'Brief unavailable.')+'</span>';
+        briefHTML='<span style="color:var(--ink3)">'+esc(j.reason||'Summary unavailable.')+'</span>';
         applyBrief();
       }
     })
     .catch(function(){
+      if(seq!==briefSeq)return;
       briefState='failed';
-      briefHTML='<span style="color:var(--ink3)">Brief unavailable — the summariser did not respond.</span>';
+      briefHTML='<span style="color:var(--ink3)">Summary unavailable — the summariser did not respond.</span>';
       applyBrief();
     });
 }
@@ -6823,9 +6906,33 @@ function renderGrid(rawItems){
 }
 
 /* ── FILTER PANEL ── */
+/* Four sections, each with its own heading and a control shaped for what it
+   holds: platforms and source types are multi-select checklists in two
+   columns with counts aligned on the right; relevance is a single choice with
+   a one-line explanation of each option (the labels alone did not say what
+   "Snippet only" meant); date range is a 3x2 grid. The relevance block used to
+   sit inside the 1px divider element, so its heading and options spilled over
+   Date Range. (18 Nov 2026) */
+function fpCheckRow(act,v,label,n,on){
+  return '<button type="button" class="fp-row'+(on?' on':'')+'" data-act="'+act+'" data-v="'+esc(v)+'" '+
+    'aria-pressed="'+on+'"><span class="fp-box" aria-hidden="true"><i class="ti ti-check"></i></span>'+
+    '<span class="fp-row-l">'+esc(label)+'</span><span class="fp-n">'+n+'</span></button>';
+}
+/* Nothing ticked means no filter on that dimension; ticking narrows to the
+   ticked items. "Clear" appears only when something is ticked. */
+function fpAllBtn(act,on){
+  return on ? '' : '<button type="button" class="fp-all" data-act="'+act+'" data-v="all">Clear</button>';
+}
 function buildFilterPanel(){
   if(!lastData)return;
   var items=allItems();
+  var shown=$('fpShown');
+  if(shown){
+    var nShown=filterItems(items).length;
+    shown.innerHTML=nShown===items.length
+      ? 'All <b>'+items.length+'</b> posts'
+      : '<b>'+nShown+'</b> of '+items.length+' posts';
+  }
   // Platforms
   var platCounts={};
   items.forEach(function(it){platCounts[it._p]=(platCounts[it._p]||0)+1;});
@@ -6833,11 +6940,10 @@ function buildFilterPanel(){
   var fpP=$('fpPlatforms');
   if(fpP){
     var allPlatOn=filterState.platforms.has('all');
-    fpP.innerHTML='<button type="button" class="fp-pill'+(allPlatOn?' on':'')+'" data-act="fpp" data-v="all" aria-pressed="'+allPlatOn+'">All <span class="fpn">'+items.length+'</span></button>'+
-      plats.map(function(kv){
-        var on=filterState.platforms.has(kv[0])&&!filterState.platforms.has('all');
-        return'<button type="button" class="fp-pill'+(on?' on':'')+'" data-act="fpp" data-v="'+esc(kv[0])+'" aria-pressed="'+on+'">'+esc(pm(kv[0]).n)+' <span class="fpn">'+kv[1]+'</span></button>';
-      }).join('');
+    var pa=$('fpPlatAll'); if(pa)pa.innerHTML=fpAllBtn('fpp',allPlatOn);
+    fpP.innerHTML=plats.map(function(kv){
+      return fpCheckRow('fpp',kv[0],pm(kv[0]).n,kv[1],!allPlatOn&&filterState.platforms.has(kv[0]));
+    }).join('');
   }
   // Source types
   var stCounts={};
@@ -6845,25 +6951,28 @@ function buildFilterPanel(){
   var fpS=$('fpSrcTypes');
   if(fpS){
     var allSrcOn=filterState.srcTypes.has('all');
-    fpS.innerHTML='<button type="button" class="fp-pill'+(allSrcOn?' on':'')+'" data-act="fps" data-v="all" aria-pressed="'+allSrcOn+'">All</button>'+
-      Object.entries(stCounts).map(function(kv){
-        var on=filterState.srcTypes.has(kv[0])&&!allSrcOn;
-        return'<button type="button" class="fp-pill'+(on?' on':'')+'" data-act="fps" data-v="'+esc(kv[0])+'" aria-pressed="'+on+'">'+esc(SRC_LABELS[kv[0]]||kv[0])+' <span class="fpn">'+kv[1]+'</span></button>';
-      }).join('');
+    var sa=$('fpSrcAll'); if(sa)sa.innerHTML=fpAllBtn('fps',allSrcOn);
+    fpS.innerHTML=Object.entries(stCounts).sort(function(a,b){return b[1]-a[1];}).map(function(kv){
+      return fpCheckRow('fps',kv[0],SRC_LABELS[kv[0]]||kv[0],kv[1],!allSrcOn&&filterState.srcTypes.has(kv[0]));
+    }).join('');
   }
-  // Relevance band — only offered when the gate actually ran and produced a mix.
+  // Relevance — only offered when the gate actually ran and produced a mix.
   var fpR=$('fpRelevance');
   if(fpR){
     var nv=0,nu=0;
     items.forEach(function(it){var r=it.relevance;if(r===undefined)return;if(r>=0.65)nv++;else if(r>0)nu++;});
     if(nu||nv){
       $('fpRelWrap').hidden=false;
-      fpR.innerHTML=[['all','Any','',items.length],
-                     ['verified','Query in the text','v',nv],
-                     ['unverified','Snippet only','u',nu]].map(function(o){
+      fpR.innerHTML=[['all','Any',items.length,'Everything that passed the relevance check.'],
+                     ['verified','Query in the text',nv,'The query appears in the post itself.'],
+                     ['unverified','Snippet only',nu,'Admitted on a search snippet. Open it to confirm before citing.']
+                    ].map(function(o){
         var on=filterState.rel===o[0];
-        return'<button type="button" class="fp-pill'+(on?' on':'')+'" data-act="fpr" data-v="'+o[0]+'" '+
-          'aria-pressed="'+on+'">'+esc(o[1])+' <span class="fpn">'+o[3]+'</span></button>';
+        return '<button type="button" class="fp-opt'+(on?' on':'')+(o[2]?'':' empty')+'" data-act="fpr" data-v="'+o[0]+'" '+
+          'aria-pressed="'+on+'"><span class="fp-radio" aria-hidden="true"></span>'+
+          '<span class="fp-opt-t"><span class="fp-opt-l">'+esc(o[1])+'</span>'+
+          '<span class="fp-opt-d">'+esc(o[3])+'</span></span>'+
+          '<span class="fp-n">'+o[2]+'</span></button>';
       }).join('');
     } else { $('fpRelWrap').hidden=true; }
   }
@@ -6876,8 +6985,8 @@ function buildFilterPanel(){
        — the quarter, the year, the period since the last escalation — had no
        control at all. Counts are printed on each band so an empty window is
        visible before it is chosen. */
-    var DBANDS=[['all','All time'],['24h','Last 24h'],['7d','Last 7 days'],
-                ['30d','Last 30 days'],['90d','Last 90 days'],['1y','Last year']];
+    var DBANDS=[['all','All time'],['24h','24 hours'],['7d','7 days'],
+                ['30d','30 days'],['90d','90 days'],['1y','1 year']];
     var nowMs=Date.now(),WIN={'24h':864e5,'7d':6048e5,'30d':2592e6,'90d':7776e6,'1y':31536e6};
     fpD.innerHTML=DBANDS.map(function(o){
       var v=o[0],cnt;
@@ -6887,9 +6996,9 @@ function buildFilterPanel(){
         cnt=items.filter(function(it){var d=parseTs(it.timestamp);return d&&(nowMs-d)<=w;}).length;
       }
       var on=filterState.dateRange===v;
-      return'<button type="button" class="date-pill'+(on?' on':'')+(cnt?'':' empty')+
-        '" data-act="fpd" data-v="'+v+'" aria-pressed="'+on+'">'+o[1]+
-        ' <span class="fpn">'+cnt+'</span></button>';
+      return'<button type="button" class="fp-segb'+(on?' on':'')+(cnt?'':' empty')+
+        '" data-act="fpd" data-v="'+v+'" aria-pressed="'+on+'"><span class="fp-segb-l">'+o[1]+'</span>'+
+        '<span class="fp-n">'+cnt+'</span></button>';
     }).join('');
     /* An undated document cannot satisfy any window, so it silently disappears
        the moment one is chosen. That is correct and it is invisible, so say it. */
@@ -6897,7 +7006,7 @@ function buildFilterPanel(){
     var note=$('fpDateNote');
     if(note){
       note.textContent=undated
-        ? undated+' document'+(undated===1?'':'s')+' carry no usable date and are excluded by any window below All time.'
+        ? undated+' post'+(undated===1?' has':'s have')+' no usable date and '+(undated===1?'is':'are')+' left out of any range other than All time.'
         : '';
       note.hidden=!undated;
     }

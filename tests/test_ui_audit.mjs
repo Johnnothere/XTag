@@ -91,6 +91,38 @@ console.log('\n=== S1  summary block ===');
       rr.indexOf('html+=renderSummary(data);') < rr.indexOf('html+=renderFinding(data);'));
   chk('no evidence, no summary',
       /function renderSummary\(data\)\{\s*if\(!\(\(data\.totals\|\|\{\}\)\.mentions\)\) return '';/.test(js));
+
+  // S2 — generated once, shown on every tab, kept with the case.
+  chk('S2 every tab draws the summary from state, not a fresh skeleton',
+      /function renderSummary[\s\S]{0,700}\(briefState==='loading'\|\|!briefHTML\)[\s\S]{0,200}: briefHTML;/.test(js));
+  chk('S2 the model is asked once per completed search',
+      (js.match(/requestBrief\(/g)||[]).length === 2 && js.includes('requestBrief(data,caseId);'));
+  chk('S2 switching tabs never requests a summary',
+      !/function setMode\(btn\)\{[\s\S]{0,400}(requestBrief|\/api\/brief)/.test(js));
+  chk('S2 the summary is saved with the case',
+      js.includes('data._brief=j.brief;') && js.includes('if(caseId)casePut(caseId,data);'));
+  chk('S2 a reopened case shows its saved summary without a model call',
+      /if\(data\._brief\)\{\s*briefState='ready';briefHTML=briefSummary\(data\._brief\);/.test(js));
+  chk('S2 a late summary cannot land on a newer search',
+      (js.match(/if\(seq!==briefSeq\)return;/g)||[]).length === 3);
+  chk('S2 the AI-written tag is gone', !html.includes('>AI-written<'));
+}
+
+// ── F1: the filter panel ─────────────────────────────────────────────────────
+console.log('\n=== F1  filter panel ===');
+{
+  const fp = html.slice(html.indexOf('id="filterPanel"'), html.indexOf('<!-- SORT PANEL -->'));
+  chk('F1 relevance is its own section, not inside the 1px divider',
+      /<section class="fp-sec" id="fpRelWrap"/.test(fp) && !fp.includes('fp-sep'));
+  chk('F1 four labelled sections', (fp.match(/<section class="fp-sec"/g)||[]).length === 4);
+  chk('F1 the panel says how many posts the filters leave',
+      fp.includes('id="fpShown"') && js.includes('filterItems(items).length'));
+  chk('F1 each relevance option explains itself',
+      js.includes('The query appears in the post itself.') && js.includes('Open it to confirm before citing.'));
+  chk('F1 the panel is opaque, so posts do not show through the options',
+      html.includes('.filter-panel.glass{background:var(--surface);}'));
+  chk('F1 the actions stay put while the options scroll',
+      html.includes('.fp-body{flex:1;min-height:0;overflow-y:auto;'));
 }
 
 // ── M2: a date without a year is unusable in a 16-year corpus ───────────────
@@ -135,7 +167,7 @@ chk('M1 the toolbar is a containing block for its popovers',
 has("if(e.target.closest('[data-act]'))return;",
     'M1 the outside-click closer cannot race the action dispatcher');
 chk('M1 the corpus can be bounded beyond 30 days',
-    js.includes("['90d','Last 90 days']") && js.includes("['1y','Last year']"));
+    js.includes("['90d','90 days']") && js.includes("['1y','1 year']"));
 chk('M1 every offered window is also honoured by the filter',
     /'90d':7776000000,\s*'1y':31536000000/.test(js));
 

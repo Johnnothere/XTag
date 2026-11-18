@@ -31,8 +31,9 @@ console.log('\n=== the full case ===');
 let h = renderFinding(full);
 chk('renders', h.length>200);
 chk('opens with words, not a number', h.indexOf('fd-body') < h.indexOf('fd-score'));
-chk('states the evidence base', /96 on-topic documents from 3 sources/.test(h));
-chk('says what was removed', /removing 103/.test(h));
+// The document-count sentence was removed from the finding (18 Nov 2026).
+chk('does not open with a document count', !/on-topic documents? from/.test(h));
+chk('does not narrate what relevance removed', !/removing 103/.test(h));
 chk('quotes the dominant claim', /founding in 1948 is itself a disease/.test(h));
 chk('names actors', /IRGC, Press TV, DFRLab/.test(h));
 chk('reports offline events', /2 real-world events/.test(h) && /protest activity/.test(h));
@@ -56,7 +57,8 @@ chk('says it is talking to itself', /talking to itself/.test(h), h.match(/71%[^<
 console.log('\n=== thin / empty / hostile ===');
 chk('empty payload renders nothing', renderFinding({})==='' , JSON.stringify(renderFinding({})));
 h = renderFinding({totals:{mentions:3}, platforms:{x:{results:[1]}}, relevance:{}, narratives:[], coordination:{}});
-chk('thin corpus still renders a base clause', /3 on-topic documents from 1 source/.test(h));
+chk('thin corpus still renders a finding, without a count sentence',
+    /fd-body/.test(h) && !/on-topic documents? from/.test(h));
 chk('no narratives -> says so, does not invent', /No distinct narrative clusters/.test(h));
 chk('confidence degrades to very low', /very low/.test(h), h.match(/fd-conf-w">[a-z ]+/)?.[0]);
 chk('no threat score -> no score block', !/fd-score-n/.test(h));
