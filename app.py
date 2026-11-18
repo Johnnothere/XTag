@@ -3910,15 +3910,20 @@ def generate_brief(q, snippets, narratives, entities, coordination):
             +("REAL POSTS:\n"+ctx+"\n\n" if ctx else "")
             +(narr_ctx+"\n" if narr_ctx else "")+(ent_ctx+"\n" if ent_ctx else "")
             +(coord_ctx+"\n" if coord_ctx else "")
-            +"\nStructured brief:\n"
-            "**SITUATION**: 1 sentence.\n"
-            "**KEY ACTORS**: Who is involved.\n"
-            "**DOMINANT NARRATIVE**: Main story and framing.\n"
-            "**COORDINATION RISK**: Signs of inauthentic behaviour, drawn ONLY from the "
+            # This brief is the summary block at the top of the console report,
+            # read before anything else, so every field is kept short and the
+            # order is the order Tej reads it in (18 Nov 2026). The console
+            # parses these exact labels; keep them in this "**LABEL**: text" form.
+            +"\nStructured brief. Exactly these five fields, in this order, each on its own line, "
+            "no title or preamble:\n"
+            "**SITUATION**: 1 sentence on what is happening.\n"
+            "**DOMINANT NARRATIVE**: 1 sentence on the main story and how it is framed.\n"
+            "**KEY ACTORS**: The 3-5 most important actors, one line, comma-separated.\n"
+            "**COORDINATION RISK**: 1 sentence on signs of inauthentic behaviour, drawn ONLY from the "
             "COORDINATION SIGNAL above. If it says the score is not banded, say so and give "
             "no severity word. If no coordination signal was supplied, write "
             "'Not assessed on this run.' Never infer coordination from the posts alone.\n"
-            "**ASSESSMENT**: 1-2 sentence significance.\n\n"
+            "**ASSESSMENT**: 1-2 sentences on why it matters.\n\n"
             "Bold key entities. English only. Output only the brief.")
     try:
         r=requests.post("https://api.anthropic.com/v1/messages",

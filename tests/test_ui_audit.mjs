@@ -39,6 +39,60 @@ console.log('\n=== U8  brief markdown ===');
       evil.includes('&lt;img') && evil.includes('&lt;script&gt;'));
 }
 
+// ── S1: the brief is the summary at the top of the report ───────────────────
+console.log('\n=== S1  summary block ===');
+{
+  const a0 = js.indexOf('function briefMd(src){');
+  const b0 = js.indexOf('/* The brief read as the summary block', a0);
+  const briefMd = new Function('esc', js.slice(a0,b0) + '; return briefMd;')(esc);
+  const a = js.indexOf('function briefSummary(src){');
+  const b = js.indexOf('/* renderReport() replaces', a);
+  const briefSummary = new Function('esc','briefMd', js.slice(a,b) + '; return briefSummary;')(esc, briefMd);
+  const order = s => ['situation','dominant-narrative','key-actors','coordination-risk','assessment']
+    .map(k => s.indexOf('sum-row sum-'+k));
+
+  // The model's old order (actors before narrative) still lands in Tej's order.
+  const out = briefSummary('# INTELLIGENCE BRIEF\n' +
+    '**SITUATION**: **Hezbollah** and Israel exchanged fire.\n' +
+    '**KEY ACTORS**: **Hezbollah**, **IDF**, **IRGC**\n' +
+    '**DOMINANT NARRATIVE**: Framed as *resistance* against occupation.\n' +
+    '**COORDINATION RISK**: Raw magnitude 6/100, unbanded.\n' +
+    '**ASSESSMENT**: Escalation risk is rising.');
+  const o = order(out);
+  chk('all five rows render', o.every(i => i >= 0), o.join(','));
+  chk('rows follow the summary order, not the model\'s order',
+      o.every((v,i) => i===0 || v > o[i-1]), o.join(','));
+  chk('the title line before the first field is dropped', !out.includes('INTELLIGENCE BRIEF'));
+  chk('bold and italics render inside a row',
+      out.includes('<strong>IDF</strong>') && out.includes('<em>resistance</em>'));
+  chk('no stray asterisks survive', !/\*/.test(out), out.slice(0,120));
+
+  const v = briefSummary('**SITUATION:** One.\nDOMINANT NARRATIVE: Two.\n' +
+    '**Key Actors**:\n- **Hezbollah**: armed group\n- Amal\n**ASSESSMENT**: Five.');
+  chk('"**LABEL:**", bare and mixed-case labels are all read',
+      v.includes('<dt>Situation</dt><dd>One.</dd>') && v.includes('<dt>Dominant narrative</dt><dd>Two.</dd>'));
+  chk('bullets under a label stay with that label',
+      /sum-key-actors"><dt>Key actors<\/dt><dd><ul><li><strong>Hezbollah<\/strong>: armed group<\/li><li>Amal<\/li><\/ul>/.test(v), v);
+  chk('a field the model left out is shown as missing, not dropped',
+      v.includes('sum-coordination-risk"><dt>Coordination risk</dt><dd class="sum-missing">'));
+
+  const loose = briefSummary('Hezbollah activity is rising.\n\n**SITUATION**: only one field.');
+  chk('a brief in some other shape falls back to plain markdown', !loose.includes('sum-grid'));
+
+  const evil = briefSummary('**SITUATION**: <img src=x onerror=alert(1)>\n' +
+    '**DOMINANT NARRATIVE**: <script>alert(2)</script>\n**ASSESSMENT**: ok');
+  chk('markup in a summary row is escaped, not rendered',
+      !evil.includes('<img') && !evil.includes('<script>') && evil.includes('&lt;img'));
+
+  const rr = js.slice(js.indexOf('function renderReport(data){'));
+  chk('the summary is requested through the summary renderer', js.includes('briefHTML=briefSummary(j.brief);'));
+  chk('the summary sits above the finding',
+      rr.indexOf('html+=renderSummary(data);') > 0 &&
+      rr.indexOf('html+=renderSummary(data);') < rr.indexOf('html+=renderFinding(data);'));
+  chk('no evidence, no summary',
+      /function renderSummary\(data\)\{\s*if\(!\(\(data\.totals\|\|\{\}\)\.mentions\)\) return '';/.test(js));
+}
+
 // ── M2: a date without a year is unusable in a 16-year corpus ───────────────
 console.log('\n=== M2  dates carry their year ===');
 {
@@ -133,7 +187,14 @@ chk('M3 a gap is only called where the query was actually issued in that languag
 has('function renderChangedSince(data){', 'M10 what changed is a headline');
 chk('M10 it renders nothing on a first observation',
     /function renderChangedSince[\s\S]*?if\(maxObs<=1\)return'';/.test(js));
-chk('M10 it sits above the brief', js.indexOf('renderChangedSince(data)') < js.indexOf("id=\"briefBody\""));
+/* M10 used to require this card above the brief. The brief is now the summary
+   at the very top (18 Nov 2026), so "what changed" sits directly beneath it. */
+{
+  const rr = js.slice(js.indexOf('function renderReport(data){'));
+  chk('M10 it sits directly under the summary and finding, above the detail',
+      rr.indexOf('html+=renderSummary(data);') < rr.indexOf('html+=renderChangedSince(data);') &&
+      rr.indexOf('html+=renderChangedSince(data);') < rr.indexOf("if(activeMode==='entities')"));
+}
 
 // U6 — propagation drawn as flow across an archive.
 chk('U6 a long spread is not drawn as a chain',

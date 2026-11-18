@@ -1036,6 +1036,35 @@ button{background:none;border:none;cursor:pointer;}
 .report-body code{font-family:var(--mono);font-size:.9em;background:var(--on-glass);
   border-radius:3px;padding:1px 4px;}
 
+/* ── Summary: the first thing read on every tab ────────────────────────────
+   Five labelled rows. The label is structure, so it is set as a quiet
+   uppercase label; the row text is interpretation, so it is plain sans at
+   reading size. A hairline separates the rows; nothing else competes. */
+.sum{margin:0 0 var(--s5);padding:var(--s4) var(--s5) var(--s2);border-radius:var(--r);
+  background:var(--surface);border:1px solid var(--line);}
+.sum-head{display:flex;align-items:baseline;justify-content:space-between;gap:var(--s3);
+  margin-bottom:var(--s2);}
+.sum-eyebrow{font-size:var(--fs-cap);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink4);font-weight:600;}
+.sum-src{font-size:var(--fs-micro);color:var(--ink4);letter-spacing:.02em;cursor:help;}
+.report-body.sum-body{margin-bottom:0;}
+.sum-grid{margin:0;}
+.sum-row{display:grid;grid-template-columns:minmax(118px,150px) 1fr;gap:var(--s4);
+  padding:var(--s3) 0;border-top:1px solid var(--line2);}
+.sum-row:first-child{border-top:0;}
+.sum-row dt{font-size:var(--fs-micro);letter-spacing:.11em;text-transform:uppercase;
+  color:var(--ink3);font-weight:600;padding-top:4px;line-height:1.4;}
+.sum-row dd{margin:0;font-size:14px;line-height:1.6;color:var(--ink2);text-wrap:pretty;}
+.sum-row dd ul{margin:var(--s1,4px) 0 0;padding-left:1.1em;}
+.sum-row dd li{margin-bottom:2px;line-height:1.55;}
+.sum-row.sum-assessment dd{color:var(--ink);}
+.sum-row dd.sum-missing{color:var(--ink4);font-style:italic;}
+@media (max-width:560px){
+  .sum{padding:var(--s3) var(--s4) var(--s1,4px);}
+  .sum-row{grid-template-columns:1fr;gap:4px;}
+  .sum-row dt{padding-top:0;}
+}
+
 /* A cluster card only looks like a control when it is one. */
 .risk-cell.off{opacity:.72;border-style:dashed;}
 .risk-cell.off .risk-num{color:var(--ink4);}
@@ -3412,6 +3441,21 @@ function renderAiDown(data){
     ' Narratives, entities, events, sentiment and the brief depend on it; the documents and '+
     'measured signals below are unaffected.</div></div>';
 }
+/* ── SUMMARY ────────────────────────────────────────────────────────────────
+   The written brief, set out as five labelled rows at the top of the report.
+   It is filled asynchronously by /api/brief through #briefBody (requestBrief →
+   applyBrief), so the block renders skeletons first. No evidence, no summary:
+   over an empty corpus there is nothing for it to summarise. */
+function renderSummary(data){
+  if(!((data.totals||{}).mentions)) return '';
+  return '<section class="sum" aria-label="Summary">'+
+    '<div class="sum-head"><span class="sum-eyebrow">Summary</span>'+
+      '<span class="sum-src" title="Written by the model from the collected posts and the measured coordination signal. The measured figures below take precedence.">AI-written</span></div>'+
+    '<div id="briefBody" class="report-body sum-body">'+
+      '<div class="skel w90"></div><div class="skel w75"></div><div class="skel w60"></div>'+
+    '</div>'+
+  '</section>';
+}
 function renderWindowNote(data){
   var w=data&&data.window;
   if(!w||!w.days)return'';
@@ -4831,6 +4875,11 @@ function renderReport(data){
 
   //
   html+=renderAiDown(data);
+  /* The summary goes above everything, on every tab: situation, dominant
+     narrative, key actors, coordination risk, assessment. It is the short
+     answer to "what am I reading this report for", so it is read before the
+     finding and the detail that supports it (Tej, 18 Nov 2026). */
+  html+=renderSummary(data);
   html+=renderFinding(data);
   html+=renderWindowNote(data);
   /* M10. Monitoring work asks "what is new since Tuesday", never "what is
@@ -4940,10 +4989,8 @@ function renderReport(data){
   // a campaign that had an effect. It belongs high for that reason.
   html+=renderEventsBlock(data);
 
-  // Brief placeholder (filled by /api/brief)
-  html+='<div class="report-section">'+
-    '<div id="briefBody" class="report-body"><div class="skel w90"></div><div class="skel w75"></div><div class="skel w60"></div></div>'+
-  '</div>';
+  // The written brief used to sit here, below threat, corpus and events. It is
+  // now the summary at the top of every tab — see renderSummary().
 
   // Stats inline. "Mentions" was the corpus card's headline number printed a
   // second time under a different word; source breadth is not stated anywhere
@@ -6335,7 +6382,7 @@ function requestBrief(data){
     .then(function(j){
       if(j.brief){
         briefState='ready';
-        briefHTML=briefMd(j.brief);
+        briefHTML=briefSummary(j.brief);
         applyBrief();
         // Show follow-up
         var fu=$('followUp');
@@ -6395,6 +6442,59 @@ function briefMd(src){
   });
   flush();
   return out.join('')||esc(String(src||''));
+}
+
+/* The brief read as the summary block: the five labelled fields, always in
+   the same order, one row each. The model is asked for "**LABEL**: text", but
+   "**LABEL:** text" and a bare "LABEL: text" are accepted too, and lines under
+   a label (a bulleted actor list, say) stay with that label. A field the model
+   left out is shown as missing rather than silently dropped. If fewer than
+   three fields can be found the brief is not in the expected shape, and it is
+   rendered as plain markdown instead of being forced into rows.
+
+   Escaping happens first, as in briefMd, so nothing the model writes can
+   introduce markup. */
+function briefSummary(src){
+  var FIELDS=[['SITUATION','Situation'],['DOMINANT NARRATIVE','Dominant narrative'],
+    ['KEY ACTORS','Key actors'],['COORDINATION RISK','Coordination risk'],['ASSESSMENT','Assessment']];
+  var known={};FIELDS.forEach(function(f){known[f[0]]=1;});
+  var got={},cur=null,found=0;
+  String(src||'').replace(/\r/g,'').split('\n').forEach(function(raw){
+    var line=raw.trim();
+    var bare=line.replace(/^#{1,4}\s+/,'').replace(/^[-*•]\s+(?=\*\*)/,'');
+    var m=bare.match(/^\*{0,2}\s*([A-Za-z][A-Za-z ]+?)\s*(?::\s*\*\*|\*\*\s*:|:)\s*(.*)$/);
+    var key=m?m[1].toUpperCase().replace(/\s+/g,' '):'';
+    if(m&&known[key]){
+      if(!got[key]){got[key]=[];found++;}
+      cur=key;
+      if(m[2])got[key].push(m[2]);
+      return;
+    }
+    if(cur&&line)got[cur].push(line);
+  });
+  if(found<3)return briefMd(src);
+  function inline(t){
+    return esc(t).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+                 .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>')
+                 .replace(/`([^`]+)`/g,'<code>$1</code>');
+  }
+  function field(lines){
+    var text=[],items=[];
+    lines.forEach(function(l){
+      var b=l.match(/^[-*•]\s+(.*)$/);
+      if(b)items.push(b[1]);else text.push(l);
+    });
+    return (text.length?inline(text.join(' ')):'')+
+      (items.length?'<ul>'+items.map(function(x){return'<li>'+inline(x)+'</li>';}).join('')+'</ul>':'');
+  }
+  return '<dl class="sum-grid">'+FIELDS.map(function(f){
+    var lines=got[f[0]];
+    var has=lines&&lines.length;
+    return '<div class="sum-row sum-'+f[0].toLowerCase().replace(/\s+/g,'-')+'">'+
+      '<dt>'+f[1]+'</dt>'+
+      '<dd'+(has?'':' class="sum-missing"')+'>'+(has?field(lines):'Not stated in this brief.')+'</dd>'+
+    '</div>';
+  }).join('')+'</dl>';
 }
 
 /* renderReport() replaces #report wholesale on every tab switch, so the brief is

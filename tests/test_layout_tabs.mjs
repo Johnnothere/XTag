@@ -31,7 +31,6 @@ const owned = {
   renderThreatBlock:      'narrative',
   renderRelevanceBlock:   'narrative',
   renderEventsBlock:      'narrative',
-  briefBody:              'narrative',
   renderCoordinationBlock:'entities',
   renderInauthBlock:      'entities',
   renderGeoBlock:         'entities',
@@ -52,6 +51,12 @@ chk('the shared prefix no longer carries the whole report',
     'a heavy block is still rendered on every tab');
 chk('the shared prefix keeps the answer',
     shared.includes('renderFinding(data)') && shared.includes('renderLimits(data)'));
+// The written brief is the summary block at the top of every tab (18 Nov 2026).
+chk('the summary renders on every tab, ahead of the finding',
+    shared.includes('html+=renderSummary(data);') &&
+    shared.indexOf('html+=renderSummary(data);') < shared.indexOf('html+=renderFinding(data);'));
+chk('the brief is not also drawn inside a tab',
+    ![narrative, entBranch, tlBranch].some(src => src.includes('briefBody')));
 chk('the collection gap is shown on every tab, not one in three',
     shared.includes('renderLangGap(data)'));
 chk('the language distribution is not repeated outside Entities',
